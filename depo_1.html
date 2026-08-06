@@ -1,0 +1,2678 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Depo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#F6F2E9;
+    --surface:#FFFFFF;
+    --ink:#232C2A;
+    --muted:#71776F;
+    --line:#E3DCC9;
+    --accent:#A85C2B;
+    --accent-ink:#5A3016;
+    --good:#3D7A54;
+    --good-bg:#E4F1E6;
+    --warn:#B98A1E;
+    --warn-bg:#FBF0D6;
+    --danger:#B5402F;
+    --danger-bg:#FBE7E1;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;}
+  .app{max-width:1180px;margin:0 auto;padding:28px 20px 80px;}
+
+  .banner{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:22px;}
+  .banner h1{font-family:'Fraunces',serif;font-weight:600;font-size:30px;margin:0;letter-spacing:-0.01em;}
+  .banner .sub{color:var(--muted);font-size:13px;margin-top:4px;}
+  .nav-link{font-size:12px;color:var(--accent-ink);text-decoration:none;font-weight:600;}
+  .nav-link:hover{text-decoration:underline;}
+  .brand-row{display:flex;align-items:center;gap:14px;}
+  .brand-logo-wrap{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .logo-click{position:relative;display:inline-block;cursor:pointer;}
+  .brand-logo{height:48px;max-width:150px;object-fit:contain;display:block;}
+  .brand-logo-placeholder{width:76px;height:48px;border:1.5px dashed var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10.5px;text-align:center;}
+  .logo-edit-badge{position:absolute;bottom:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:9.5px;border:2px solid var(--bg);pointer-events:none;}
+
+  .btn{border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:3px;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;transition:all .15s;}
+  .btn:hover{background:var(--ink);color:#fff;}
+  .btn:active{transform:scale(0.96);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);}
+  .btn.ghost{border-color:var(--line);}
+  .btn.small{padding:5px 10px;font-size:12px;}
+  .btn.danger-outline{border-color:var(--danger);color:var(--danger);}
+  .btn.danger-outline:hover{background:var(--danger);color:#fff;}
+  .btn:disabled{opacity:.4;pointer-events:none;}
+
+  .toolbar{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;}
+  .toolbar select, .toolbar input[type=text]{border:1.5px solid var(--line);background:var(--surface);padding:8px 10px;border-radius:3px;font-family:inherit;font-size:13px;color:var(--ink);}
+  .toolbar input[type=text]{min-width:220px;}
+  .toolbar .count{margin-left:auto;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;}
+
+  .empty{padding:50px 20px;text-align:center;color:var(--muted);}
+  .empty h3{font-family:'Fraunces',serif;color:var(--ink);margin-bottom:6px;}
+
+  .overlay{position:fixed;inset:0;background:rgba(35,44,42,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;z-index:50;}
+  .modal{background:var(--surface);border-radius:6px;max-width:560px;width:100%;padding:26px 28px 28px;border:1px solid var(--line);}
+  .modal h2{font-family:'Fraunces',serif;font-size:22px;margin:0 0 18px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.03em;}
+  .field input, .field select, .field textarea{width:100%;border:1.5px solid var(--line);border-radius:3px;padding:9px 10px;font-family:inherit;font-size:13.5px;color:var(--ink);background:var(--bg);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
+  .field-msg{font-size:11px;margin-top:4px;color:var(--muted);}
+  .field-msg.error{color:var(--danger);}
+  .auth-wrap{min-height:70vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .auth-card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:32px 30px;max-width:380px;width:100%;box-shadow:0 4px 24px rgba(35,44,42,.06);}
+  .user-badge{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;}
+  .user-badge .role-chip{background:#EEEBE2;padding:1px 7px;border-radius:8px;font-weight:700;font-size:10px;text-transform:uppercase;}
+
+  @keyframes slideIn{from{transform:translateX(20px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+  .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--ink);color:#fff;padding:14px 22px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:100;max-width:80vw;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.25);}
+  .toast.show{opacity:1;}
+  .loading{padding:60px;text-align:center;color:var(--muted);}
+
+  /* Product grid */
+  .product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;}
+  .product-card{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
+  .product-card:hover{box-shadow:0 3px 14px rgba(35,44,42,.10);}
+  .product-card .pc-img{width:100%;height:150px;object-fit:contain;background:#fff;border-bottom:1px solid var(--line);display:block;}
+  .product-card .pc-img-placeholder{width:100%;height:150px;background:#F1ECDD;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;border-bottom:1px solid var(--line);}
+  .pc-body{padding:11px 13px;}
+  .pc-ref{font-family:'Fraunces',serif;font-size:17px;}
+  .pc-name{color:var(--muted);font-size:12px;margin-top:1px;}
+  .pc-colors{display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;}
+  .pc-color-chip{font-size:10px;background:#F1ECDD;color:var(--ink);padding:2px 7px;border-radius:9px;font-weight:600;white-space:nowrap;}
+  .pc-color-chip.low{background:var(--danger-bg);color:var(--danger);}
+  .pc-price{font-family:'Fraunces',serif;font-size:16px;margin-top:8px;color:var(--accent-ink);}
+  .pc-price-edit{margin-top:9px;}
+  .pc-price-edit label{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:3px;font-weight:700;}
+  .pc-price-edit input{width:100%;border:1.5px solid var(--line);border-radius:3px;padding:7px 9px;font-family:'Fraunces',serif;font-size:15px;color:var(--accent-ink);background:var(--bg);}
+  .pc-color-chip.active{background:var(--accent);color:#fff;}
+  .pc-meta{font-size:11px;color:var(--muted);margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;}
+  .pc-stock-badge{background:#EEEBE2;padding:1px 7px;border-radius:9px;font-weight:600;}
+  .pc-stock-badge.low{background:var(--danger-bg);color:var(--danger);}
+
+  /* Product detail */
+  .product-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;}
+  .product-head h2{font-family:'Fraunces',serif;margin:0;font-size:24px;}
+  .product-head .ph-meta{color:var(--muted);font-size:13px;margin-top:4px;}
+
+  .variant-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:14px;}
+  .variant-card{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+  .variant-card img{width:100%;height:170px;object-fit:contain;background:#fff;border-bottom:1px solid var(--line);display:block;}
+  .variant-card .vc-img-placeholder{width:100%;height:170px;background:#F1ECDD;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;border-bottom:1px solid var(--line);}
+  .vc-body{padding:12px 14px;}
+  .vc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .vc-color{font-weight:700;font-size:14px;}
+  .vc-price-wrap{display:flex;align-items:center;gap:4px;font-size:12.5px;}
+  .vc-price-wrap input{width:64px;border:1.5px solid var(--line);border-radius:3px;padding:3px 5px;font-family:inherit;font-size:12.5px;background:var(--bg);}
+  .vc-actions{display:flex;gap:5px;margin-top:8px;}
+
+  .size-picker{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 6px;}
+  .size-chip{padding:4px 9px;border:1.5px solid var(--line);border-radius:14px;font-size:11px;cursor:pointer;background:var(--surface);}
+  .size-chip:hover{border-color:var(--accent);}
+  .size-chip.added{opacity:.3;pointer-events:none;}
+
+  .sku-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:5px 0;border-top:1px dashed var(--line);gap:6px;}
+  .sku-row:first-of-type{border-top:none;}
+  .sku-row .sku-label{flex:1;}
+  .sku-row .barcode{font-variant-numeric:tabular-nums;color:var(--muted);font-size:11px;}
+  .sku-row input.stock-input{width:52px;padding:3px 5px;border:1px solid var(--line);border-radius:3px;font-size:12px;text-align:center;}
+  .sku-del{background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;padding:2px 4px;}
+
+  .upload-drop{border:1.5px dashed var(--line);border-radius:5px;padding:18px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer;background:var(--bg);}
+  .upload-drop:hover{border-color:var(--accent);}
+  .upload-preview{width:100%;max-height:180px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;margin-top:8px;}
+
+  .modal.wide{max-width:520px;}
+  .bulk-help{font-size:12px;color:var(--muted);background:#FBF9F3;border:1px solid var(--line);border-radius:4px;padding:10px 12px;margin-bottom:12px;line-height:1.5;}
+  .bulk-help code{background:#EEEBE2;padding:1px 5px;border-radius:3px;font-size:11.5px;}
+  #depo-bulk-textarea{width:100%;min-height:140px;border:1.5px solid var(--line);border-radius:3px;padding:10px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--bg);}
+  .bulk-result{margin-top:10px;font-size:13px;padding:8px 10px;border-radius:4px;}
+  .bulk-result.ok{background:var(--good-bg);color:var(--good);}
+  .bulk-result.error{background:var(--danger-bg);color:var(--danger);}
+  .log-item{border-bottom:1px solid var(--line);padding:10px 0;}
+  .log-item:last-child{border-bottom:none;}
+  .log-item .meta{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;font-variant-numeric:tabular-nums;}
+  .log-item .note{margin-top:4px;font-size:13.5px;}
+  .log-empty{color:var(--muted);font-size:13px;padding:10px 0;}
+  .chip{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .chip.wa{background:#E4F8EC;color:#1D9A4E;}
+  .chip.other{background:#EEEBE2;color:var(--muted);}
+  .depo-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px;max-height:72vh;overflow-y:auto;}
+  .depo-table{border-collapse:collapse;width:100%;min-width:640px;background:var(--surface);}
+  .depo-table thead th{
+    position:sticky;top:0;z-index:2;background:#F1ECDD;color:var(--muted);
+    font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:600;
+    text-align:left;padding:10px 12px;border-bottom:2px solid var(--ink);white-space:nowrap;
+  }
+  .depo-table tbody td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  .depo-table tbody tr:hover{background:#FBF9F3;}
+  .depo-table tbody tr:last-child td{border-bottom:none;}
+  .depo-td-muted{color:var(--muted);font-variant-numeric:tabular-nums;}
+  .depo-qty-cell{display:flex;align-items:center;gap:8px;}
+  .depo-qty-btn{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);font-weight:700;font-size:14px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;}
+  .depo-qty-btn.in{color:var(--good);border-color:var(--good);}
+  .depo-qty-btn.in:hover{background:var(--good);color:#fff;}
+  .depo-qty-btn.out{color:var(--danger);border-color:var(--danger);}
+  .depo-qty-btn.out:hover{background:var(--danger);color:#fff;}
+  .depo-price-input{width:78px;border:1.5px solid var(--line);border-radius:3px;padding:5px 7px;font-size:12.5px;background:var(--bg);}
+  .fx-banner{background:#FBF0D6;border:1.5px solid var(--warn);color:var(--accent-ink);border-radius:5px;padding:9px 14px;margin-bottom:14px;font-size:13px;}
+  .pdf-scope{display:flex;gap:8px;margin-bottom:12px;}
+  .pdf-scope label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;text-transform:none;color:var(--ink);}
+</style>
+</head>
+<body>
+<div id="root" class="app"><div class="loading">Yükleniyor…</div></div>
+<div id="toast" class="toast"></div>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<script>
+'use strict';
+
+// ---------- constants ----------
+const API_URL = 'https://script.google.com/macros/s/AKfycbxWMQn9FmNZXcmv6se-ZrlO7zfjNFyLf-gUzfRMGCV8Y25lT7DVPkRgnRTlcMVtPa02cw/exec';
+async function fetchWithTimeout(url, options, timeoutMs){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), timeoutMs || 90000);
+  try{
+    return await fetch(url, {...(options||{}), signal: controller.signal});
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const SIZES = [
+  {code:'0', label:'Size 0 (0-3 Ay)', short:'Size 0', eng:'Size 0 (0-3M)', eu:15},
+  {code:'1', label:'Size 1 (3-6 Ay)', short:'Size 1', eng:'Size 1 (3-6M)', eu:16},
+  {code:'2', label:'Size 2 (6-9 Ay)', short:'Size 2', eng:'Size 2 (6-9M)', eu:17},
+  {code:'3', label:'Size 3 (9-12 Ay)', short:'Size 3', eng:'Size 3 (9-12M)', eu:18}
+];
+const MAX_COLORS_PER_MODEL = 9;
+const MAX_SIZES_PER_COLOR = 9;
+const LOW_STOCK_THRESHOLD = 5;
+
+// ---------- helpers ----------
+function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+function attrEsc(s){ return esc(s).replace(/`/g,'&#96;'); }
+function parseBulkLine(line){
+  // Auto-detect delimiter: tab, then semicolon (common in Turkish-locale Excel CSV exports), then comma.
+  let parts;
+  if(line.includes('\t')) parts = line.split('\t');
+  else if(line.includes(';')) parts = line.split(';');
+  else parts = line.split(',');
+  return parts.map(p=>p.trim());
+}
+function formatMoney(n){ return (Number(n)||0).toLocaleString('tr-TR', {maximumFractionDigits:2}); }
+function csvField(v){ const s = String(v==null?'':v); if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"'; return s; }
+function downloadBlob(filename, mime, content){
+  const blob = new Blob([content], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+let toastTimer = null;
+function showToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 2400);
+}
+
+// ---------- EAN-13 barcode ----------
+function padRef(refNo){ return String(refNo).replace(/[^0-9]/g,'').padStart(6,'0').slice(-6); }
+function ean13CheckDigit(base12){
+  let sum = 0;
+  for(let i=0;i<12;i++){
+    const d = parseInt(base12[i],10);
+    sum += (i%2===0) ? d*1 : d*3;
+  }
+  return String((10 - (sum % 10)) % 10);
+}
+function computeBarcode(refNo, colorOrder, sizeOrder){
+  const base12 = '1288' + padRef(refNo) + String(colorOrder) + String(sizeOrder);
+  return base12 + ean13CheckDigit(base12);
+}
+
+// ---------- backend (shared with Müşteri Merkezi) ----------
+async function loadAll(){
+  const authParams = session ? ('?authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash)) : '';
+  const res = await fetch(API_URL + authParams);
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+async function saveKey(key, value){
+  try{
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
+    });
+    const data = await res.json();
+    if(!data || !data.ok){ showToast('Kaydetme hatası — tekrar deneyin'); return false; }
+    return true;
+  }catch(e){
+    showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    return false;
+  }
+}
+
+// ---------- authentication ----------
+const AUTH_STORAGE_KEY = 'fs_auth_session_v1';
+let session = null;
+const authState = { screen: 'loading', error: '', loggingIn: false, publicLogo: null };
+const LOGO_CACHE_KEY = 'fs_logo_cache_v1';
+function loadCachedLogo(){
+  try{ return localStorage.getItem(LOGO_CACHE_KEY) || null; }catch(e){ return null; }
+}
+function saveCachedLogo(dataUrl){
+  try{ if(dataUrl) localStorage.setItem(LOGO_CACHE_KEY, dataUrl); }catch(e){ /* storage full/unavailable — ignore, cosmetic only */ }
+}
+async function fetchPublicLogo(){
+  try{
+    const res = await fetch(API_URL + '?action=publicLogo');
+    const data = await res.json();
+    if(data && data.logo){
+      authState.publicLogo = data.logo;
+      saveCachedLogo(data.logo);
+      if(authState.screen !== 'app') renderAuthScreen();
+    }
+  }catch(e){ /* logo is cosmetic — ignore failures */ }
+}
+
+async function hashPassword(pw){
+  const enc = new TextEncoder().encode(pw);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function loadSessionFromStorage(){
+  try{ const raw = localStorage.getItem(AUTH_STORAGE_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+function saveSessionToStorage(s){ try{ localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(s)); }catch(e){} }
+function clearSessionStorage(){ try{ localStorage.removeItem(AUTH_STORAGE_KEY); }catch(e){} }
+async function checkBootstrapStatus(){
+  try{
+    const res = await fetch(API_URL + '?action=bootstrapStatus');
+    const data = await res.json();
+    return !!data.hasUsers;
+  }catch(e){ return true; }
+}
+async function verifySession(s){
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'login', username:s.username, passwordHash:s.passwordHash})
+    });
+    const data = await res.json();
+    return data && data.ok ? data.user : null;
+  }catch(e){ return null; }
+}
+async function boot(){
+  authState.publicLogo = loadCachedLogo();
+  renderAuthScreen();
+  fetchPublicLogo();
+  const stored = loadSessionFromStorage();
+  if(stored){
+    // Load immediately using the stored session — don't block on a network round-trip first.
+    session = { username: stored.username, passwordHash: stored.passwordHash, displayName: stored.displayName||stored.username, role: stored.role||'staff', id: stored.id };
+    authState.screen = 'app';
+    init();
+    // Verify in the background; only kick back to login if it's actually invalid.
+    verifySession(stored).then(user=>{
+      if(user){
+        session = { username: user.username, passwordHash: stored.passwordHash, displayName: user.displayName, role: user.role, id: user.id };
+      } else {
+        clearSessionStorage();
+        session = null;
+        authState.screen = 'login';
+        renderAuthScreen();
+      }
+    });
+    return;
+  }
+  const hasUsers = await checkBootstrapStatus();
+  authState.screen = hasUsers ? 'login' : 'bootstrap';
+  renderAuthScreen();
+}
+async function submitBootstrap(){
+  if(authState.loggingIn) return;
+  const username = document.getElementById('bs-username').value.trim();
+  const password = document.getElementById('bs-password').value;
+  const displayName = document.getElementById('bs-displayname').value.trim();
+  if(!username || password.length < 4){ authState.error = 'Kullanıcı adı girin, şifre en az 4 karakter olmalı'; renderAuthScreen(); return; }
+  authState.error = '';
+  authState.loggingIn = true;
+  renderAuthScreen();
+  const passwordHash = await hashPassword(password);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bootstrap', username, passwordHash, displayName})
+    });
+    const data = await res.json();
+    authState.loggingIn = false;
+    if(data && data.ok){
+      session = { username: data.user.username, passwordHash, displayName: data.user.displayName, role: data.user.role, id: data.user.id };
+      saveSessionToStorage(session);
+      authState.screen = 'app';
+      init();
+    } else {
+      authState.error = 'Kurulum başarısız — sayfayı yenileyip tekrar deneyin';
+      renderAuthScreen();
+    }
+  }catch(e){
+    authState.loggingIn = false;
+    authState.error = 'Sunucuya bağlanılamadı';
+    renderAuthScreen();
+  }
+}
+async function submitLogin(){
+  if(authState.loggingIn) return;
+  const username = document.getElementById('lg-username').value.trim();
+  const password = document.getElementById('lg-password').value;
+  if(!username || !password){ authState.error = 'Kullanıcı adı ve şifre girin'; renderAuthScreen(); return; }
+  authState.error = '';
+  authState.loggingIn = true;
+  renderAuthScreen();
+  const passwordHash = await hashPassword(password);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'login', username, passwordHash})
+    });
+    const data = await res.json();
+    authState.loggingIn = false;
+    if(data && data.ok){
+      session = { username: data.user.username, passwordHash, displayName: data.user.displayName, role: data.user.role, id: data.user.id };
+      saveSessionToStorage(session);
+      authState.screen = 'app';
+      init();
+    } else {
+      authState.error = 'Kullanıcı adı veya şifre hatalı';
+      renderAuthScreen();
+    }
+  }catch(e){
+    authState.loggingIn = false;
+    authState.error = 'Sunucuya bağlanılamadı';
+    renderAuthScreen();
+  }
+}
+function logout(){
+  clearSessionStorage();
+  session = null;
+  location.reload();
+}
+function renderAuthScreen(){
+  const root = document.getElementById('root');
+  if(authState.screen === 'loading'){
+    root.innerHTML = '<div class="loading">Yükleniyor…</div>';
+    return;
+  }
+  const logoHtml = authState.publicLogo ? `<img src="${authState.publicLogo}" alt="Marka logosu" style="max-height:52px;max-width:220px;object-fit:contain;display:block;margin:0 auto 18px" />` : '';
+  if(authState.screen === 'bootstrap'){
+    root.innerHTML = `<div class="auth-wrap">
+      <div class="auth-card">
+        ${logoHtml}
+        <h2 style="font-family:'Fraunces',serif;margin:0 0 4px">İlk Kurulum</h2>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 18px">Bu sistem için henüz kullanıcı yok. İlk yönetici hesabını oluşturun.</p>
+        <form onsubmit="event.preventDefault(); submitBootstrap(); return false;">
+          <div class="field"><label>Kullanıcı Adı</label><input id="bs-username" type="text" placeholder="Örn. admin" ${authState.loggingIn?'disabled':''} /></div>
+          <div class="field"><label>Ad Soyad</label><input id="bs-displayname" type="text" placeholder="Görünecek isim" ${authState.loggingIn?'disabled':''} /></div>
+          <div class="field"><label>Şifre</label><input id="bs-password" type="password" placeholder="En az 4 karakter" ${authState.loggingIn?'disabled':''} /></div>
+          ${authState.error ? `<div class="field-msg error">${esc(authState.error)}</div>` : ''}
+          ${authState.loggingIn ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Hesap oluşturuluyor…</div>` : ''}
+          <button type="submit" class="btn primary" style="width:100%;margin-top:8px" ${authState.loggingIn?'disabled':''}>Yönetici Hesabı Oluştur</button>
+        </form>
+      </div>
+    </div>`;
+    return;
+  }
+  if(authState.screen === 'login'){
+    root.innerHTML = `<div class="auth-wrap">
+      <div class="auth-card">
+        ${logoHtml}
+        <h2 style="font-family:'Fraunces',serif;margin:0 0 4px">Giriş Yap</h2>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 18px">Müşteri Merkezi &amp; Sipariş</p>
+        <form onsubmit="event.preventDefault(); submitLogin(); return false;">
+          <div class="field"><label>Kullanıcı Adı</label><input id="lg-username" type="text" ${authState.loggingIn?'disabled':''} /></div>
+          <div class="field"><label>Şifre</label><input id="lg-password" type="password" ${authState.loggingIn?'disabled':''} /></div>
+          ${authState.error ? `<div class="field-msg error">${esc(authState.error)}</div>` : ''}
+          ${authState.loggingIn ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Giriş yapılıyor…</div>` : ''}
+          <button type="submit" class="btn primary" style="width:100%;margin-top:8px" ${authState.loggingIn?'disabled':''}>Giriş Yap</button>
+        </form>
+      </div>
+    </div>`;
+  }
+}
+
+// ---------- user management (admin only) ----------
+let usersList = [];
+async function openUsersModal(){
+  state.modalMode = 'users';
+  render();
+  try{
+    const res = await fetch(API_URL + '?action=listUsers&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash));
+    const data = await res.json();
+    usersList = (data && data.ok) ? data.users : [];
+  }catch(e){ usersList = []; }
+  render();
+}
+async function submitAddUser(){
+  const username = document.getElementById('au-username').value.trim();
+  const displayName = document.getElementById('au-displayname').value.trim();
+  const password = document.getElementById('au-password').value;
+  const role = document.getElementById('au-role').value;
+  if(!username || password.length < 4){ showToast('Kullanıcı adı girin, şifre en az 4 karakter olmalı'); return; }
+  const passwordHash = await hashPassword(password);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'addUser', auth:{username:session.username, passwordHash:session.passwordHash}, newUser:{username, displayName, passwordHash, role}})
+    });
+    const data = await res.json();
+    if(data && data.ok){
+      showToast('Kullanıcı eklendi');
+      document.getElementById('au-username').value=''; document.getElementById('au-displayname').value=''; document.getElementById('au-password').value='';
+      openUsersModal();
+    } else {
+      showToast(data && data.error==='username_taken' ? 'Bu kullanıcı adı zaten kullanılıyor' : 'Kullanıcı eklenemedi');
+    }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+}
+async function deleteUserConfirm(userId, username){
+  if(!confirm('"' + username + '" kullanıcısını silmek istediğinize emin misiniz?')) return;
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'deleteUser', auth:{username:session.username, passwordHash:session.passwordHash}, targetUserId:userId})
+    });
+    const data = await res.json();
+    if(data && data.ok){ showToast('Kullanıcı silindi'); openUsersModal(); }
+    else { showToast(data && data.error==='cannot_delete_last_user' ? 'Son kullanıcı silinemez' : 'Silinemedi'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+}
+function renderUsersModal(){
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal wide">
+      <h2>Kullanıcılar</h2>
+      <div style="margin-bottom:18px">
+        ${usersList.length===0 ? '<div class="log-empty">Yükleniyor…</div>' : usersList.map(u=>`
+          <div class="log-item" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <b>${esc(u.displayName)}</b> <span style="color:var(--muted)">(@${esc(u.username)})</span>
+              <span class="role-chip" style="margin-left:6px">${u.role==='admin'?'Yönetici':(u.role==='depocu'?'Depocu':'Personel')}</span>
+            </div>
+            ${u.username!==session.username ? `<button class="btn small danger-outline" onclick="deleteUserConfirm('${u.id}','${attrEsc(u.username)}')">Sil</button>` : `<span style="font-size:11px;color:var(--muted)">Siz</span>`}
+          </div>`).join('')}
+      </div>
+      <h2 style="font-size:16px">Yeni Kullanıcı Ekle</h2>
+      <div class="row2">
+        <div class="field"><label>Kullanıcı Adı</label><input id="au-username" type="text" /></div>
+        <div class="field"><label>Ad Soyad</label><input id="au-displayname" type="text" /></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Şifre</label><input id="au-password" type="password" placeholder="En az 4 karakter" /></div>
+        <div class="field"><label>Yetki</label>
+          <select id="au-role">
+            <option value="staff">Personel</option>
+            <option value="depocu">Depocu (sadece stok, fiyat göremez)</option>
+            <option value="admin">Yönetici</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Kapat</button>
+        <button class="btn primary" onclick="submitAddUser()">Kullanıcı Ekle</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------- client-side image processing (crop + whiten background) ----------
+function sampleBackgroundColor(data, w, h){
+  const pts = [
+    [1,1],[w-2,1],[1,h-2],[w-2,h-2],
+    [Math.floor(w/2),1],[1,Math.floor(h/2)],[w-2,Math.floor(h/2)],[Math.floor(w/2),h-2]
+  ];
+  let r=0,g=0,b=0,n=0;
+  pts.forEach(([x,y])=>{
+    if(x<0||y<0||x>=w||y>=h) return;
+    const idx=(y*w+x)*4;
+    r+=data[idx]; g+=data[idx+1]; b+=data[idx+2]; n++;
+  });
+  return n ? [r/n, g/n, b/n] : [255,255,255];
+}
+function colorDist(r,g,b,cr,cg,cb){
+  const dr=r-cr, dg=g-cg, db=b-cb;
+  return Math.sqrt(dr*dr + dg*dg + db*db);
+}
+function processImageFile(file, maxWidth, quality){
+  maxWidth = maxWidth || 620; quality = quality || 0.8;
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = function(e){
+      const img = new Image();
+      img.onload = function(){
+        const analyzeScale = Math.min(1, 1000 / img.width);
+        const w0 = Math.max(1, Math.round(img.width * analyzeScale));
+        const h0 = Math.max(1, Math.round(img.height * analyzeScale));
+        const c0 = document.createElement('canvas');
+        c0.width = w0; c0.height = h0;
+        const ctx0 = c0.getContext('2d');
+        ctx0.drawImage(img, 0, 0, w0, h0);
+        let data;
+        try{ data = ctx0.getImageData(0,0,w0,h0).data; }
+        catch(err){ resolve(e.target.result); return; }
+
+        const [bgR, bgG, bgB] = sampleBackgroundColor(data, w0, h0);
+        const BBOX_DIST = 32;   // how different a pixel must be from bg to count as "product"
+        const WHITEN_DIST = 26; // how close to bg color to flatten to pure white
+
+        let minX=w0, minY=h0, maxX=0, maxY=0, found=false;
+        for(let y=0;y<h0;y++){
+          for(let x=0;x<w0;x++){
+            const idx=(y*w0+x)*4;
+            const r=data[idx], g=data[idx+1], b=data[idx+2], a=data[idx+3];
+            if(a>10 && colorDist(r,g,b,bgR,bgG,bgB) > BBOX_DIST){
+              found = true;
+              if(x<minX)minX=x; if(x>maxX)maxX=x;
+              if(y<minY)minY=y; if(y>maxY)maxY=y;
+            }
+          }
+        }
+        if(!found){ minX=0; minY=0; maxX=w0-1; maxY=h0-1; }
+        const pad = Math.round(Math.min(w0,h0) * 0.05);
+        minX = Math.max(0, minX-pad); minY = Math.max(0, minY-pad);
+        maxX = Math.min(w0-1, maxX+pad); maxY = Math.min(h0-1, maxY+pad);
+        const cw = maxX-minX+1, ch = maxY-minY+1;
+
+        const outScale = Math.min(1, maxWidth / cw);
+        const ow = Math.max(1, Math.round(cw*outScale)), oh = Math.max(1, Math.round(ch*outScale));
+        const c1 = document.createElement('canvas');
+        c1.width = ow; c1.height = oh;
+        const ctx1 = c1.getContext('2d');
+        ctx1.fillStyle = '#ffffff';
+        ctx1.fillRect(0,0,ow,oh);
+        ctx1.drawImage(c0, minX, minY, cw, ch, 0, 0, ow, oh);
+
+        try{
+          const id = ctx1.getImageData(0,0,ow,oh);
+          const d = id.data;
+          for(let i=0;i<d.length;i+=4){
+            if(colorDist(d[i],d[i+1],d[i+2], bgR,bgG,bgB) <= WHITEN_DIST){
+              d[i]=255; d[i+1]=255; d[i+2]=255;
+            }
+          }
+          ctx1.putImageData(id,0,0);
+        }catch(err){ /* keep as-is if pixel access fails */ }
+
+        resolve(c1.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = function(){ reject(new Error('image load failed')); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('file read failed')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- state ----------
+const state = {
+  loaded: false,
+  products: [],
+  variants: [],
+  skus: [],
+  warehouseItems: [],
+  depoSearch: '',
+  modalMode: null,       // null | 'users' | 'depoMove' | 'depoBulk' | 'bulkImage' | 'newDepoItem' | 'depoScan'
+  depoMoveTarget: null,   // {barcode, refNo, colorName, sizeLabel, type:'in'|'out'}
+  scan: { mode:'out', stage:'scan', barcode:'', item:null, sessionLog:[] },
+  depoBulkRunning: false,
+  depoBulkFile: null,
+  depoBulkError: null,
+  depoBulkSkippedLines: [],
+  depoBulkResultText: null,
+  newDepoItemSaving: false,
+  newDepoItemSuccess: null,
+  pendingPackingOrders: [],
+  packingOrderId: null,      // which order is currently open for packing verification
+  packingProgress: {},       // barcode -> confirmed qty, for the order currently open
+  packingRunning: false,
+  packScanError: null,
+  newOrderPopup: null,
+  returnToPackOrderId: null,
+  repairingReservations: false,
+  depoBulkResultIsError: false,
+  stockPriceUpdateFile: null,
+  stockPriceUpdateError: null,
+  stockPriceUpdateRunning: false,
+  stockPriceUpdateSkippedLines: [],
+  stockPriceUpdateResultText: null,
+  stockPriceUpdateResultIsError: false,
+  bulkImageRows: [],
+  bulkImageRunning: false,
+  bulkImageProgress: '',
+  depoSelected: new Set(),
+  depoDeleteRunning: false,
+  depoSortBy: 'ref-asc',
+  depoPage: 1,
+  logo: null,
+  fxRate: null,           // cached USD->TRY rate
+  fxRateLoading: false,
+  fxRateSource: null,
+  fxRateDate: null,
+};
+
+async function init(){
+  try{
+    const all = await loadAll();
+    state.products = all['catalogProducts'] || [];
+    state.skus = all['catalogSkus'] || [];
+    state.logo = all['logo'] || null;
+    state.warehouseItems = [];
+    state.variants = [];
+    Object.keys(all).forEach(k=>{
+      if(k.indexOf('catalogVariant:') === 0 && all[k]){
+        state.variants.push(all[k]);
+      } else if(k.indexOf('warehouseItem:') === 0 && all[k]){
+        state.warehouseItems.push(all[k]);
+      }
+    });
+    state.pendingPackingOrders = await fetchPendingPackingOrders();
+  }catch(e){
+    showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
+  }
+  state.loaded = true;
+  render();
+  startAutoRefresh();
+}
+async function fetchPendingPackingOrders(){
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=listPendingPacking' + authParams);
+    const data = await res.json();
+    return (data && data.ok) ? data.orders : [];
+  }catch(e){ return []; }
+}
+let autoRefreshTimer = null;
+function startAutoRefresh(){
+  if(autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(silentAutoRefresh, 45000); // every 45s
+}
+async function silentAutoRefresh(){
+  // Never interrupt active work: skip while a modal is open, a background op is running, or the tab isn't visible.
+  if(document.hidden) return;
+  if(state.modalMode) return;
+  if(state.depoBulkRunning || state.packingRunning || state.newDepoItemSaving) return;
+  if(!state.loaded) return;
+
+  const prevPendingIds = new Set((state.pendingPackingOrders||[]).map(o=>o.id));
+  try{
+    const all = await loadAll();
+    const newWarehouseItems = [];
+    const newVariants = [];
+    Object.keys(all).forEach(k=>{
+      if(k.indexOf('catalogVariant:') === 0 && all[k]) newVariants.push(all[k]);
+      else if(k.indexOf('warehouseItem:') === 0 && all[k]) newWarehouseItems.push(all[k]);
+    });
+    state.products = all['catalogProducts'] || state.products;
+    state.skus = all['catalogSkus'] || state.skus;
+    state.warehouseItems = newWarehouseItems;
+    state.variants = newVariants;
+
+    const newPending = await fetchPendingPackingOrders();
+    const newlyAppeared = newPending.filter(o=>!prevPendingIds.has(o.id));
+    state.pendingPackingOrders = newPending;
+
+    if(newlyAppeared.length>0){
+      state.newOrderPopup = { count: newlyAppeared.length, orderNos: newlyAppeared.map(o=>o.orderNo) };
+      playAlertSound();
+    }
+    render();
+  }catch(e){ /* silent — a failed background refresh isn't worth interrupting the user for */ }
+}
+function dismissNewOrderPopup(){ state.newOrderPopup = null; render(); }
+function renderNewOrderPopup(){
+  const p = state.newOrderPopup;
+  const plural = p.count>1;
+  return `<div style="position:fixed;top:20px;right:20px;z-index:200;max-width:340px;background:var(--surface);border:1.5px solid var(--accent-ink);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:16px 18px;animation:slideIn .25s ease-out">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px">🔔 ${plural?`${p.count} Yeni Sipariş`:'Yeni Sipariş'} Onaylandı</div>
+        <div style="font-size:12.5px;color:var(--muted)">${plural?'Hazırlanmayı bekleyen siparişler:':'Hazırlanmayı bekliyor:'} ${p.orderNos.map(esc).join(', ')}</div>
+      </div>
+      <button onclick="dismissNewOrderPopup()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--muted);line-height:1;padding:0" title="Kapat">✕</button>
+    </div>
+    <button class="btn primary small" style="width:100%;margin-top:10px" onclick="dismissNewOrderPopup();openPendingOrdersModal();">Bekleyen Siparişleri Gör</button>
+  </div>`;
+}
+async function repairReservations(){
+  if(!confirm('Tüm ürünlerin rezerve miktarları, şu anda onaylı (Hazırlanıyor) siparişlere göre yeniden hesaplanacak. Devam edilsin mi?')) return;
+  state.repairingReservations = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'repairReservations', auth:{username:session.username, passwordHash:session.passwordHash}})
+    }, 30000);
+    const data = await res.json();
+    if(data && data.ok){
+      await init(); // reload silently — no intermediate "Güncelleniyor…" toast noise for this flow
+      state.repairingReservations = false;
+      render();
+      if(data.corrections.length===0){
+        showToast('Rezerveler zaten doğruydu, düzeltme gerekmedi');
+      } else {
+        const lines = data.corrections.map(c=>`• ${c.refNo} ${c.colorName} ${c.sizeLabel}: ${c.from} → ${c.to}`).join('\n');
+        alert(`${data.corrections.length} kayıtta rezerve miktarı düzeltildi:\n\n${lines}`);
+      }
+    } else {
+      state.repairingReservations = false;
+      render();
+      showToast('Kontrol edilemedi — tekrar deneyin');
+    }
+  }catch(e){
+    state.repairingReservations = false;
+    render();
+    showToast('Sunucuya bağlanılamadı');
+  }
+}
+async function refreshData(){
+  showToast('Güncelleniyor…');
+  await init();
+  showToast('Güncel veriler yüklendi');
+}
+
+function variantsFor(productId){ return state.variants.filter(v=>v.productId===productId).sort((a,b)=>a.colorOrder-b.colorOrder); }
+function skusFor(variantId){ return state.skus.filter(s=>s.variantId===variantId).sort((a,b)=>a.sizeOrder-b.sizeOrder); }
+function sizeNumberOnly(sizeLabel){
+  if(!sizeLabel) return '';
+  const m = String(sizeLabel).match(/(\d+)\s*$/);
+  return m ? m[1] : String(sizeLabel).trim();
+}
+function extractSizeNum(label){
+  const m = String(label||'').match(/(\d+(\.\d+)?)/);
+  return m ? parseFloat(m[1]) : null;
+}
+function naturalOrderLineSort(a, b){
+  if(a.refNo!==b.refNo) return String(a.refNo||'').localeCompare(String(b.refNo||''));
+  if(a.colorName!==b.colorName) return String(a.colorName||'').localeCompare(String(b.colorName||''));
+  const na = extractSizeNum(a.sizeLabel), nb = extractSizeNum(b.sizeLabel);
+  if(na!==null && nb!==null && na!==nb) return na-nb;
+  return String(a.sizeLabel||'').localeCompare(String(b.sizeLabel||''));
+}
+function detailRefLabel(refNo, colorName, sizeLabel){
+  const parts = [refNo, colorName, sizeNumberOnly(sizeLabel)].filter(p=>p!==undefined && p!==null && String(p).trim()!=='');
+  return parts.join(' ').toUpperCase();
+}
+function priceForBarcode(barcode, refNoFallback){
+  const sku = state.skus.find(s=>s.barcode===barcode);
+  if(sku){
+    const variant = state.variants.find(v=>v.id===sku.variantId);
+    if(variant){
+      const product = state.products.find(p=>p.id===variant.productId);
+      if(product) return Number(product.price)||0;
+    }
+  }
+  if(refNoFallback){
+    const product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNoFallback).trim().toUpperCase());
+    if(product) return Number(product.price)||0;
+  }
+  return null;
+}
+async function updateDepoPrice(barcode, refNoFallback, newPrice){
+  const price = Number(newPrice);
+  if(isNaN(price) || price < 0){ showToast('Geçerli bir fiyat girin'); render(); return; }
+  const sku = state.skus.find(s=>s.barcode===barcode);
+  let product = null;
+  if(sku){
+    const variant = state.variants.find(v=>v.id===sku.variantId);
+    if(variant) product = state.products.find(p=>p.id===variant.productId);
+  }
+  if(!product && refNoFallback){
+    product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNoFallback).trim().toUpperCase());
+  }
+  const oldPrice = product ? (Number(product.price)||0) : 0;
+  if(product && oldPrice > 0 && oldPrice !== price){
+    const ok = confirm(`Ref ${product.refNo} fiyatını $${formatMoney(oldPrice)}'den $${formatMoney(price)}'ye güncellemek istediğinize emin misiniz? Bu, tüm renk ve bedenleri etkileyecek.`);
+    if(!ok){ render(); return; }
+  }
+  if(!product){
+    if(!refNoFallback){ showToast('Bu kayıt için referans bilgisi eksik, fiyat girilemiyor'); return; }
+    product = {id:uid(), refNo:refNoFallback, name:'', price:0, createdAt:todayISO(), createdBy:session.displayName};
+    state.products.push(product);
+  }
+  product.price = price;
+  render();
+  const ok2 = await saveKey('catalogProducts', state.products);
+  if(ok2) showToast('Fiyat güncellendi — Ref ' + product.refNo + '\'in tüm renk ve bedenlerini etkiler');
+}
+async function fetchTcmbRate(){
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=tcmbRate' + authParams);
+    const data = await res.json();
+    if(data && data.ok && data.rate) return { rate: data.rate, date: data.date, source: 'TCMB' };
+  }catch(e){ /* fall through */ }
+  return null;
+}
+async function ensureFxRateLoaded(){
+  if(state.fxRate || state.fxRateLoading) return;
+  state.fxRateLoading = true;
+  let result = await fetchTcmbRate();
+  if(!result){
+    const marketRate = await fetchUsdTryRate();
+    if(marketRate) result = { rate: marketRate, date: null, source: 'Piyasa' };
+  }
+  state.fxRateLoading = false;
+  if(result){
+    state.fxRate = result.rate;
+    state.fxRateSource = result.source;
+    state.fxRateDate = result.date;
+    render();
+  }
+}
+function stockForBarcode(barcode, fallback){
+  const item = state.warehouseItems.find(w=>w.barcode===barcode);
+  return item ? (Number(item.stock)||0) : (Number(fallback)||0);
+}
+// ---------- mutations ----------
+// ---------- UI actions ----------
+// ---------- Depo (warehouse) ----------
+function setDepoSearch(v){ state.depoSearch = v; state.depoPage = 1; render(); }
+function clearDepoSearch(){ state.depoSearch = ''; state.depoPage = 1; render(); }
+function setDepoSortBy(v){ state.depoSortBy = v; state.depoPage = 1; render(); }
+function setDepoPage(p){ state.depoPage = p; render(); window.scrollTo(0,0); }
+function openDepoMoveModal(barcode, refNo, colorName, sizeLabel, type){
+  state.modalMode = 'depoMove';
+  state.depoMoveTarget = {barcode, refNo: refNo||'', colorName: colorName||'', sizeLabel: sizeLabel||'', type};
+  render();
+}
+function openDepoMoveModalFromPacking(barcode, refNo, colorName, sizeLabel){
+  state.returnToPackOrderId = state.packingOrderId;
+  openDepoMoveModal(barcode, refNo, colorName, sizeLabel, 'in');
+}
+
+// Shared helper — every stock movement (manual, bulk import, scan) goes through this.
+let pendingCriticalWrites = 0;
+function beginCriticalWrite(){ pendingCriticalWrites++; }
+function endCriticalWrite(){ pendingCriticalWrites = Math.max(0, pendingCriticalWrites-1); }
+window.addEventListener('beforeunload', function(e){
+  if(pendingCriticalWrites > 0){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
+async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel){
+  beginCriticalWrite();
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'addStockMovement', auth:{username:session.username, passwordHash:session.passwordHash},
+        movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName}})
+    });
+    const data = await res.json();
+    if(data && data.ok){
+      let item = state.warehouseItems.find(w=>w.barcode===barcode);
+      if(!item){ item = {barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', stock:0}; state.warehouseItems.push(item); }
+      item.stock = data.stock;
+      return {ok:true, stock:data.stock, item};
+    }
+    return {ok:false};
+  }catch(e){ return {ok:false, networkError:true}; }
+  finally{ endCriticalWrite(); }
+}
+
+async function submitDepoMove(){
+  const t = state.depoMoveTarget;
+  const qty = parseInt(document.getElementById('dm-qty').value, 10);
+  const note = document.getElementById('dm-note').value.trim();
+  if(!qty || qty <= 0){ showToast('Geçerli bir miktar girin'); return; }
+  const r = await postStockMovement(t.barcode, t.type, qty, note, t.refNo, t.colorName, t.sizeLabel);
+  if(r.ok){
+    showToast(t.type==='in' ? 'Stok girişi kaydedildi' : 'Stok çıkışı kaydedildi');
+    if(state.returnToPackOrderId){
+      const returnId = state.returnToPackOrderId;
+      state.returnToPackOrderId = null;
+      await refreshData();
+      openPackOrderModal(returnId);
+    } else {
+      state.modalMode = null;
+      render();
+    }
+  } else {
+    showToast(r.networkError ? 'Sunucuya bağlanılamadı' : 'Kaydedilemedi — yetkinizi kontrol edin');
+  }
+}
+function openDepoBulkModal(){ state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; render(); }
+function downloadDepoBulkTemplate(){
+  const header = ['Barkod','Referans No','Renk','Beden','Mevcut Stok','Fiyat'];
+  const example = ['1288002000115','2000','RED','1','24','$18.50'];
+  const csv = [header, example].map(r=>r.map(csvField).join(',')).join('\n');
+  downloadBlob('depo-toplu-yukleme-sablonu.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  showToast('Şablon indirildi');
+}
+function toggleDepoSelect(barcode){
+  if(state.depoSelected.has(barcode)) state.depoSelected.delete(barcode);
+  else state.depoSelected.add(barcode);
+  render();
+}
+function toggleDepoSelectAll(visibleBarcodes){
+  const allSelected = visibleBarcodes.every(b=>state.depoSelected.has(b));
+  if(allSelected) visibleBarcodes.forEach(b=>state.depoSelected.delete(b));
+  else visibleBarcodes.forEach(b=>state.depoSelected.add(b));
+  render();
+}
+async function deleteWarehouseItems(barcodes){
+  if(barcodes.length===0) return;
+  state.depoDeleteRunning = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bulkDeleteWarehouseItems', auth:{username:session.username, passwordHash:session.passwordHash}, barcodes})
+    }, 60000);
+    const data = await res.json();
+    state.depoDeleteRunning = false;
+    if(data && data.ok){
+      // Movement history (stockMovement:*) is never touched — only the item record itself.
+      state.skus = state.skus.filter(s=>!barcodes.includes(s.barcode));
+      state.warehouseItems = state.warehouseItems.filter(w=>!barcodes.includes(w.barcode));
+      barcodes.forEach(b=>state.depoSelected.delete(b));
+      render();
+      showToast(`${data.deletedCount} kayıt silindi`);
+    } else {
+      render();
+      showToast('Silme işlemi başarısız oldu — tekrar deneyin');
+    }
+  }catch(e){
+    state.depoDeleteRunning = false;
+    render();
+    if(e && e.name === 'AbortError'){
+      showToast('Sunucu uzun sürdü — sayfayı yenileyip kontrol edin, işlem sunucuda tamamlanmış olabilir');
+    } else {
+      showToast('Sunucuya bağlanılamadı');
+    }
+  }
+}
+async function deleteSelectedSingle(barcode){
+  if(!confirm('Bu depo kaydını silmek istediğinize emin misiniz? (Geçmiş hareket kayıtları korunur.)')) return;
+  await deleteWarehouseItems([barcode]);
+}
+async function deleteSelectedDepoItems(){
+  const barcodes = Array.from(state.depoSelected);
+  if(barcodes.length===0){ showToast('Önce silmek istediğiniz kayıtları seçin'); return; }
+  if(!confirm(`${barcodes.length} depo kaydını silmek istediğinize emin misiniz? (Geçmiş hareket kayıtları korunur.)`)) return;
+  await deleteWarehouseItems(barcodes);
+}
+async function deleteAllDepoItems(){
+  const barcodes = state.warehouseItems.map(w=>w.barcode);
+  if(barcodes.length===0) return;
+  const typed = prompt(`TÜM depo kayıtlarını (${barcodes.length} ürün) silmek üzeresiniz. Geçmiş hareketleriniz korunur ama ürün listesi sıfırlanır. Onaylamak için "SİL" yazın:`);
+  if(typed !== 'SİL'){ showToast('İşlem iptal edildi'); return; }
+  await deleteWarehouseItems(barcodes);
+}
+function exportDepoCSV(){
+  if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
+  const header = ['Barkod','Referans No','Renk','Beden','Detay Referans','Depo Girişi','Depo Çıkışı','Kalan Stok','Fiyat (USD)'];
+  const rows = [...state.warehouseItems]
+    .sort((a,b)=> (a.refNo||'').localeCompare(b.refNo||'') || (a.colorName||'').localeCompare(b.colorName||''))
+    .map(it=>{
+      const price = priceForBarcode(it.barcode, it.refNo);
+      return [it.barcode, it.refNo||'', it.colorName||'', it.sizeLabel||'', detailRefLabel(it.refNo, it.colorName, it.sizeLabel), it.totalIn||0, it.totalOut||0, it.stock||0, price!=null?('$'+formatMoney(price)):''];
+    });
+  const csv = [header, ...rows].map(r=>r.map(csvField).join(',')).join('\n');
+  downloadBlob('depo-stok-listesi.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  showToast('Depo stok listesi indirildi');
+}
+function parseCombinedRef(text){
+  // "261523 BLUE 1" -> {refNo:'261523', colorName:'BLUE', sizeLabel:'1'}
+  const tokens = (text||'').trim().split(/\s+/).filter(Boolean);
+  if(tokens.length===0) return {refNo:'', colorName:'', sizeLabel:''};
+  if(tokens.length===1) return {refNo:tokens[0], colorName:'', sizeLabel:''};
+  if(tokens.length===2) return {refNo:tokens[0], colorName:tokens[1], sizeLabel:''};
+  return {refNo:tokens[0], colorName:tokens.slice(1,-1).join(' '), sizeLabel:tokens[tokens.length-1]};
+}
+function parseDepoBulkLines(raw){
+  const rawLines = raw.split('\n');
+  const items = [];
+  const skippedLines = []; // {line, reason, rowNum}
+  let batchDupes = 0;
+  const seenInBatch = new Set();
+  for(let li=0; li<rawLines.length; li++){
+    const rowNum = li + 1; // matches the row number you'd see opening the same file in Excel/Sheets
+    const line = rawLines[li].trim();
+    if(!line) continue;
+    if(/^Barkod\s*[,\t]/i.test(line)) continue; // skip a header row if present
+    let cols = parseBulkLine(line).map(c=>(c||'').trim()).filter((c,i,arr)=> !(c==='' && i===arr.length-1 && arr.length>1));
+    if(cols.length === 7) cols = healDecimalCommaSplit(cols, 6); // likely a split decimal price (Excel MS-DOS CSV + comma-decimal locale)
+    let barcode, refNo, colorName, sizeLabel, qtyRaw, priceRaw;
+    if(cols.length >= 5){
+      // Ayrı sütunlu format: Barkod, RefNo, Renk, Beden, Miktar[, Fiyat]
+      [barcode, refNo, colorName, sizeLabel, qtyRaw, priceRaw] = cols;
+    } else if(cols.length >= 2){
+      // Birleşik referans formatı: Barkod, "261523 BLUE 1"[, Miktar[, Fiyat]]
+      barcode = cols[0];
+      const combined = parseCombinedRef(cols[1]);
+      refNo = combined.refNo; colorName = combined.colorName; sizeLabel = combined.sizeLabel;
+      qtyRaw = cols.length >= 3 ? cols[2] : '';
+      priceRaw = cols.length >= 4 ? cols[3] : '';
+    } else if(cols.length === 1 && /\s/.test(cols[0])){
+      // Hiç virgül/tab yok, tamamen boşlukla ayrılmış: Barkod 261523 BLUE 1 Miktar
+      const tokens = cols[0].split(/\s+/).filter(Boolean);
+      barcode = tokens[0];
+      const lastIsNum = /^\d+$/.test(tokens[tokens.length-1]);
+      const refTokens = lastIsNum && tokens.length>=3 ? tokens.slice(1,-1) : tokens.slice(1);
+      const combined = parseCombinedRef(refTokens.join(' '));
+      refNo = combined.refNo; colorName = combined.colorName; sizeLabel = combined.sizeLabel;
+      qtyRaw = lastIsNum && tokens.length>=3 ? tokens[tokens.length-1] : '';
+    } else {
+      skippedLines.push({line, reason: 'Sütun sayısı yetersiz — en az barkod ve bir referans bilgisi gerekli', rowNum});
+      continue;
+    }
+    barcode = (barcode||'').trim();
+    const qty = parseInt(qtyRaw, 10);
+    const price = parseFlexibleNumber(priceRaw);
+    if(!barcode){ skippedLines.push({line, reason: 'Barkod sütunu boş', rowNum}); continue; }
+    if(seenInBatch.has(barcode)){ batchDupes++; continue; } // aynı dosyada tekrar eden barkod — ilkini kullan
+    seenInBatch.add(barcode);
+    items.push({barcode, refNo:(refNo||'').trim(), colorName:(colorName||'').trim(), sizeLabel:(sizeLabel||'').trim(), openingStock: isNaN(qty)?0:qty, price: isNaN(price)?null:price, createdBy: session.displayName});
+  }
+  return {items, skipped: skippedLines.length, skippedLines, batchDupes};
+}
+const DEPO_BULK_CHUNK_SIZE = 200;
+function setDepoBulkProgress(text, isError){
+  const el = document.getElementById('depo-bulk-result');
+  if(!el) return;
+  el.style.display = 'block';
+  el.className = 'bulk-result ' + (isError ? 'error' : 'ok');
+  el.textContent = text;
+}
+async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines){
+  skippedLines = skippedLines || [];
+  if(items.length===0){ showToast('İçe aktarılacak geçerli satır bulunamadı'); return; }
+  if(state.depoBulkRunning) return; // guard against double-submit
+  state.depoBulkRunning = true;
+  render();
+
+  const chunks = [];
+  for(let i=0;i<items.length;i+=DEPO_BULK_CHUNK_SIZE) chunks.push(items.slice(i, i+DEPO_BULK_CHUNK_SIZE));
+
+  let totalMovements = 0, totalProcessed = 0, failedChunks = 0;
+  const allConflicts = [];
+  for(let i=0;i<chunks.length;i++){
+    setDepoBulkProgress(`İşleniyor… ${totalProcessed} / ${items.length} satır (parça ${i+1}/${chunks.length}) — lütfen bu pencereyi kapatmayın.`);
+    try{
+      const res = await fetchWithTimeout(API_URL, {
+        method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({action:'bulkImportWarehouse', auth:{username:session.username, passwordHash:session.passwordHash}, items:chunks[i]})
+      }, 90000);
+      const data = await res.json();
+      if(data && data.ok){
+        totalMovements += data.movementsWritten||0;
+        totalProcessed += chunks[i].length;
+        if(data.conflicts && data.conflicts.length) allConflicts.push(...data.conflicts);
+      } else {
+        failedChunks++;
+      }
+    }catch(e){
+      failedChunks++;
+    }
+  }
+
+  state.depoBulkRunning = false;
+
+  // Apply any Fiyat (USD) values to catalog products — never for depocu (no price access).
+  let pricesUpdated = 0;
+  if(session.role !== 'depocu'){
+    const priceByRef = {};
+    items.forEach(it=>{ if(it.price!=null && it.refNo) priceByRef[it.refNo] = it.price; });
+    const refKeys = Object.keys(priceByRef);
+    if(refKeys.length>0){
+      let changed = false;
+      refKeys.forEach(refNo=>{
+        let product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNo).trim().toUpperCase());
+        if(!product){
+          product = {id:uid(), refNo, name:'', price:priceByRef[refNo], createdAt:todayISO(), createdBy:session.displayName};
+          state.products.push(product);
+          changed = true; pricesUpdated++;
+        } else if(product.price !== priceByRef[refNo]){
+          product.price = priceByRef[refNo];
+          changed = true; pricesUpdated++;
+        }
+      });
+      if(changed) await saveKey('catalogProducts', state.products);
+    }
+  }
+
+  if(totalProcessed > 0){ await refreshData(); }
+  else { render(); }
+
+  const noteParts = [];
+  if(skipped>0) noteParts.push(`${skipped} satır atlandı (altta detaylı liste var)`);
+  if(batchDupes>0) noteParts.push(`${batchDupes} satır dosya içinde barkodu tekrar ettiği için atlandı`);
+  if(pricesUpdated>0) noteParts.push(`${pricesUpdated} model için fiyat güncellendi`);
+  if(allConflicts.length>0) noteParts.push(`⚠ ${allConflicts.length} barkod, sistemde FARKLI bir ürüne kayıtlıydı — stok yine de işlendi ama ürün bilgisi güncellenmedi, kontrol edin: ` + allConflicts.slice(0,10).map(c=>c.barcode).join(', ') + (allConflicts.length>10?'…':''));
+  const noteStr = noteParts.length ? (' ' + noteParts.join(' · ') + '.') : '';
+
+  if(failedChunks===0){
+    state.depoBulkResultText = `✓ Tamamlandı — ${totalProcessed} kayıt işlendi (${totalMovements} tanesi stok hareketi olarak eklendi).${noteStr}`;
+    state.depoBulkResultIsError = allConflicts.length>0;
+    showToast('Toplu içe aktarma tamamlandı');
+  } else {
+    state.depoBulkResultText = `${totalProcessed} kayıt işlendi, ${failedChunks} parça gönderilemedi (bağlantı sorunu olabilir) — tekrar deneyebilirsiniz, zaten işlenmiş barkodlar güvenle tekrar gönderilebilir.${noteStr}`;
+    state.depoBulkResultIsError = true;
+    showToast('Bazı satırlar aktarılamadı');
+  }
+  state.depoBulkSkippedLines = skippedLines;
+  render();
+}
+async function submitDepoBulkImport(){
+  if(state.depoBulkRunning) return;
+  state.depoBulkError = null;
+  state.depoBulkResultText = null;
+  if(state.depoBulkFile){
+    await sendDepoBulkImport(state.depoBulkFile.items, state.depoBulkFile.skipped, state.depoBulkFile.batchDupes, state.depoBulkFile.skippedLines);
+    state.depoBulkFile = null;
+    return;
+  }
+  const raw = document.getElementById('depo-bulk-textarea').value;
+  if(!raw || !raw.trim()){
+    state.depoBulkError = 'Önce bir CSV dosyası seçin ya da kutuya veri yapıştırın.';
+    render();
+    return;
+  }
+  const {items, skipped, batchDupes, skippedLines} = parseDepoBulkLines(raw);
+  if(items.length===0){
+    state.depoBulkError = `Girdiğiniz veriden geçerli bir satır çıkmadı (${skipped} satır atlandı) — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
+    state.depoBulkSkippedLines = skippedLines;
+    render();
+    return;
+  }
+  await sendDepoBulkImport(items, skipped, batchDupes, skippedLines);
+}
+function handleDepoBulkFile(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  if(state.depoBulkRunning){ e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      let text = ev.target.result;
+      if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip UTF-8 BOM if present
+      const {items, skipped, batchDupes, skippedLines} = parseDepoBulkLines(text);
+      state.depoBulkResultText = null;
+      if(items.length===0){
+        state.depoBulkFile = null;
+        state.depoBulkError = `Dosyadan geçerli bir satır çıkmadı (${skipped} satır atlandı) — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
+        state.depoBulkSkippedLines = skippedLines;
+      } else {
+        state.depoBulkFile = {name:file.name, items, skipped, batchDupes, skippedLines};
+        state.depoBulkError = null;
+        state.depoBulkSkippedLines = skippedLines; // preview which lines will be skipped, before they even confirm the import
+        showToast(`${items.length} satır dosyadan okundu — "İçe Aktar"a basın`);
+      }
+    }catch(err){
+      state.depoBulkFile = null;
+      state.depoBulkError = 'Dosya işlenirken bir hata oluştu: ' + (err && err.message ? err.message : err);
+    }
+    render();
+  };
+  reader.onerror = function(){ showToast('Dosya okunamadı'); };
+  reader.readAsText(file, 'UTF-8');
+  e.target.value = '';
+}
+function clearDepoBulkFile(){ state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; render(); }
+
+// ---------- Yeni Depo Kaydı — barkodu otomatik formülle üretir (admin/staff) ----------
+async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, sizeLabel){
+  // Used for legacy/imported barcodes that already exist — reuses the given barcode
+  // as-is instead of computing a new one, and allows non-numeric reference codes.
+  let product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNo||'').trim().toUpperCase());
+  if(!product){
+    product = {id:uid(), refNo:(refNo||'').trim(), name:'', price:0, createdAt:todayISO(), createdBy:session.displayName};
+    state.products = [...state.products, product];
+    await saveKey('catalogProducts', state.products);
+  }
+  let variant = state.variants.find(v=>v.productId===product.id && v.colorName===(colorName||'').trim());
+  if(!variant){
+    const existingV = variantsFor(product.id);
+    const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
+    variant = {id:uid(), productId:product.id, colorName:(colorName||'').trim(), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    state.variants = [...state.variants, variant];
+    await saveKey('catalogVariant:'+variant.id, variant);
+  }
+  let sku = state.skus.find(s=>s.barcode===barcode);
+  if(!sku){
+    const existingS = skusFor(variant.id);
+    const sizeOrder = existingS.length ? Math.max(...existingS.map(s=>s.sizeOrder))+1 : 1;
+    const num = sizeNumberOnly(sizeLabel);
+    const matchedSize = SIZES.find(s=>s.code===num);
+    sku = {id:uid(), variantId:variant.id, sizeCode: matchedSize?matchedSize.code:null, sizeOrder, euSize: matchedSize?matchedSize.eu:null, customSizeLabel: matchedSize?'':(sizeLabel||''), barcode, createdAt:todayISO()};
+    state.skus = [...state.skus, sku];
+    await saveKey('catalogSkus', state.skus);
+  }
+  return {productId:product.id, variantId:variant.id, skuId:sku.id};
+}
+async function addWarehouseItemToCatalog(barcode){
+  const item = state.warehouseItems.find(w=>w.barcode===barcode);
+  if(!item) return;
+  if(!item.refNo && !item.colorName){ showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
+  showToast('Kataloğa ekleniyor…');
+  await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
+  render();
+  showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+}
+
+// ---------- Toplu Görsel Yükle: dosya adından Ref+Renk çözüp tüm bedenleri tek görsele bağlar ----------
+function parseImageFilename(filename){
+  const base = filename.replace(/\.[^.]+$/, '');
+  const cleaned = base.replace(/_/g, '-').replace(/\s+/g, '-');
+  const parts = cleaned.split('-').filter(Boolean);
+  if(parts.length < 2) return null;
+  const refNo = parts[0].replace(/[^0-9]/g,'');
+  const colorName = parts.slice(1).join(' ').toUpperCase();
+  if(!refNo || !colorName) return null;
+  return {refNo, colorName};
+}
+function matchCountForRefColor(refNo, colorName){
+  return state.warehouseItems.filter(w=> String(w.refNo||'').trim().toUpperCase()===refNo && (w.colorName||'').trim().toUpperCase()===colorName).length;
+}
+function openBulkImageModal(){ state.modalMode = 'bulkImage'; state.bulkImageRows = []; state.bulkImageRunning = false; render(); }
+function handleBulkImageFiles(e){
+  const files = Array.from(e.target.files || []);
+  if(files.length===0) return;
+  state.bulkImageRows = files.map(f=>({
+    fileName:f.name, parsed:parseImageFilename(f.name), description:'', status:'processing', processedImage:null
+  }));
+  render();
+  files.forEach(async (file, idx)=>{
+    const row = state.bulkImageRows[idx];
+    if(!row.parsed){ row.status='unparsed'; render(); return; }
+    try{
+      const processed = await processImageFile(file);
+      row.processedImage = processed;
+      row.status = 'ready';
+    }catch(err){
+      row.status = 'error';
+    }
+    render();
+  });
+  e.target.value = '';
+}
+function removeBulkImageRow(idx){ state.bulkImageRows.splice(idx,1); render(); }
+function updateBulkImageField(idx, field, value){
+  const row = state.bulkImageRows[idx];
+  if(!row) return;
+  if(field==='refNo' || field==='colorName'){
+    row.parsed = row.parsed || {refNo:'', colorName:''};
+    row.parsed[field] = field==='refNo' ? value.replace(/[^0-9]/g,'') : value.toUpperCase();
+    if(row.parsed.refNo && row.parsed.colorName) row.status = row.processedImage ? 'ready' : row.status;
+  } else if(field==='description'){
+    row.description = value;
+  }
+}
+async function commitBulkImageImport(){
+  const rows = state.bulkImageRows.filter(r=>r.status==='ready' && r.parsed && r.parsed.refNo && r.parsed.colorName);
+  if(rows.length===0){ showToast('İçe aktarılacak, eşleşmesi tamamlanmış görsel yok'); return; }
+  state.bulkImageRunning = true;
+  render();
+
+  let productsChanged=false, skusChanged=false, totalVariants=0, totalLinked=0;
+  const variantsToSave = [];
+
+  for(let i=0;i<rows.length;i++){
+    const row = rows[i];
+    state.bulkImageProgress = `İşleniyor… ${i+1} / ${rows.length} görsel (${row.fileName})`;
+    render();
+    const refNo = row.parsed.refNo, colorName = row.parsed.colorName, description = row.description.trim();
+
+    let product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===refNo);
+    if(!product){
+      product = {id:uid(), refNo, name:description, price:0, createdAt:todayISO(), createdBy:session.displayName};
+      state.products.push(product);
+      productsChanged = true;
+    } else if(description && !product.name){
+      product.name = description; productsChanged = true;
+    }
+
+    let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+    if(!variant){
+      const existingV = variantsFor(product.id);
+      const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
+      variant = {id:uid(), productId:product.id, colorName, colorOrder, image:row.processedImage, createdAt:todayISO(), createdBy:session.displayName};
+      state.variants.push(variant);
+      totalVariants++;
+    } else {
+      variant.image = row.processedImage;
+    }
+    variantsToSave.push(variant);
+
+    const matches = state.warehouseItems.filter(w=> String(w.refNo||'').trim().toUpperCase()===refNo && (w.colorName||'').trim().toUpperCase()===colorName);
+    for(const w of matches){
+      let sku = state.skus.find(s=>s.barcode===w.barcode);
+      if(!sku){
+        const existingS = skusFor(variant.id);
+        const sizeOrder = existingS.length ? Math.max(...existingS.map(s=>s.sizeOrder))+1 : 1;
+        const num = sizeNumberOnly(w.sizeLabel);
+        const matchedSize = SIZES.find(s=>s.code===num);
+        sku = {id:uid(), variantId:variant.id, sizeCode: matchedSize?matchedSize.code:null, sizeOrder, euSize: matchedSize?matchedSize.eu:null, customSizeLabel: matchedSize?'':(w.sizeLabel||''), barcode:w.barcode, createdAt:todayISO()};
+        state.skus.push(sku);
+        skusChanged = true;
+        totalLinked++;
+      }
+    }
+  }
+
+  if(productsChanged) await saveKey('catalogProducts', state.products);
+  for(const v of variantsToSave) await saveKey('catalogVariant:'+v.id, v);
+  if(skusChanged) await saveKey('catalogSkus', state.skus);
+
+  state.bulkImageRunning = false;
+  state.modalMode = null;
+  render();
+  showToast(`${rows.length} görsel işlendi — ${totalVariants} yeni renk, ${totalLinked} beden kataloğa bağlandı`);
+}
+function isBarcodeInCatalog(barcode){
+  return state.skus.some(s=>s.barcode===barcode);
+}
+async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
+  let product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
+  if(!product){
+    product = {id:uid(), refNo:String(refNo).replace(/[^0-9]/g,''), name:(refName||'').trim(), price:0, createdAt:todayISO(), createdBy:session.displayName};
+    state.products = [...state.products, product];
+    await saveKey('catalogProducts', state.products);
+  }
+  let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+  if(!variant){
+    const existingV = variantsFor(product.id);
+    if(existingV.length >= MAX_COLORS_PER_MODEL){ return {error:'Bu modelde en fazla ' + MAX_COLORS_PER_MODEL + ' renk olabilir'}; }
+    const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
+    variant = {id:uid(), productId:product.id, colorName, colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    state.variants = [...state.variants, variant];
+    await saveKey('catalogVariant:'+variant.id, variant);
+  }
+  let sku = state.skus.find(s=>s.variantId===variant.id && s.sizeCode===sizeCode);
+  if(!sku){
+    const existingS = skusFor(variant.id);
+    if(existingS.length >= MAX_SIZES_PER_COLOR){ return {error:'Bu renkte en fazla ' + MAX_SIZES_PER_COLOR + ' beden olabilir'}; }
+    const sizeOrder = existingS.length ? Math.max(...existingS.map(s=>s.sizeOrder))+1 : 1;
+    const sizeInfo = SIZES.find(s=>s.code===sizeCode);
+    const barcode = computeBarcode(product.refNo, variant.colorOrder, sizeOrder);
+    sku = {id:uid(), variantId:variant.id, sizeCode, sizeOrder, euSize:sizeInfo.eu, barcode, createdAt:todayISO()};
+    state.skus = [...state.skus, sku];
+    await saveKey('catalogSkus', state.skus);
+  }
+  return {barcode: sku.barcode};
+}
+function openNewDepoItemModal(){ state.modalMode = 'newDepoItem'; state.newDepoItemSuccess = null; state.newDepoItemSaving = false; render(); }
+async function submitNewDepoItem(){
+  const refNo = document.getElementById('ndi-ref').value.trim();
+  const refName = document.getElementById('ndi-refname').value.trim();
+  const colorName = document.getElementById('ndi-color').value.trim().toUpperCase();
+  const sizeCode = document.getElementById('ndi-size').value;
+  const startQty = parseInt(document.getElementById('ndi-qty').value, 10) || 0;
+  if(!/^[0-9]{1,6}$/.test(refNo)){ showToast('Referans No 1-6 haneli bir sayı olmalı'); return; }
+  if(!colorName){ showToast('Renk adı girin'); return; }
+  const r = await ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode);
+  if(r.error){ showToast(r.error); return; }
+  const sizeLabel = SIZES.find(s=>s.code===sizeCode).short;
+  const existing = state.warehouseItems.find(w=>w.barcode===r.barcode);
+  if(existing && (existing.refNo && existing.refNo!==refNo || existing.colorName && existing.colorName.toUpperCase()!==colorName)){
+    showToast('⚠ Bu barkod zaten "' + existing.refNo + ' ' + existing.colorName + '" ürününe kayıtlı — çakışma var, kontrol edin');
+    return;
+  }
+  state.newDepoItemSaving = true;
+  render();
+  let ok = true;
+  if(startQty > 0){
+    const res = await postStockMovement(r.barcode, 'in', startQty, 'İlk depo kaydı', refNo, colorName, sizeLabel);
+    ok = !!(res && res.ok);
+  } else if(!state.warehouseItems.find(w=>w.barcode===r.barcode)){
+    state.warehouseItems.push({barcode:r.barcode, refNo, colorName, sizeLabel, stock:0});
+  }
+  state.newDepoItemSaving = false;
+  if(ok){
+    state.newDepoItemSuccess = { barcode: r.barcode, refNo, colorName, sizeLabel, qty: startQty };
+    render();
+  } else {
+    showToast('⚠ Kaydedilemedi — sunucuya bağlanılamadı, tekrar deneyin');
+    render();
+  }
+}
+function closeNewDepoItemSuccess(){ state.modalMode = null; state.newDepoItemSuccess = null; render(); }
+function addAnotherDepoItem(){ state.newDepoItemSuccess = null; render(); }
+
+// ---------- Hızlı Tarama (barkod okuyucu ile) ----------
+function openScanMode(mode){
+  state.scan = { mode: mode||'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
+  state.modalMode = 'depoScan';
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
+function closeScanMode(){ state.modalMode = null; render(); }
+
+// ---------- Bekleyen Siparişler — depocu barkod okutarak/toplu girerek siparişi hazırlar ----------
+function fmtDateOrder(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('tr-TR');
+}
+function openPendingOrdersModal(){ state.modalMode = 'pendingOrders'; render(); }
+function openPackOrderModal(orderId){
+  const order = state.pendingPackingOrders.find(o=>o.id===orderId);
+  if(!order) return;
+  state.packingOrderId = orderId;
+  const saved = order.packingProgress || {};
+  const shipped = order.shippedQuantities || {};
+  state.packingProgress = {};
+  order.lines.forEach(l=>{
+    const remaining = l.qty - (shipped[l.barcode]||0);
+    if(remaining>0) state.packingProgress[l.barcode] = Math.min(saved[l.barcode]||0, remaining);
+  });
+  state.packScanError = null;
+  state.modalMode = 'packOrder';
+  render();
+  const hasSavedProgress = Object.values(state.packingProgress).some(v=>v>0);
+  if(hasSavedProgress) showToast('Kaydedilmiş ilerleme yüklendi — kaldığınız yerden devam edebilirsiniz');
+  setTimeout(()=>{ const el=document.getElementById('pack-scan-input'); if(el) el.focus(); }, 60);
+}
+function closePackOrderModal(){
+  savePackingProgressNow();
+  state.modalMode = 'pendingOrders'; state.packingOrderId = null; render();
+}
+let packSaveTimer = null;
+function schedulePackingProgressSave(){
+  if(packSaveTimer) clearTimeout(packSaveTimer);
+  packSaveTimer = setTimeout(savePackingProgressNow, 1200);
+}
+async function savePackingProgressNow(){
+  if(packSaveTimer){ clearTimeout(packSaveTimer); packSaveTimer = null; }
+  if(!state.packingOrderId) return;
+  try{
+    await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'savePackingProgress', auth:{username:session.username, passwordHash:session.passwordHash}, orderId: state.packingOrderId, packingProgress: state.packingProgress})
+    }, 15000);
+    // Keep the local pendingPackingOrders cache in sync too, so re-opening later (without a full refresh) still shows it.
+    const order = state.pendingPackingOrders.find(o=>o.id===state.packingOrderId);
+    if(order) order.packingProgress = {...state.packingProgress};
+  }catch(e){ /* progress save is best-effort — scanning still works locally either way */ }
+}
+function dismissPackScanError(){
+  state.packScanError = null;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('pack-scan-input'); if(el) el.focus(); }, 60);
+}
+function remainingForLine(order, barcode){
+  const line = order.lines.find(l=>l.barcode===barcode);
+  if(!line) return 0;
+  const shipped = (order.shippedQuantities && order.shippedQuantities[barcode]) || 0;
+  return Math.max(0, line.qty - shipped);
+}
+// ---------- Camera barcode scanning (phone camera, no physical scanner needed) ----------
+let cameraScannerInstance = null;
+let cameraScannerMode = null; // 'quick' or 'pack'
+let cameraScannerLastCode = null; // the code currently sitting in view, already processed
+let cameraScannerArmed = true;    // true = ready to accept the next (different) scan
+async function openCameraScanner(mode){
+  if(!window.Html5Qrcode){ showToast('Kamera kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
+  cameraScannerMode = mode;
+  cameraScannerLastCode = null;
+  cameraScannerArmed = true;
+  state.modalMode = 'cameraScanner';
+  render();
+  setTimeout(async ()=>{
+    try{
+      cameraScannerInstance = new Html5Qrcode('camera-scan-region');
+      const formats = [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.CODE_39];
+      await cameraScannerInstance.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 260, height: 140 }, formatsToSupport: formats },
+        (decodedText)=>{
+          // Same code still sitting in the frame from the last successful read — ignore until
+          // it's removed from view (tracked below) or a genuinely different code appears.
+          if(!cameraScannerArmed && decodedText === cameraScannerLastCode) return;
+          cameraScannerLastCode = decodedText;
+          cameraScannerArmed = false;
+          if(navigator.vibrate) navigator.vibrate(80);
+          updateCameraScanFeedback(decodedText, 'reading');
+          if(cameraScannerMode === 'quick') processQuickScan(decodedText);
+          else if(cameraScannerMode === 'pack') processPackScan(decodedText);
+        },
+        ()=>{
+          // No code decoded in this frame — the barcode has left the view (or never entered it).
+          // Re-arm so the same code can be scanned again next time it's shown.
+          cameraScannerArmed = true;
+          cameraScannerLastCode = null;
+        }
+      );
+    }catch(err){
+      showToast('Kameraya erişilemedi — tarayıcının kamera iznini kontrol edin');
+      state.modalMode = null;
+      render();
+    }
+  }, 100);
+}
+function updateCameraScanFeedback(barcode, status){
+  const el = document.getElementById('camera-scan-feedback');
+  if(!el) return;
+  if(status==='reading'){
+    el.textContent = '📡 Okundu: ' + barcode;
+    el.style.color = 'var(--muted)';
+  } else if(status==='ok'){
+    el.textContent = '✓ Kaydedildi: ' + barcode;
+    el.style.color = 'var(--good)';
+  } else if(status==='error'){
+    el.textContent = '⚠ Hata: ' + barcode;
+    el.style.color = 'var(--danger)';
+  }
+}
+async function stopCameraStream(){
+  if(cameraScannerInstance){
+    try{ await cameraScannerInstance.stop(); cameraScannerInstance.clear(); }catch(e){ /* already stopped */ }
+    cameraScannerInstance = null;
+  }
+}
+async function closeCameraScanner(){
+  await stopCameraStream();
+  state.modalMode = null;
+  render();
+}
+function renderCameraScannerModal(){
+  const order = cameraScannerMode==='pack' ? state.pendingPackingOrders.find(o=>o.id===state.packingOrderId) : null;
+  const totalConfirmed = order ? Object.values(state.packingProgress).reduce((s,v)=>s+(Number(v)||0),0) : 0;
+  const totalNeeded = order ? order.lines.reduce((s,l)=>s+remainingForLine(order,l.barcode),0) + totalConfirmed : 0;
+  return `<div class="overlay">
+    <div class="modal" style="max-width:420px">
+      <h2 style="margin-bottom:10px">📷 Kamera ile Tara</h2>
+      <div id="camera-scan-region" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
+      <div id="camera-scan-feedback" style="text-align:center;font-weight:700;margin-top:10px;font-size:13px;min-height:18px;color:var(--muted)">Barkod bekleniyor…</div>
+      ${order ? `<div id="camera-scan-count" style="text-align:center;font-weight:700;margin-top:6px;font-size:14px">${totalConfirmed} / ${totalNeeded} onaylandı</div>` : ''}
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">Barkodu kameraya, ekrandaki kutunun içine gelecek şekilde tutun — algılanınca otomatik işlenir.</p>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeCameraScanner()">Kapat</button>
+      </div>
+    </div>
+  </div>`;
+}
+function updateCameraScanCountDisplay(){
+  const el = document.getElementById('camera-scan-count');
+  if(!el) return;
+  const order = state.pendingPackingOrders.find(o=>o.id===state.packingOrderId);
+  if(!order) return;
+  const totalConfirmed = Object.values(state.packingProgress).reduce((s,v)=>s+(Number(v)||0),0);
+  const totalNeeded = order.lines.reduce((s,l)=>s+remainingForLine(order,l.barcode),0) + totalConfirmed;
+  el.textContent = `${totalConfirmed} / ${totalNeeded} onaylandı`;
+}
+function processPackScan(barcode){
+  barcode = (barcode||'').trim();
+  if(!barcode) return;
+  const order = state.pendingPackingOrders.find(o=>o.id===state.packingOrderId);
+  if(!order) return;
+  const line = order.lines.find(l=>l.barcode===barcode);
+  if(!line){
+    if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'packOrder'; }
+    playAlertSound();
+    state.packScanError = 'Bu barkod bu siparişte yok: ' + barcode;
+    render();
+    setTimeout(()=>{ const el=document.getElementById('pack-scan-input'); if(el) el.focus(); }, 60);
+    return;
+  }
+  const remaining = remainingForLine(order, barcode);
+  const current = state.packingProgress[barcode] || 0;
+  if(remaining<=0 || current >= remaining){
+    if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'packOrder'; }
+    playAlertSound();
+    state.packScanError = remaining<=0
+      ? `⚠ FAZLA OKUTMA: ${detailRefLabel(line.refNo, line.colorName, line.sizeLabel)} — bu ürün için tüm miktar zaten hazırlanmış!`
+      : `⚠ FAZLA OKUTMA: ${detailRefLabel(line.refNo, line.colorName, line.sizeLabel)} — kalan ${remaining} adet zaten tamamlandı, fazladan okuttunuz! Fazlalığı elinizden çıkarıp aşağıdaki düğmeyle devam edin.`;
+  } else {
+    state.packScanError = null;
+    state.packingProgress[barcode] = current + 1;
+    schedulePackingProgressSave();
+    if(state.modalMode==='cameraScanner'){ updateCameraScanCountDisplay(); return; }
+  }
+  render();
+  setTimeout(()=>{ const el=document.getElementById('pack-scan-input'); if(el) el.focus(); }, 60);
+}
+function handlePackScanKey(e){
+  if(e.key !== 'Enter') return;
+  const barcode = e.target.value.trim();
+  e.target.value = '';
+  processPackScan(barcode);
+}
+function setPackQtyManual(barcode, value){
+  const order = state.pendingPackingOrders.find(o=>o.id===state.packingOrderId);
+  const line = order ? order.lines.find(l=>l.barcode===barcode) : null;
+  const max = line ? remainingForLine(order, barcode) : 999999;
+  const entered = parseInt(value,10)||0;
+  if(line && entered > max){
+    playAlertSound();
+    state.packScanError = `⚠ FAZLA GİRİŞ: ${detailRefLabel(line.refNo, line.colorName, line.sizeLabel)} — kalan ${max} adet, girdiğiniz ${entered} adet. En fazla ${max} girilebilir.`;
+  } else {
+    state.packScanError = null;
+  }
+  state.packingProgress[barcode] = Math.max(0, Math.min(max, entered));
+  schedulePackingProgressSave();
+  render();
+}
+function packingAllMatched(order){
+  return order.lines.every(l=> (state.packingProgress[l.barcode]||0) >= remainingForLine(order, l.barcode));
+}
+async function submitPackOrder(){
+  const order = state.pendingPackingOrders.find(o=>o.id===state.packingOrderId);
+  if(!order) return;
+  const totalConfirmed = Object.values(state.packingProgress).reduce((s,v)=>s+(Number(v)||0),0);
+  const totalOrdered = order.lines.reduce((s,l)=>s+l.qty,0);
+  const totalAlreadyShipped = order.lines.reduce((s,l)=>s+((order.shippedQuantities&&order.shippedQuantities[l.barcode])||0),0);
+  if(totalConfirmed===0){
+    alert('Hiçbir ürün okutulmadı veya girilmedi. "Hazırlandı" olarak kaydetmeden önce en az bir ürün okutmanız veya adet girmeniz gerekir.');
+    return;
+  }
+  const willTotal = totalAlreadyShipped + totalConfirmed;
+  if(!packingAllMatched(order)){
+    if(!confirm(`Bu oturumda ${totalConfirmed} adet onaylandı (toplamda ${willTotal} / ${totalOrdered}). Sipariş henüz tam değil — onaylanan miktar stoktan düşülecek, sipariş "Bekleyen Siparişler" listesinde eksik olarak kalmaya devam edecek. Onaylıyor musunuz?`)) return;
+  }
+  state.packingRunning = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'shipOrder', auth:{username:session.username, passwordHash:session.passwordHash}, orderId: order.id, shippedBy: session.displayName, packedQuantities: state.packingProgress})
+    }, 30000);
+    const data = await res.json();
+    state.packingRunning = false;
+    if(data && data.ok){
+      state.modalMode = 'pendingOrders';
+      state.packingOrderId = null;
+      await refreshData();
+      showToast(data.fullyShipped ? 'Sipariş hazırlandı olarak işaretlendi' : `${totalConfirmed} adet stoktan düşüldü — sipariş eksik olarak bekleyen listede kaldı`);
+    } else {
+      showToast('Kaydedilemedi — tekrar deneyin');
+      render();
+    }
+  }catch(e){
+    state.packingRunning = false;
+    showToast('Sunucuya bağlanılamadı');
+    render();
+  }
+}
+function renderPendingOrdersModal(){
+  const orders = state.pendingPackingOrders;
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal wide" style="max-width:640px">
+      <h2>Bekleyen Siparişler</h2>
+      <p style="color:var(--muted);font-size:12px;margin:-6px 0 12px">Bir siparişi hazırlamaya başlamak veya kaldığınız yerden devam etmek için sağdaki düğmeye tıklayın.</p>
+      ${orders.length===0 ? `<div class="empty"><h3>Bekleyen sipariş yok</h3><p>Onaylanmış, hazırlanmayı bekleyen bir sipariş bulunmuyor.</p></div>` : `
+        <div class="depo-table-wrap"><table class="depo-table" style="min-width:560px">
+          <thead><tr><th>Sipariş No</th><th>Tarih</th><th>Kalem Sayısı</th><th>Durum</th><th></th></tr></thead>
+          <tbody>
+          ${orders.map(o=>{
+            const shipped = o.shippedQuantities || {};
+            const draft = o.packingProgress || {};
+            const totalNeeded = o.lines.reduce((s,l)=>s+l.qty,0);
+            const totalShipped = o.lines.reduce((s,l)=>s+Math.min(shipped[l.barcode]||0, l.qty),0);
+            const totalDraft = o.lines.reduce((s,l)=>s+Math.min(draft[l.barcode]||0, l.qty-(shipped[l.barcode]||0)),0);
+            const isPartial = totalShipped>0;
+            const hasDraft = totalDraft>0;
+            return `<tr style="cursor:pointer" onclick="openPackOrderModal('${o.id}')">
+            <td style="font-weight:700">${esc(o.orderNo||'')}</td>
+            <td class="depo-td-muted">${fmtDateOrder(o.createdAt)}</td>
+            <td>${o.lines.length} kalem</td>
+            <td>${isPartial ? `<span class="chip other" style="background:var(--warn-bg,#FBF0D6);color:var(--warn,#B98A1E)" title="Kısmen hazırlandı, eksik kaldı">⚠ ${totalShipped}/${totalNeeded} hazırlandı</span>` : (hasDraft ? `<span class="chip other" title="Taslak ilerleme var, henüz kaydedilmedi">⏸ ${totalDraft}/${totalNeeded} taslak</span>` : `<span class="depo-td-muted">Başlanmadı</span>`)}</td>
+            <td><button class="btn small primary" onclick="event.stopPropagation();openPackOrderModal('${o.id}')">${(isPartial||hasDraft)?'Devam Et':'Hazırla'}</button></td>
+          </tr>`;
+          }).join('')}
+          </tbody>
+        </table></div>
+      `}
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Kapat</button>
+      </div>
+    </div>
+  </div>`;
+}
+function renderPackOrderModal(){
+  const order = state.pendingPackingOrders.find(o=>o.id===state.packingOrderId);
+  if(!order){
+    return `<div class="overlay"><div class="modal"><p>Sipariş bulunamadı — güncellemeyi deneyin.</p><div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Kapat</button></div></div></div>`;
+  }
+  const running = state.packingRunning;
+  const allMatched = packingAllMatched(order);
+  return `<div class="overlay">
+    <div class="modal wide">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h2 style="margin:0">Sipariş Hazırla — ${esc(order.orderNo)}</h2>
+        <button class="btn small ghost" ${running?'disabled':''} onclick="closePackOrderModal()">← Geri</button>
+      </div>
+      <div class="field">
+        <label>Barkod Okut</label>
+        <input id="pack-scan-input" type="text" autocomplete="off" style="font-size:18px;padding:12px;text-align:center" onkeydown="handlePackScanKey(event)" ${running?'disabled':''} placeholder="Okuyucuyla tarayın veya elle yazıp Enter'a basın" />
+        <button class="btn ghost small" style="width:100%;margin-top:8px" ${running?'disabled':''} onclick="openCameraScanner('pack')">📷 Telefon Kamerasıyla Tara</button>
+        <div class="field-msg">Her okutma o kalemden 1 adet ekler. Aşağıdaki kutulara elle de sayı girebilirsiniz.</div>
+      </div>
+      ${state.packScanError ? `<div class="bulk-result error" style="display:block">
+        <div>⚠ ${esc(state.packScanError)}</div>
+        <button class="btn small primary" style="margin-top:8px" onclick="dismissPackScanError()">Tamam, Devam Et</button>
+      </div>` : ''}
+      <div id="pack-list-scroll" style="margin:16px 0;max-height:340px;overflow-y:auto">
+        ${[...order.lines].sort(naturalOrderLineSort).map(l=>{
+          const alreadyShipped = (order.shippedQuantities && order.shippedQuantities[l.barcode]) || 0;
+          const remaining = l.qty - alreadyShipped;
+          if(remaining<=0){
+            return `<div style="display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;background:#E4F8EC">
+              <div style="flex:1;font-size:13px">
+                <b>${esc(l.refNo)} ${esc(l.colorName)} ${esc(l.sizeLabel)}</b>
+                <div class="mini-meta" style="font-size:10.5px">${esc(l.barcode)} · Tamamı hazırlandı (${l.qty}/${l.qty})</div>
+              </div>
+              <span style="color:var(--good);font-weight:700">✓</span>
+            </div>`;
+          }
+          const confirmed = state.packingProgress[l.barcode]||0;
+          const done = confirmed >= remaining;
+          const currentStock = stockForBarcode(l.barcode, 0);
+          return `<div style="display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;background:${done?'#E4F8EC':'var(--surface)'}">
+            <div style="flex:1;font-size:13px">
+              <b>${esc(l.refNo)} ${esc(l.colorName)} ${esc(l.sizeLabel)}</b>
+              <div class="mini-meta" style="font-size:10.5px">${esc(l.barcode)}${alreadyShipped>0?` · ${alreadyShipped}/${l.qty} daha önce hazırlandı, kalan: ${remaining}`:''}</div>
+              <div style="font-size:11px;margin-top:2px;color:${currentStock<=0?'var(--danger)':'var(--muted)'}">Depoda mevcut stok: <b>${currentStock}</b>${currentStock<=0?' — stok yok!':''}</div>
+              ${currentStock<=0 ? `<button class="btn small danger-outline" style="margin-top:4px" onclick="openDepoMoveModalFromPacking('${attrEsc(l.barcode)}','${attrEsc(l.refNo)}','${attrEsc(l.colorName)}','${attrEsc(l.sizeLabel)}')">📥 Önce Depo Girişi Yap</button>` : ''}
+            </div>
+            <input type="number" min="0" max="${remaining}" value="${confirmed}" style="width:56px;text-align:center;border:1.5px solid var(--line);border-radius:3px;padding:5px" oninput="setPackQtyManual('${attrEsc(l.barcode)}', this.value)" ${running?'disabled':''} />
+            <span style="color:var(--muted);font-size:12px">/ ${remaining}</span>
+            ${done ? '<span style="color:var(--good);font-weight:700">✓</span>' : ''}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="closePackOrderModal()">Vazgeç</button>
+        <button class="btn ${allMatched?'primary':'danger-outline'}" ${running?'disabled':''} onclick="submitPackOrder()">${running?'⏳ İşleniyor…':(allMatched?'✓ Hazırlandı Olarak Onayla':'Eksik — Yine de Onayla')}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function setScanMode(mode){
+  state.scan.mode = mode; state.scan.stage='scan'; state.scan.barcode=''; state.scan.item=null; state.scan.lastResult=null;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
+function toggleScanRapidMode(){
+  state.scan.rapidMode = !state.scan.rapidMode;
+  state.scan.stage = 'scan'; state.scan.barcode=''; state.scan.item=null;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
+// Distinct two-tone alert sound — different from a typical barcode-scanner beep,
+// so the operator notices a problem even without looking at the screen.
+let audioCtx = null;
+function playAlertSound(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    [660, 330].forEach((freq, i)=>{
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const t = now + i*0.16;
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.exponentialRampToValueAtTime(0.3, t+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t); osc.stop(t+0.16);
+    });
+  }catch(e){ /* audio unavailable — ignore, visual warning still shows */ }
+}
+function processQuickScan(barcode){
+  barcode = (barcode||'').trim();
+  if(!barcode) return;
+  const item = state.warehouseItems.find(w=>w.barcode===barcode);
+  if(!item){
+    if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'scan'; }
+    const el = document.getElementById('scan-barcode'); if(el) el.value = '';
+    state.scan.barcode = barcode;
+    state.scan.stage = 'unknown';
+    playAlertSound();
+    render();
+    setTimeout(()=>{ const el2=document.getElementById('scan-new-ref'); if(el2) el2.focus(); }, 60);
+    return;
+  }
+  if(state.scan.rapidMode){
+    const el = document.getElementById('scan-barcode'); if(el) el.value = '';
+    queueScan(item, 1);
+  } else {
+    if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'scan'; }
+    state.scan.barcode = barcode;
+    state.scan.item = item;
+    state.scan.stage = 'qty';
+    render();
+    setTimeout(()=>{ const el=document.getElementById('scan-qty'); if(el){ el.focus(); el.select(); } }, 60);
+  }
+}
+function handleScanBarcodeKey(e){
+  if(e.key !== 'Enter') return;
+  processQuickScan(e.target.value);
+}
+function cancelScanUnknown(){
+  state.scan.stage = 'scan'; state.scan.barcode = '';
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
+function confirmScanUnknown(){
+  const refNo = document.getElementById('scan-new-ref').value.trim();
+  const colorName = document.getElementById('scan-new-color').value.trim().toUpperCase();
+  const sizeLabel = document.getElementById('scan-new-size').value.trim();
+  if(!refNo && !colorName){ showToast('En az referans veya renk bilgisi girin'); return; }
+  const item = { barcode: state.scan.barcode, refNo, colorName, sizeLabel, stock: 0 };
+  if(!state.warehouseItems.find(w=>w.barcode===item.barcode)) state.warehouseItems.push(item);
+  if(state.scan.rapidMode){
+    state.scan.stage = 'scan'; state.scan.barcode='';
+    queueScan(item, 1);
+  } else {
+    state.scan.item = item;
+    state.scan.stage = 'qty';
+    render();
+    setTimeout(()=>{ const el=document.getElementById('scan-qty'); if(el){ el.focus(); el.select(); } }, 60);
+  }
+}
+
+// Queue a scan for background processing — returns immediately so the operator can keep scanning
+// without waiting for the server round-trip. Each entry shows its own pending/ok/error status.
+function queueScan(item, qty){
+  const mode = state.scan.mode;
+  const entry = {
+    id: uid(), barcode: item.barcode, refNo: item.refNo, colorName: item.colorName, sizeLabel: item.sizeLabel,
+    qty, mode, status: 'pending'
+  };
+  state.scan.sessionLog.unshift(entry);
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 0);
+  processQueuedScan(entry);
+}
+async function processQueuedScan(entry){
+  const r = await postStockMovement(entry.barcode, entry.mode, entry.qty, 'Hızlı tarama', entry.refNo, entry.colorName, entry.sizeLabel);
+  if(r.ok){
+    entry.status = 'ok';
+    entry.stock = r.stock;
+    if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'ok');
+  } else {
+    entry.status = 'error';
+    entry.errorMsg = r.networkError ? 'Bağlantı hatası' : 'Kaydedilemedi';
+    playAlertSound();
+    if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'error');
+  }
+  render();
+}
+function retryQueuedScan(entryId){
+  const entry = state.scan.sessionLog.find(x=>x.id===entryId);
+  if(!entry) return;
+  entry.status = 'pending';
+  render();
+  processQueuedScan(entry);
+}
+async function submitScanMovement(qty){
+  const item = state.scan.item, mode = state.scan.mode;
+  state.scan.stage = 'pending';
+  state.scan.lastResult = { ok:true, text: `⏳ ${detailRefLabel(item.refNo,item.colorName,item.sizeLabel)} kaydediliyor…`, pending:true };
+  render();
+  const r = await postStockMovement(item.barcode, mode, qty, 'Hızlı tarama', item.refNo, item.colorName, item.sizeLabel);
+  if(r.ok){
+    state.scan.sessionLog.unshift({id:uid(), barcode:item.barcode, refNo:item.refNo, colorName:item.colorName, sizeLabel:item.sizeLabel, qty, mode, status:'ok', stock:r.stock});
+    state.scan.lastResult = { ok:true, text: `✓ ${detailRefLabel(item.refNo,item.colorName,item.sizeLabel)} — ${mode==='out'?'Çıkış':'Giriş'} ${qty} kaydedildi (Yeni stok: ${r.stock})` };
+  } else {
+    state.scan.lastResult = { ok:false, text: r.networkError ? '⚠ Sunucuya bağlanılamadı — kaydedilmedi, tekrar deneyin' : '⚠ Kaydedilemedi, tekrar deneyin' };
+  }
+  state.scan.stage = 'scan'; state.scan.barcode=''; state.scan.item=null;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
+async function handleScanQtyKey(e){
+  if(e.key !== 'Enter') return;
+  const qty = parseInt(e.target.value, 10) || 1;
+  await submitScanMovement(qty);
+}
+
+function handleLogoUpload(e){
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Lütfen bir görsel dosyası seçin'); return; }
+  if(file.size > 30*1024){ showToast('Logo çok büyük — lütfen 30 KB altında bir dosya kullanın'); return; }
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    state.logo = ev.target.result;
+    render();
+    const ok = await saveKey('logo', state.logo);
+    if(ok){ saveCachedLogo(state.logo); showToast('Logo kaydedildi'); } else showToast('Logo kaydedilemedi');
+  };
+  reader.onerror = function(){ showToast('Dosya okunamadı'); };
+  reader.readAsDataURL(file);
+}
+function closeModal(){ state.modalMode=null; state.pendingImage=null; render(); }
+// ---------- CSV export ----------
+// ---------- exchange rate (for TL price list) ----------
+async function fetchUsdTryRate(){
+  try{
+    const res = await fetch('https://open.er-api.com/v6/latest/USD');
+    const data = await res.json();
+    if(data && data.rates && data.rates.TRY) return data.rates.TRY;
+  }catch(e){ /* fall through */ }
+  return null;
+}
+
+// ---------- PDF catalog / price list ----------
+// ---------- render ----------
+function render(){
+  const root = document.getElementById('root');
+  if(!state.loaded){ root.innerHTML = '<div class="loading">Yükleniyor…</div>'; return; }
+
+  // The camera scanner attaches a live video stream to #camera-scan-region. Rebuilding the whole
+  // page HTML would destroy that element and kill the camera. Once it's up and running, skip
+  // re-rendering entirely while this modal is open — nothing in that modal depends on state.
+  if(state.modalMode === 'cameraScanner' && document.getElementById('camera-scan-region') && document.getElementById('camera-scan-region').childElementCount > 0){
+    return;
+  }
+
+  // Preserve focus + cursor position across the innerHTML rebuild below —
+  // otherwise every keystroke in a text input loses focus (cursor stops blinking).
+  const activeEl = document.activeElement;
+  let focusInfo = null;
+  if(activeEl && activeEl.id && root.contains(activeEl)){
+    focusInfo = { id: activeEl.id, start: activeEl.selectionStart, end: activeEl.selectionEnd };
+  }
+
+  // Preserve scroll position too — e.g. checking a box in a long Depo list shouldn't jump back to the top.
+  const pageScrollY = window.scrollY;
+  const tableWrapEl = document.querySelector('.depo-table-wrap');
+  const tableWrapScrollTop = tableWrapEl ? tableWrapEl.scrollTop : null;
+  const packListEl = document.getElementById('pack-list-scroll');
+  const packListScrollTop = packListEl ? packListEl.scrollTop : null;
+
+  const isDepocu = session.role === 'depocu';
+  const roleLabel = session.role==='admin' ? 'Yönetici' : (session.role==='depocu' ? 'Depocu' : 'Personel');
+
+  let html = `<div class="banner">
+    <div class="brand-row">
+      <div class="brand-logo-wrap">
+        <div class="logo-click" onclick="document.getElementById('logo-file').click()" title="${state.logo ? 'Logoyu değiştir' : 'Logo yükle'} — PNG/JPG/SVG, maks. 30 KB">
+          ${state.logo ? `<img src="${state.logo}" class="brand-logo" alt="Marka logosu" />` : `<div class="brand-logo-placeholder">Logo yok</div>`}
+          <span class="logo-edit-badge">✎</span>
+        </div>
+        <input type="file" id="logo-file" accept="image/*" style="display:none" onchange="handleLogoUpload(event)" />
+      </div>
+      <div>
+        <h1>Depo</h1>
+        <div class="sub">
+          ${isDepocu ? 'Barkod bazlı stok girişi ve çıkışı' : `Barkod bazlı stok girişi ve çıkışı · <a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş →</a> · <a class="nav-link" href="musteri-merkezi.html" target="_blank" rel="noopener">Müşteri Merkezi →</a>`}
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="user-badge">
+        <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
+        ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a>' : ''}
+        <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
+      </div>
+    </div>
+  </div>`;
+
+  html += renderDepoView();
+
+  if(state.modalMode === 'users') html += renderUsersModal();
+  else if(state.modalMode === 'depoMove') html += renderDepoMoveModal();
+  else if(state.modalMode === 'depoBulk') html += renderDepoBulkModal();
+  else if(state.modalMode === 'stockPriceUpdate' && !isDepocu) html += renderStockPriceUpdateModal();
+  else if(state.modalMode === 'bulkImage' && !isDepocu) html += renderBulkImageModal();
+  else if(state.modalMode === 'newDepoItem' && !isDepocu) html += renderNewDepoItemModal();
+  else if(state.modalMode === 'depoScan') html += renderScanModal();
+  else if(state.modalMode === 'pendingOrders') html += renderPendingOrdersModal();
+  else if(state.modalMode === 'cameraScanner') html += renderCameraScannerModal();
+  else if(state.modalMode === 'packOrder') html += renderPackOrderModal();
+
+  if(state.newOrderPopup) html += renderNewOrderPopup();
+
+  root.innerHTML = html;
+
+  if(focusInfo){
+    const el = document.getElementById(focusInfo.id);
+    if(el){
+      el.focus();
+      if(typeof el.setSelectionRange === 'function' && focusInfo.start!=null){
+        try{ el.setSelectionRange(focusInfo.start, focusInfo.end); }catch(e){}
+      }
+    }
+  }
+
+  window.scrollTo(0, pageScrollY);
+  if(tableWrapScrollTop!=null){
+    const newTableWrapEl = document.querySelector('.depo-table-wrap');
+    if(newTableWrapEl) newTableWrapEl.scrollTop = tableWrapScrollTop;
+  }
+  if(packListScrollTop!=null){
+    const newPackListEl = document.getElementById('pack-list-scroll');
+    if(newPackListEl) newPackListEl.scrollTop = packListScrollTop;
+  }
+}
+
+// ---------- Depo view ----------
+const DEPO_PAGE_SIZE = 100;
+function renderDepoView(){
+  if(!state.fxRate) ensureFxRateLoaded();
+  const q = state.depoSearch.trim().toLowerCase();
+  let items = [...state.warehouseItems].filter(it=>{
+    if(!q) return true;
+    return (it.barcode||'').toLowerCase().includes(q) || (it.refNo||'').toLowerCase().includes(q) ||
+           (it.colorName||'').toLowerCase().includes(q) || (it.sizeLabel||'').toLowerCase().includes(q);
+  });
+  switch(state.depoSortBy){
+    case 'barcode-asc': items.sort((a,b)=>(a.barcode||'').localeCompare(b.barcode||'')); break;
+    case 'barcode-desc': items.sort((a,b)=>(b.barcode||'').localeCompare(a.barcode||'')); break;
+    case 'stock-asc': items.sort((a,b)=>(Number(a.stock)||0)-(Number(b.stock)||0)); break;
+    case 'stock-desc': items.sort((a,b)=>(Number(b.stock)||0)-(Number(a.stock)||0)); break;
+    case 'recent-first': items.sort((a,b)=>(b.lastMovementAt||'').localeCompare(a.lastMovementAt||'')); break;
+    case 'oldest-first': items.sort((a,b)=>(a.lastMovementAt||'9999').localeCompare(b.lastMovementAt||'9999')); break;
+    case 'ref-asc':
+    default: items.sort((a,b)=> (a.refNo||'').localeCompare(b.refNo||'') || (a.colorName||'').localeCompare(b.colorName||''));
+  }
+
+  const canManage = session.role !== 'depocu';
+  const totalPages = Math.max(1, Math.ceil(items.length / DEPO_PAGE_SIZE));
+  if(state.depoPage > totalPages) state.depoPage = totalPages;
+  if(state.depoPage < 1) state.depoPage = 1;
+  const pageItems = items.slice((state.depoPage-1)*DEPO_PAGE_SIZE, state.depoPage*DEPO_PAGE_SIZE);
+  const visibleBarcodes = pageItems.map(it=>it.barcode);
+  const allSelected = canManage && visibleBarcodes.length>0 && visibleBarcodes.every(b=>state.depoSelected.has(b));
+  const selectedCount = state.depoSelected.size;
+
+  let out = '';
+  if(canManage){
+    out += `<div class="fx-banner">
+      ${state.fxRate ? `💱 <b>1 USD = ${formatMoney(state.fxRate)} ₺</b> ${state.fxRateSource==='TCMB' ? `(TCMB Alış Kuru${state.fxRateDate?', '+esc(state.fxRateDate):''})` : '(Piyasa kuru — TCMB alınamadı)'}` : (state.fxRateLoading ? 'Kur bilgisi alınıyor…' : 'Kur bilgisi henüz yok')}
+    </div>`;
+  }
+  out += `<div class="toolbar">
+    <input type="text" id="depo-search-input" placeholder="Barkod, referans, renk veya beden ara…" value="${attrEsc(state.depoSearch)}" onkeydown="if(event.key==='Enter') setDepoSearch(this.value)" />
+    <button class="btn ghost small" onclick="setDepoSearch(document.getElementById('depo-search-input').value)">Ara</button>
+    ${state.depoSearch ? `<button class="btn ghost small" onclick="clearDepoSearch()">✕ Temizle</button>` : ''}
+    <select onchange="setDepoSortBy(this.value)">
+      <option value="ref-asc" ${state.depoSortBy==='ref-asc'?'selected':''}>Referansa Göre</option>
+      <option value="barcode-asc" ${state.depoSortBy==='barcode-asc'?'selected':''}>Barkod (Küçükten Büyüğe)</option>
+      <option value="barcode-desc" ${state.depoSortBy==='barcode-desc'?'selected':''}>Barkod (Büyükten Küçüğe)</option>
+      <option value="stock-asc" ${state.depoSortBy==='stock-asc'?'selected':''}>Stok (Azdan Çoğa)</option>
+      <option value="stock-desc" ${state.depoSortBy==='stock-desc'?'selected':''}>Stok (Çoktan Aza)</option>
+      <option value="recent-first" ${state.depoSortBy==='recent-first'?'selected':''}>Son Hareket (Yeniden Eskiye)</option>
+      <option value="oldest-first" ${state.depoSortBy==='oldest-first'?'selected':''}>Son Hareket (Eskiden Yeniye)</option>
+    </select>
+    <button class="btn primary small" onclick="openScanMode('out')">📷 Hızlı Tarama</button>
+    <button class="btn ${state.pendingPackingOrders.length>0?'primary':'ghost'} small" onclick="openPendingOrdersModal()">📦 Bekleyen Siparişler${state.pendingPackingOrders.length>0?' ('+state.pendingPackingOrders.length+')':''}</button>
+    <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openNewDepoItemModal()">+ Yeni Depo Kaydı</button>` : ''}
+    <button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Stok Yükle (Excel)</button>
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button>` : ''}
+    ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.repairingReservations?'disabled':''} onclick="repairReservations()" title="Rezerve miktarlarını, gerçekte onaylı siparişlerde ne olması gerektiğine göre yeniden hesaplar">${state.repairingReservations?'⏳ Onarılıyor…':'🔧 Rezerveleri Onar'}</button>` : ''}
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
+    <button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>
+    ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
+    ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}
+    <div class="count">${items.length} / ${state.warehouseItems.length} kayıt</div>
+  </div>`;
+
+  if(items.length===0){
+    out += `<div class="empty">
+      <h3>${state.warehouseItems.length===0 ? 'Henüz depo kaydı yok' : 'Sonuç bulunamadı'}</h3>
+      <p>${state.warehouseItems.length===0 ? '"Toplu Stok Yükle" ile Excel\'deki mevcut stok listenizi içe aktarabilirsiniz.' : 'Aramayı değiştirmeyi deneyin.'}</p>
+    </div>`;
+  } else {
+    const cols = canManage ? '26px 56px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 130px 1fr 150px 80px 90px';
+    out += `<div class="depo-table-wrap"><table class="depo-table" style="--depo-cols:${cols}">
+      <thead><tr>
+        ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll(${JSON.stringify(visibleBarcodes)})" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
+        <th>Sıra No</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}<th>Kataloğa Ekle</th>${canManage?'<th></th>':''}
+      </tr></thead>
+      <tbody>
+      ${pageItems.map((it,idx)=>{
+        const low = (Number(it.stock)||0) <= LOW_STOCK_THRESHOLD;
+        const inCatalog = isBarcodeInCatalog(it.barcode);
+        const price = canManage ? priceForBarcode(it.barcode, it.refNo) : null;
+        const tryPrice = (price!=null && state.fxRate) ? (price*state.fxRate) : null;
+        const reserved = Number(it.reserved)||0;
+        return `<tr>
+          ${canManage ? `<td><input type="checkbox" ${state.depoSelected.has(it.barcode)?'checked':''} onchange="toggleDepoSelect('${attrEsc(it.barcode)}')" /></td>` : ''}
+          <td class="depo-td-muted">${(state.depoPage-1)*DEPO_PAGE_SIZE + idx + 1}</td>
+          <td class="mini-meta" style="font-size:11.5px">${esc(it.barcode)}</td>
+          <td class="name" style="font-size:13px">${esc(detailRefLabel(it.refNo, it.colorName, it.sizeLabel))}</td>
+          <td>
+            <div class="depo-qty-cell">
+              <button class="depo-qty-btn out" onclick="openDepoMoveModal('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}','${attrEsc(it.colorName)}','${attrEsc(it.sizeLabel)}','out')" title="Çıkış">−</button>
+              <span class="pc-stock-badge ${low?'low':''}">${low?'⚠ ':''}${it.stock||0}</span>
+              <button class="depo-qty-btn in" onclick="openDepoMoveModal('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}','${attrEsc(it.colorName)}','${attrEsc(it.sizeLabel)}','in')" title="Giriş">+</button>
+            </div>
+          </td>
+          <td>${reserved>0 ? `<span class="chip other" title="Onaylı siparişler için rezerve edilmiş">${reserved}</span>` : `<span class="depo-td-muted">—</span>`}</td>
+          ${canManage ? `<td><input type="number" min="0" step="0.01" value="${price!=null?price:''}" placeholder="0.00" class="depo-price-input" onchange="updateDepoPrice('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}', this.value)" /></td>
+          <td class="depo-td-muted">${tryPrice!=null ? formatMoney(tryPrice)+' ₺' : (state.fxRateLoading ? 'kur…' : '—')}</td>` : ''}
+          <td>${session.role!=='depocu' ? (inCatalog ? `<span class="chip wa">Kataloğda ✓</span>` : `<button class="btn small ghost" onclick="addWarehouseItemToCatalog('${attrEsc(it.barcode)}')">Kataloğa Ekle</button>`) : '<span class="depo-td-muted">—</span>'}</td>
+          ${canManage ? `<td><button class="sku-del" onclick="deleteSelectedSingle('${attrEsc(it.barcode)}')" title="Bu kaydı sil">✕</button></td>` : ''}
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>`;
+    if(totalPages > 1){
+      out += `<div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-top:14px">
+        <button class="btn small ghost" ${state.depoPage<=1?'disabled':''} onclick="setDepoPage(${state.depoPage-1})">← Önceki</button>
+        <span style="font-size:12.5px;color:var(--muted)">Sayfa ${state.depoPage} / ${totalPages}</span>
+        <button class="btn small ghost" ${state.depoPage>=totalPages?'disabled':''} onclick="setDepoPage(${state.depoPage+1})">Sonraki →</button>
+      </div>`;
+    }
+  }
+  return out;
+}
+
+function renderDepoMoveModal(){
+  const t = state.depoMoveTarget;
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal">
+      <h2>${t.type==='in' ? 'Stok Girişi' : 'Stok Çıkışı'}</h2>
+      <p style="color:var(--muted);font-size:13px;margin-top:-10px">
+        ${esc(detailRefLabel(t.refNo, t.colorName, t.sizeLabel))}<br/>
+        <span style="font-variant-numeric:tabular-nums">${esc(t.barcode)}</span>
+      </p>
+      <div class="field">
+        <label>Miktar</label>
+        <input id="dm-qty" type="number" min="1" placeholder="Örn. 20" />
+      </div>
+      <div class="field">
+        <label>Not (opsiyonel)</label>
+        <input id="dm-note" type="text" placeholder="${t.type==='in' ? 'Örn. Yeni üretim, iade' : 'Örn. Pazaryeri satışı, hasar'}" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Vazgeç</button>
+        <button class="btn ${t.type==='in'?'primary':'danger-outline'}" onclick="submitDepoMove()">${t.type==='in' ? 'Girişi Kaydet' : 'Çıkışı Kaydet'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------- Toplu Stok/Fiyat Güncelle — hafif, sadece var olan barkodları günceller ----------
+function openStockPriceUpdateModal(){
+  state.modalMode = 'stockPriceUpdate';
+  state.stockPriceUpdateFile = null;
+  state.stockPriceUpdateError = null;
+  state.stockPriceUpdateSkippedLines = [];
+  state.stockPriceUpdateResultText = null;
+  render();
+}
+function downloadStockPriceUpdateTemplate(){
+  const header = ['Barkod','Yeni Stok Miktarı','Yeni Fiyat'];
+  const example = ['1288002000115','30','$19.90'];
+  const csv = [header, example].map(r=>r.map(csvField).join(',')).join('\n');
+  downloadBlob('stok-fiyat-guncelleme-sablonu.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  showToast('Şablon indirildi');
+}
+function parseFlexibleNumber(str){
+  // Handles "8,5" or "8,50" as a European-style decimal (comma instead of dot) — this happens when
+  // the value survives CSV export as a single field (e.g. quoted by Excel) rather than getting split
+  // into two columns. parseFloat("8,5") alone would silently read this as just 8.
+  if(str==null) return NaN;
+  str = String(str).trim();
+  str = str.replace(/[$₺€£]/g, '').trim(); // strip currency symbols (our own export prefixes prices with $)
+  if(/^\d+,\d{1,2}$/.test(str)) str = str.replace(',', '.');
+  return parseFloat(str);
+}
+function healDecimalCommaSplit(cols, expectedCount){
+  // Excel's "MS-DOS Comma Separated CSV" export, combined with a Turkish/European locale where
+  // "," is the decimal separator, turns a single value like "8,5" into TWO CSV columns ("8" and "5")
+  // since comma is also the field delimiter. If we see more columns than expected and two adjacent
+  // ones are both plain integers, they're almost certainly a split decimal — merge them back.
+  cols = cols.slice();
+  while(cols.length > expectedCount){
+    let merged = false;
+    for(let i=cols.length-2; i>=0; i--){
+      if(/^\d+$/.test(cols[i]) && /^\d+$/.test(cols[i+1])){
+        cols[i] = cols[i] + '.' + cols[i+1];
+        cols.splice(i+1,1);
+        merged = true;
+        break;
+      }
+    }
+    if(!merged) break; // can't safely repair further — leave as-is, validation below will catch it
+  }
+  return cols;
+}
+function parseStockPriceUpdateLines(raw){
+  const rawLines = raw.split('\n');
+  const updates = [];
+  const skippedLines = [];
+  for(let li=0; li<rawLines.length; li++){
+    const rowNum = li + 1;
+    const line = rawLines[li].trim();
+    if(!line) continue;
+    if(/^Barkod\s*[,\t]/i.test(line)) continue; // header row
+    let cols = parseBulkLine(line).map(c=>(c||'').trim());
+    if(cols.length > 3) cols = healDecimalCommaSplit(cols, 3);
+    const barcode = (cols[0]||'').trim();
+    const stockRaw = (cols[1]||'').trim();
+    const priceRaw = (cols[2]||'').trim();
+    if(!barcode){ skippedLines.push({line, reason:'Barkod sütunu boş', rowNum}); continue; }
+    if(!stockRaw && !priceRaw){ skippedLines.push({line, reason:'Ne stok ne fiyat girilmiş — güncellenecek bir şey yok', rowNum}); continue; }
+    const newStock = stockRaw ? parseInt(stockRaw,10) : null;
+    const newPrice = priceRaw ? parseFlexibleNumber(priceRaw) : null;
+    if(stockRaw && isNaN(newStock)){ skippedLines.push({line, reason:'Stok miktarı sayı değil: "'+stockRaw+'"', rowNum}); continue; }
+    if(priceRaw && isNaN(newPrice)){ skippedLines.push({line, reason:'Fiyat sayı değil: "'+priceRaw+'" — ondalık ayıracı olarak NOKTA (.) kullandığınızdan emin olun', rowNum}); continue; }
+    updates.push({barcode, newStock, newPrice, createdBy: session.displayName});
+  }
+  return {updates, skippedLines};
+}
+async function sendStockPriceUpdate(updates, skippedLines){
+  if(updates.length===0){ showToast('Güncellenecek geçerli satır bulunamadı'); return; }
+  if(state.stockPriceUpdateRunning) return;
+  state.stockPriceUpdateRunning = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bulkUpdateStockPrice', auth:{username:session.username, passwordHash:session.passwordHash}, updates})
+    }, 90000);
+    const data = await res.json();
+    state.stockPriceUpdateRunning = false;
+    if(data && data.ok){
+      await refreshData();
+      const parts = [];
+      if(data.stockUpdated>0) parts.push(`${data.stockUpdated} barkodun stoğu güncellendi`);
+      if(data.priceUpdated>0) parts.push(`${data.priceUpdated} barkodun fiyatı güncellendi`);
+      if(data.notFound && data.notFound.length>0) parts.push(`⚠ ${data.notFound.length} barkod sistemde bulunamadı: ` + data.notFound.slice(0,10).join(', ') + (data.notFound.length>10?'…':''));
+      state.stockPriceUpdateResultText = (parts.join(' · ')||'İşlem tamamlandı') + '.';
+      state.stockPriceUpdateResultIsError = !!(data.notFound && data.notFound.length>0);
+      showToast('Toplu güncelleme tamamlandı');
+    } else {
+      state.stockPriceUpdateResultText = 'Güncelleme başarısız oldu — yetkinizi kontrol edin ve tekrar deneyin.';
+      state.stockPriceUpdateResultIsError = true;
+      showToast('Güncelleme başarısız');
+    }
+  }catch(e){
+    state.stockPriceUpdateRunning = false;
+    if(e && e.name === 'AbortError'){
+      state.stockPriceUpdateResultText = '⏱ Sunucu 90 saniyede yanıt vermedi. İşlem sunucu tarafında hâlâ devam ediyor olabilir — sayfayı birkaç dakika sonra yenileyip stok/fiyatların değişip değişmediğini kontrol edin. Eğer değişmemişse tekrar deneyin.';
+    } else {
+      state.stockPriceUpdateResultText = 'Sunucuya bağlanılamadı — internet bağlantınızı kontrol edip tekrar deneyin.';
+    }
+    state.stockPriceUpdateResultIsError = true;
+  }
+  state.stockPriceUpdateSkippedLines = skippedLines || [];
+  render();
+}
+async function submitStockPriceUpdate(){
+  if(state.stockPriceUpdateRunning) return;
+  state.stockPriceUpdateError = null;
+  state.stockPriceUpdateResultText = null;
+  if(state.stockPriceUpdateFile){
+    await sendStockPriceUpdate(state.stockPriceUpdateFile.updates, state.stockPriceUpdateFile.skippedLines);
+    state.stockPriceUpdateFile = null;
+    return;
+  }
+  const raw = document.getElementById('stockprice-textarea').value;
+  if(!raw || !raw.trim()){
+    state.stockPriceUpdateError = 'Önce bir CSV dosyası seçin ya da kutuya veri yapıştırın.';
+    render();
+    return;
+  }
+  const {updates, skippedLines} = parseStockPriceUpdateLines(raw);
+  if(updates.length===0){
+    state.stockPriceUpdateError = `Girdiğiniz veriden geçerli bir satır çıkmadı — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
+    state.stockPriceUpdateSkippedLines = skippedLines;
+    render();
+    return;
+  }
+  await sendStockPriceUpdate(updates, skippedLines);
+}
+function handleStockPriceUpdateFile(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  if(state.stockPriceUpdateRunning){ e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      let text = ev.target.result;
+      if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const {updates, skippedLines} = parseStockPriceUpdateLines(text);
+      state.stockPriceUpdateResultText = null;
+      if(updates.length===0){
+        state.stockPriceUpdateFile = null;
+        state.stockPriceUpdateError = `Dosyadan geçerli bir satır çıkmadı — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
+        state.stockPriceUpdateSkippedLines = skippedLines;
+      } else {
+        state.stockPriceUpdateFile = {name:file.name, updates, skippedLines};
+        state.stockPriceUpdateError = null;
+        state.stockPriceUpdateSkippedLines = skippedLines;
+        showToast(`${updates.length} satır dosyadan okundu — "Güncelle"ye basın`);
+      }
+    }catch(err){
+      state.stockPriceUpdateFile = null;
+      state.stockPriceUpdateError = 'Dosya işlenirken bir hata oluştu: ' + (err && err.message ? err.message : err);
+    }
+    render();
+  };
+  reader.onerror = function(){ showToast('Dosya okunamadı'); };
+  reader.readAsText(file, 'UTF-8');
+  e.target.value = '';
+}
+function clearStockPriceUpdateFile(){ state.stockPriceUpdateFile = null; state.stockPriceUpdateError = null; state.stockPriceUpdateSkippedLines = []; render(); }
+function renderStockPriceUpdateModal(){
+  const running = state.stockPriceUpdateRunning;
+  const f = state.stockPriceUpdateFile;
+  return `<div class="overlay" onmousedown="if(!${running} && event.target===event.currentTarget) closeModal()">
+    <div class="modal wide">
+      <h2>Toplu Stok/Fiyat Güncelle</h2>
+      ${running ? `
+        <div class="bulk-help" style="text-align:center;padding:20px">
+          <div style="font-weight:700;margin-bottom:4px">⏳ İşleniyor…</div>
+          <div style="font-size:12px">Bu pencereyi kapatmayın veya sayfayı yenilemeyin.</div>
+        </div>
+      ` : f ? `
+        <div class="bulk-help">
+          <b>📄 ${esc(f.name)}</b> seçildi — <b>${f.updates.length} satır</b> okundu.<br/>
+          Aşağıdaki <b>"Güncelle"</b> düğmesine basınca işlenmeye başlayacak. Sadece <b>sistemde zaten kayıtlı</b> barkodlar güncellenir, yeni ürün oluşturulmaz.
+        </div>
+        <button class="btn ghost small" onclick="clearStockPriceUpdateFile()">Farklı dosya seç</button>
+      ` : `
+        <div class="bulk-help" style="border-color:var(--good);background:#E4F8EC">
+          <b>✓ Bu araç girdiğiniz sayıyı doğrudan geçerli değer olarak AYARLAR</b> (mevcut stoğun üzerine eklemez). Sadece <b>sistemde zaten var olan</b> barkodları etkiler, yeni ürün oluşturmaz. Yeni ürün eklemek için "Toplu Stok Yükle"yi kullanın.
+        </div>
+        <div class="bulk-help">
+          Sütunlar: <code>Barkod, Yeni Stok Miktarı, Yeni Fiyat</code> — Stok veya Fiyat sütunlarından birini boş bırakabilirsiniz (sadece diğeri güncellenir).<br/>
+          Stok değişimi, mevcut denetim kaydına (Depo Girişi/Çıkışı) otomatik olarak "Toplu stok güncelleme" notuyla işlenir — geçmişiniz kaybolmaz.<br/>
+          <b>Excel'den kaydederken "CSV UTF-8 (Virgülle Ayrılmış)" seçin, "MS-DOS CSV" değil</b> — ve ondalık ayıracı olarak <b>nokta (.)</b> kullanın, virgül değil (örn. <code>19.90</code>, <code>19,90</code> değil).<br/>
+          Örnek: <code>1288002000115, 30, $19.90</code> veya sadece fiyat için <code>1288002000115, , $19.90</code> — fiyata $ eklemek Excelin sayıyı tarihle karıştırmasını önler.
+        </div>
+        <button class="btn ghost small" style="margin-bottom:12px" onclick="downloadStockPriceUpdateTemplate()">📄 Doğru Formatta Boş Şablon İndir</button>
+        <div class="upload-drop" onclick="document.getElementById('stockprice-file').click()" style="margin-bottom:14px">
+          CSV dosyası seçmek için tıklayın
+        </div>
+        <input type="file" id="stockprice-file" accept=".csv,.txt" style="display:none" onchange="handleStockPriceUpdateFile(event)" />
+        <div style="text-align:center;color:var(--muted);font-size:11px;margin:10px 0">— veya —</div>
+        <textarea id="stockprice-textarea" placeholder="1288002000115, 30, $19.90&#10;1288002000212, 12, "></textarea>
+      `}
+      <div id="stockprice-result" class="bulk-result ${(state.stockPriceUpdateError||state.stockPriceUpdateResultIsError)?'error':'ok'}" style="${(state.stockPriceUpdateError||state.stockPriceUpdateResultText)?'display:block':'display:none'}">${state.stockPriceUpdateError?esc(state.stockPriceUpdateError):(state.stockPriceUpdateResultText?esc(state.stockPriceUpdateResultText):'')}</div>
+      ${state.stockPriceUpdateSkippedLines.length>0 ? `
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--danger);font-weight:600">⚠ ${state.stockPriceUpdateSkippedLines.length} satır atlandı — hangileri ve neden olduğunu görmek için tıklayın</summary>
+          <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;margin-top:6px">
+            ${state.stockPriceUpdateSkippedLines.map(s=>`<div style="padding:6px 10px;border-bottom:1px solid var(--line);font-size:11.5px">
+              <div style="font-weight:700;color:var(--ink)">Satır ${s.rowNum}</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;color:var(--muted);margin-top:2px">${esc(s.line)}</div>
+              <div style="color:var(--danger);margin-top:2px">↳ ${esc(s.reason)}</div>
+            </div>`).join('')}
+          </div>
+        </details>
+      ` : ''}
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
+        ${!running ? `<button class="btn primary" onclick="submitStockPriceUpdate()">Güncelle</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderDepoBulkModal(){
+  const running = state.depoBulkRunning;
+  const f = state.depoBulkFile;
+  return `<div class="overlay" onmousedown="if(!${running} && event.target===event.currentTarget) closeModal()">
+    <div class="modal wide">
+      <h2>Toplu Stok Yükle</h2>
+      ${running ? `
+        <div class="bulk-help" style="text-align:center;padding:20px">
+          <div style="font-weight:700;margin-bottom:4px">⏳ İşleniyor…</div>
+          <div style="font-size:12px">Büyük listeler birkaç dakika sürebilir. Bu pencereyi kapatmayın veya sayfayı yenilemeyin.</div>
+        </div>
+      ` : f ? `
+        <div class="bulk-help">
+          <b>📄 ${esc(f.name)}</b> seçildi — <b>${f.items.length} satır</b> okundu${f.skipped>0?`, ${f.skipped} satır atlandı`:''}${f.batchDupes>0?`, ${f.batchDupes} mükerrer barkod atlandı`:''}.<br/>
+          Aşağıdaki <b>"İçe Aktar"</b> düğmesine basınca yüklenmeye başlayacak.
+        </div>
+        <button class="btn ghost small" onclick="clearDepoBulkFile()">Farklı dosya seç</button>
+      ` : `
+        <div class="bulk-help" style="border-color:var(--warn);background:var(--warn-bg)">
+          <b>⚠ Bu araç, girdiğiniz miktarı mevcut stoğa EKLER — üzerine YAZMAZ.</b> Yeni barkod kaydı da oluşturur. Var olan bir ürünün stoğunu belirli bir sayıya <b>AYARLAMAK</b> (üzerine yazmak) veya sadece fiyatını değiştirmek için bunun yerine <button class="btn ghost small" style="padding:2px 8px;font-size:11px" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button> aracını kullanın.
+        </div>
+        <div class="bulk-help">
+          İki format da kabul edilir, sonuna isteğe bağlı <b>Fiyat (USD)</b> ekleyebilirsiniz:<br/>
+          <code>Barkod, Referans No, Renk, Beden, Mevcut Stok, Fiyat</code> (6 ayrı sütun)<br/>
+          <code>Barkod, "Referans Renk Beden", Mevcut Stok, Fiyat</code> (birleşik referans)<br/>
+          Büyük listeler için <b>CSV dosyası seçin</b> — sonra aşağıdaki İçe Aktar düğmesine basın. Küçük eklemeler için kutuya yapıştırabilirsiniz de.<br/>
+          <b>Excel'den kaydederken "CSV UTF-8 (Virgülle Ayrılmış)" seçin, "MS-DOS CSV" değil</b> — ve ondalık ayıracı olarak <b>nokta (.)</b> kullanın, virgül değil (örn. <code>18.50</code>, <code>18,50</code> değil).<br/>
+          Örnek: <code>1288002000115, 261523 BLUE 1, 24, $18.50</code> — fiyata $ eklemek Excelin sayıyı tarihle karıştırmasını önler.
+        </div>
+        <button class="btn ghost small" style="margin-bottom:12px" onclick="downloadDepoBulkTemplate()">📄 Doğru Formatta Boş Şablon İndir</button>
+        <div class="upload-drop" onclick="document.getElementById('depo-bulk-file').click()" style="margin-bottom:14px">
+          CSV dosyası seçmek için tıklayın<br/><span style="font-size:10.5px">Örn. "depo-ice-aktarim.csv" — seçtikten sonra aşağıdan İçe Aktar'a basın</span>
+        </div>
+        <input type="file" id="depo-bulk-file" accept=".csv,.txt" style="display:none" onchange="handleDepoBulkFile(event)" />
+        <div style="text-align:center;color:var(--muted);font-size:11px;margin:10px 0">— veya —</div>
+        <textarea id="depo-bulk-textarea" placeholder="1288002000115, 2000, RED, Size 1, 24&#10;1288002000212, 2000, BLUE, Size 2, 15"></textarea>
+      `}
+      <div id="depo-bulk-result" class="bulk-result ${(state.depoBulkError||state.depoBulkResultIsError)?'error':'ok'}" style="${(state.depoBulkError||state.depoBulkResultText)?'display:block':'display:none'}">${state.depoBulkError?esc(state.depoBulkError):(state.depoBulkResultText?esc(state.depoBulkResultText):'')}</div>
+      ${state.depoBulkSkippedLines.length>0 ? `
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--danger);font-weight:600">⚠ ${state.depoBulkSkippedLines.length} satır atlandı — hangileri ve neden olduğunu görmek için tıklayın</summary>
+          <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;margin-top:6px">
+            ${state.depoBulkSkippedLines.map(s=>`<div style="padding:6px 10px;border-bottom:1px solid var(--line);font-size:11.5px">
+              <div style="font-weight:700;color:var(--ink)">Satır ${s.rowNum}</div>
+              <div style="font-family:ui-monospace,Menlo,monospace;color:var(--muted);margin-top:2px">${esc(s.line)}</div>
+              <div style="color:var(--danger);margin-top:2px">↳ ${esc(s.reason)}</div>
+            </div>`).join('')}
+          </div>
+        </details>
+      ` : ''}
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
+        ${!running ? `<button class="btn primary" onclick="submitDepoBulkImport()">İçe Aktar</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderBulkImageModal(){
+  const running = state.bulkImageRunning;
+  const rows = state.bulkImageRows;
+  return `<div class="overlay" onmousedown="if(!${running} && event.target===event.currentTarget) closeModal()">
+    <div class="modal wide" style="max-width:680px">
+      <h2>Toplu Görsel Yükle</h2>
+      ${running ? `
+        <div class="bulk-help" style="text-align:center;padding:20px">
+          <div style="font-weight:700;margin-bottom:4px">⏳ ${esc(state.bulkImageProgress||'İşleniyor…')}</div>
+          <div style="font-size:12px">Bu pencereyi kapatmayın.</div>
+        </div>
+      ` : `
+        <div class="bulk-help">
+          Dosya adı <b>Referans-Renk</b> formatında olmalı, örn. <code>2000-BEYAZ.jpg</code>, <code>2000-RED.png</code>.<br/>
+          Her görsel, o referans + renge ait <b>tüm bedenlere otomatik uygulanır</b> — tek görsel, birden fazla barkodu kapsar.<br/>
+          Birden fazla dosyayı aynı anda seçebilirsiniz. Yüklemeden önce eşleşmeleri (ve isterseniz model açıklamasını) gözden geçirip düzeltebilirsiniz.
+        </div>
+        ${rows.length===0 ? `
+          <div class="upload-drop" onclick="document.getElementById('bulk-image-file').click()">
+            Görselleri seçmek için tıklayın<br/><span style="font-size:10.5px">Birden fazla dosya seçebilirsiniz</span>
+          </div>
+          <input type="file" id="bulk-image-file" accept="image/*" multiple style="display:none" onchange="handleBulkImageFiles(event)" />
+        ` : `
+          <div style="max-height:400px;overflow-y:auto;border:1px solid var(--line);border-radius:5px">
+            ${rows.map((r,idx)=>{
+              const matchCount = (r.parsed && r.parsed.refNo && r.parsed.colorName) ? matchCountForRefColor(r.parsed.refNo, r.parsed.colorName) : 0;
+              return `<div style="display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)">
+                ${r.processedImage ? `<img src="${r.processedImage}" style="width:44px;height:44px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px" />` : `<div class="depo-thumb depo-thumb-empty">${r.status==='processing'?'…':'—'}</div>`}
+                <div style="flex:1">
+                  <div style="font-size:11px;color:var(--muted);margin-bottom:3px">${esc(r.fileName)}</div>
+                  <div style="display:flex;gap:6px">
+                    <input type="text" value="${attrEsc(r.parsed?r.parsed.refNo:'')}" placeholder="Ref No" style="width:70px;border:1px solid var(--line);border-radius:3px;padding:4px 6px;font-size:12px" oninput="updateBulkImageField(${idx},'refNo',this.value)" />
+                    <input type="text" value="${attrEsc(r.parsed?r.parsed.colorName:'')}" placeholder="Renk" style="width:100px;border:1px solid var(--line);border-radius:3px;padding:4px 6px;font-size:12px;text-transform:uppercase" oninput="updateBulkImageField(${idx},'colorName',this.value)" />
+                    <input type="text" value="${attrEsc(r.description)}" placeholder="Açıklama (opsiyonel)" style="flex:1;border:1px solid var(--line);border-radius:3px;padding:4px 6px;font-size:12px" oninput="updateBulkImageField(${idx},'description',this.value)" />
+                  </div>
+                  <div style="font-size:10.5px;color:var(--muted);margin-top:4px">
+                    ${r.status==='processing' ? 'Görsel işleniyor…' : r.status==='error' ? '⚠ Görsel işlenemedi' : r.status==='unparsed' ? '⚠ Dosya adından Ref/Renk çözülemedi, elle girin' : `${matchCount} depo kaydı ile eşleşiyor`}
+                  </div>
+                </div>
+                <button class="sku-del" onclick="removeBulkImageRow(${idx})" title="Kaldır">✕</button>
+              </div>`;
+            }).join('')}
+          </div>
+          <button class="btn ghost small" style="margin-top:10px" onclick="document.getElementById('bulk-image-file').click()">+ Daha fazla görsel ekle</button>
+          <input type="file" id="bulk-image-file" accept="image/*" multiple style="display:none" onchange="handleBulkImageFiles(event)" />
+        `}
+      `}
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
+        ${(!running && rows.length>0) ? `<button class="btn primary" onclick="commitBulkImageImport()">İçe Aktar</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderNewDepoItemModal(){
+  const s = state.newDepoItemSuccess;
+  const saving = state.newDepoItemSaving;
+  if(s){
+    return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeNewDepoItemSuccess()">
+      <div class="modal">
+        <div class="bulk-result ok" style="display:block;text-align:center;padding:18px">
+          <div style="font-size:26px;margin-bottom:6px">✅</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:6px">Depo kaydı oluşturuldu</div>
+          <div style="font-size:13px">${esc(detailRefLabel(s.refNo, s.colorName, s.sizeLabel))}</div>
+          <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;margin-top:4px">Barkod: ${esc(s.barcode)}</div>
+          ${s.qty>0 ? `<div style="font-size:13px;margin-top:4px">Başlangıç stoğu: <b>${s.qty}</b></div>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button class="btn ghost" onclick="closeNewDepoItemSuccess()">Kapat</button>
+          <button class="btn primary" onclick="addAnotherDepoItem()">+ Başka Kayıt Ekle</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  return `<div class="overlay" onmousedown="if(!${saving} && event.target===event.currentTarget) closeModal()">
+    <div class="modal">
+      <h2>Yeni Depo Kaydı</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-top:-10px">Barkod, konuştuğumuz formülle (1288 + Ref No + Renk Sırası + Beden Sırası + kontrol hanesi) otomatik oluşturulur. Model/renk zaten kayıtlıysa üzerine yenisi eklenmez, mevcut olan kullanılır.</p>
+      <div class="row2">
+        <div class="field">
+          <label>Referans No *</label>
+          <input id="ndi-ref" type="text" inputmode="numeric" maxlength="6" placeholder="Örn. 2000" oninput="this.value=this.value.replace(/[^0-9]/g,'')" ${saving?'disabled':''} />
+        </div>
+        <div class="field">
+          <label>Model Adı (opsiyonel)</label>
+          <input id="ndi-refname" type="text" placeholder="Yalnızca yeni modelse kullanılır" ${saving?'disabled':''} />
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Renk *</label>
+          <input id="ndi-color" type="text" placeholder="Örn. BLUE" oninput="this.value=this.value.toUpperCase()" style="text-transform:uppercase" ${saving?'disabled':''} />
+        </div>
+        <div class="field">
+          <label>Beden *</label>
+          <select id="ndi-size" ${saving?'disabled':''}>
+            ${SIZES.map(s=>`<option value="${s.code}">${esc(s.short)} (EU ${s.eu})</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Başlangıç Stoğu (opsiyonel)</label>
+        <input id="ndi-qty" type="number" min="0" placeholder="0" ${saving?'disabled':''} />
+      </div>
+      ${saving ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Kaydediliyor…</div>` : ''}
+      <div class="modal-actions">
+        <button class="btn ghost" ${saving?'disabled':''} onclick="closeModal()">Vazgeç</button>
+        <button class="btn primary" ${saving?'disabled':''} onclick="submitNewDepoItem()">Kaydet ve Barkod Üret</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderScanModal(){
+  const s = state.scan;
+  return `<div class="overlay">
+    <div class="modal wide">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h2 style="margin:0">Hızlı Tarama</h2>
+        <button class="btn small ghost" ${s.stage==='pending'?'disabled':''} onclick="closeScanMode()">Kapat</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn small ${s.mode==='out'?'':'ghost'}" ${s.stage==='pending'?'disabled':''} style="${s.mode==='out'?'background:var(--danger);color:#fff;border-color:var(--danger)':''}" onclick="setScanMode('out')">− Çıkış</button>
+        <button class="btn small ${s.mode==='in'?'primary':'ghost'}" ${s.stage==='pending'?'disabled':''} onclick="setScanMode('in')">+ Giriş</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:16px;cursor:pointer">
+        <input type="checkbox" ${s.rapidMode?'checked':''} ${s.stage==='pending'?'disabled':''} onchange="toggleScanRapidMode()" style="width:auto" />
+        <b>Hızlı Sayım Modu</b> — her taramada miktar sormadan otomatik 1 adet kaydet
+      </label>
+      ${s.lastResult ? `<div class="bulk-result ${s.lastResult.ok?'ok':'error'}" style="display:block;margin-bottom:12px">${esc(s.lastResult.text)}</div>` : ''}
+      ${s.stage==='pending' ? `
+        <div class="field">
+          <label>Barkodu Okutun</label>
+          <input type="text" disabled value="⏳ Kaydediliyor, lütfen bekleyin…" style="font-size:16px;padding:14px;text-align:center;color:var(--muted);background:#F1ECDD" />
+        </div>
+      ` : s.stage==='scan' ? `
+        <div class="field">
+          <label>Barkodu Okutun</label>
+          <input id="scan-barcode" type="text" autocomplete="off" style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums" onkeydown="handleScanBarcodeKey(event)" placeholder="Okuyucuyla tarayın ya da elle yazıp Enter'a basın" />
+          <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="openCameraScanner('quick')">📷 Telefon Kamerasıyla Tara</button>
+        </div>
+      ` : s.stage==='unknown' ? `
+        <div class="bulk-result error" style="display:block;text-align:center;font-size:14px">
+          ⚠ <b>${esc(s.barcode)}</b> barkodu sistemde kayıtlı değil.
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:12px 0 10px">Bu barkodu şimdi kaydetmek ister misiniz? Bilgileri girip devam edin — barkod olduğu gibi kaydedilecek, yeni bir barkod üretilmeyecek.</p>
+        <div class="row2">
+          <div class="field"><label>Referans No</label><input id="scan-new-ref" type="text" /></div>
+          <div class="field"><label>Renk</label><input id="scan-new-color" type="text" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" /></div>
+        </div>
+        <div class="field"><label>Beden</label><input id="scan-new-size" type="text" placeholder="Örn. 1, Size 1, 19-20" /></div>
+        <div class="modal-actions" style="margin-top:0">
+          <button class="btn ghost" onclick="cancelScanUnknown()">Vazgeç</button>
+          <button class="btn primary" onclick="confirmScanUnknown()">Kaydet ve Devam Et</button>
+        </div>
+      ` : `
+        <div class="extra-info-box" style="margin-bottom:14px">
+          <div style="font-weight:700;font-size:15px">${esc(detailRefLabel(s.item.refNo, s.item.colorName, s.item.sizeLabel))}</div>
+          <div style="color:var(--muted);font-size:12px;margin-top:2px">${esc(s.barcode)} · Mevcut stok: ${s.item.stock||0}</div>
+        </div>
+        <div class="field">
+          <label>Miktar</label>
+          <input id="scan-qty" type="number" min="1" value="1" style="font-size:20px;padding:14px;text-align:center" onkeydown="handleScanQtyKey(event)" />
+        </div>
+        <div class="field-msg">Enter'a basınca kaydedilir ve bir sonraki taramaya geçilir</div>
+      `}
+      ${s.sessionLog.length>0 ? `
+        <div style="margin-top:20px">
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
+          ${s.sessionLog.slice(0,12).map(l=>`<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='pending'?'background:#FBF9F3':''}">
+            <div class="meta">
+              <span class="chip ${l.mode==='in'?'wa':'other'}">${l.mode==='in'?'Giriş':'Çıkış'}</span>
+              <span>${esc(detailRefLabel(l.refNo, l.colorName, l.sizeLabel))}</span>
+              <span style="font-weight:700;margin-left:auto">${l.mode==='in'?'+':'−'}${l.qty}</span>
+              ${l.status==='pending' ? '<span style="font-size:11px;color:var(--muted)">⏳</span>' : ''}
+              ${l.status==='ok' ? '<span style="font-size:12px;color:var(--good)">✓</span>' : ''}
+              ${l.status==='error' ? `<span style="font-size:11px;color:var(--danger)">⚠ ${esc(l.errorMsg||'')}</span><button class="btn small danger-outline" style="padding:2px 8px" onclick="retryQueuedScan('${l.id}')">Tekrar Dene</button>` : ''}
+            </div>
+          </div>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+  </div>`;
+}
+
+boot();
+</script>
+</body>
+</html>
