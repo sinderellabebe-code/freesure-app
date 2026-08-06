@@ -1,0 +1,2108 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Müşteri Merkezi</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#F6F2E9;
+    --surface:#FFFFFF;
+    --ink:#232C2A;
+    --muted:#71776F;
+    --line:#E3DCC9;
+    --accent:#A85C2B;
+    --accent-ink:#5A3016;
+    --good:#3D7A54;
+    --good-bg:#E4F1E6;
+    --warn:#B98A1E;
+    --warn-bg:#FBF0D6;
+    --danger:#B5402F;
+    --danger-bg:#FBE7E1;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    font-size:14px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{max-width:1180px;margin:0 auto;padding:28px 20px 80px;}
+
+  /* Header / ledger banner */
+  .banner{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:16px;margin-bottom:22px;
+  }
+  .banner h1{
+    font-family:'Fraunces',serif;font-weight:600;font-size:30px;margin:0;
+    letter-spacing:-0.01em;
+  }
+  .banner .sub{color:var(--muted);font-size:13px;margin-top:4px;}
+  .nav-link{font-size:12px;color:var(--accent-ink);text-decoration:none;font-weight:600;}
+  .nav-link:hover{text-decoration:underline;}
+  .btn{
+    border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);
+    padding:9px 16px;border-radius:3px;font-weight:600;font-size:13px;
+    cursor:pointer;font-family:inherit;transition:all .15s;
+  }
+  .btn:hover{background:var(--ink);color:#fff;}
+  .btn:active{transform:scale(0.96);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);}
+  .btn.ghost{border-color:var(--line);}
+  .btn.small{padding:5px 10px;font-size:12px;}
+  .btn.danger-outline{border-color:var(--danger);color:var(--danger);}
+  .btn.danger-outline:hover{background:var(--danger);color:#fff;}
+
+  /* Toolbar */
+  .toolbar{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;}
+  .toolbar select, .toolbar input[type=text]{
+    border:1.5px solid var(--line);background:var(--surface);
+    padding:8px 10px;border-radius:3px;font-family:inherit;font-size:13px;color:var(--ink);
+  }
+  .toolbar input[type=text]{min-width:220px;}
+  .toolbar .count{margin-left:auto;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;}
+
+  /* Ledger table */
+  .ledger{background:var(--surface);border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+  .ledger-row{
+    display:grid;
+    grid-template-columns: 1fr 110px 150px 150px 150px;
+    gap:12px;align-items:center;
+    padding:14px 16px;border-bottom:1px solid var(--line);cursor:pointer;
+  }
+  .ledger-row:last-child{border-bottom:none;}
+  .ledger-row:hover{background:#FBF9F3;}
+  .ledger-row.head{
+    font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    cursor:default;font-weight:600;background:#F1ECDD;
+  }
+  .ledger-row.head:hover{background:#F1ECDD;}
+  .ledger-row.head .sortable{cursor:pointer;user-select:none;}
+  .ledger-row.head .sortable:hover{color:var(--ink);}
+  .name-cell .name{font-weight:600;}
+  .name-cell .country{color:var(--muted);font-size:12px;margin-top:2px;}
+  .status-pill{
+    display:inline-flex;align-items:center;justify-content:center;
+    padding:4px 9px;border-radius:20px;font-size:11.5px;font-weight:600;
+    white-space:nowrap;font-variant-numeric:tabular-nums;
+  }
+  .status-pill.good{background:var(--good-bg);color:var(--good);}
+  .status-pill.warn{background:var(--warn-bg);color:var(--warn);}
+  .status-pill.danger{background:var(--danger-bg);color:var(--danger);}
+  .status-pill.neutral{background:#EEEBE2;color:var(--muted);}
+  .chan-buttons{display:flex;gap:6px;}
+  .chan-btn{
+    width:30px;height:30px;border-radius:50%;border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;text-decoration:none;
+    font-size:14px;background:var(--surface);
+  }
+  .chan-btn.wa{color:#25D366;}
+  .chan-btn.tg{color:#27A7E7;}
+  .chan-btn.ig{color:#C1327C;}
+  .chan-btn.em{color:var(--accent);}
+  .chan-btn.disabled{opacity:.25;pointer-events:none;}
+
+  .empty{padding:50px 20px;text-align:center;color:var(--muted);}
+  .empty h3{font-family:'Fraunces',serif;color:var(--ink);margin-bottom:6px;}
+
+  /* Modal */
+  .overlay{
+    position:fixed;inset:0;background:rgba(35,44,42,.45);
+    display:flex;align-items:flex-start;justify-content:center;
+    padding:40px 16px;overflow-y:auto;z-index:50;
+  }
+  .modal{
+    background:var(--surface);border-radius:6px;max-width:620px;width:100%;
+    padding:26px 28px 28px;border:1px solid var(--line);
+    max-height:88vh;overflow-y:auto;
+  }
+  .modal h2{font-family:'Fraunces',serif;font-size:22px;margin:0 0 18px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.03em;}
+  .field input, .field select, .field textarea{
+    width:100%;border:1.5px solid var(--line);border-radius:3px;padding:9px 10px;
+    font-family:inherit;font-size:13.5px;color:var(--ink);background:var(--bg);
+  }
+  .field textarea{resize:vertical;min-height:60px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;}
+  .modal-close{position:absolute;}
+  .extra-fields{border:1px solid var(--line);border-radius:5px;margin-bottom:14px;background:#FBF9F3;}
+  .extra-fields summary{cursor:pointer;padding:11px 14px;font-size:12.5px;font-weight:600;color:var(--muted);list-style:none;display:flex;align-items:center;gap:6px;}
+  .extra-fields summary::-webkit-details-marker{display:none;}
+  .extra-fields summary::before{content:'▸';font-size:11px;transition:transform .15s;}
+  .extra-fields[open] summary::before{transform:rotate(90deg);}
+  .extra-fields[open] summary{border-bottom:1px solid var(--line);}
+  .extra-fields-body{padding:14px;}
+  .extra-fields-body .field:last-child{margin-bottom:0;}
+
+  /* Detail drawer */
+  .detail-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;}
+  .detail-head h2{margin:0;}
+  .detail-meta{color:var(--muted);font-size:13px;margin-bottom:16px;}
+  .predict-box{
+    border:1.5px solid var(--line);border-radius:5px;padding:14px 16px;margin-bottom:20px;
+    display:flex;justify-content:space-between;align-items:center;background:#FBF9F3;
+  }
+  .predict-box .label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
+  .predict-box .value{font-family:'Fraunces',serif;font-size:19px;margin-top:3px;}
+
+  .tabs{display:flex;gap:4px;border-bottom:1.5px solid var(--line);margin-bottom:14px;}
+  .tab{padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1.5px;}
+  .tab.active{color:var(--ink);border-color:var(--accent);}
+
+  .log-item{border-bottom:1px solid var(--line);padding:10px 0;}
+  .log-item:last-child{border-bottom:none;}
+  .log-item .meta{font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center;font-variant-numeric:tabular-nums;}
+  .chip{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .chip.wa{background:#E4F8EC;color:#1D9A4E;}
+  .chip.tg{background:#E3F3FC;color:#1381C7;}
+  .chip.em{background:#F6EBE0;color:var(--accent-ink);}
+  .chip.other{background:#EEEBE2;color:var(--muted);}
+  .log-item .note{margin-top:4px;font-size:13.5px;}
+  .log-empty{color:var(--muted);font-size:13px;padding:10px 0;}
+
+  .mini-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;background:#FBF9F3;border:1px solid var(--line);border-radius:5px;padding:12px;}
+  .mini-form .f{display:flex;flex-direction:column;gap:4px;}
+  .mini-form .f label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+  .mini-form input,.mini-form select,.mini-form textarea{border:1.5px solid var(--line);border-radius:3px;padding:7px 8px;font-family:inherit;font-size:12.5px;background:var(--surface);}
+  .mini-form textarea{min-height:36px;flex:1;min-width:180px;resize:vertical;}
+
+  .toast{
+    position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    background:var(--ink);color:#fff;padding:14px 22px;border-radius:8px;font-size:14px;
+    opacity:0;pointer-events:none;transition:opacity .25s;z-index:100;max-width:80vw;text-align:center;
+    box-shadow:0 8px 30px rgba(0,0,0,.25);
+  }
+  .toast.show{opacity:1;}
+  .loading{padding:60px;text-align:center;color:var(--muted);}
+  .modal.wide{max-width:760px;}
+  .bulk-help{font-size:12px;color:var(--muted);background:#FBF9F3;border:1px solid var(--line);border-radius:4px;padding:10px 12px;margin-bottom:12px;line-height:1.5;}
+  .upload-drop{border:1.5px dashed var(--line);border-radius:5px;padding:18px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer;background:var(--bg);}
+  .upload-drop:hover{border-color:var(--accent);}
+  .bulk-help code{background:#EEEBE2;padding:1px 5px;border-radius:3px;font-size:11.5px;}
+  #bulk-textarea{width:100%;min-height:160px;border:1.5px solid var(--line);border-radius:3px;padding:10px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--bg);}
+  .bulk-result{margin-top:10px;font-size:13px;padding:8px 10px;border-radius:4px;}
+  .bulk-result.ok{background:var(--good-bg);color:var(--good);}
+  .bulk-result.error{background:var(--danger-bg);color:var(--danger);}
+  .toolbar .spacer{flex:1;}
+  .phone-input{display:flex;align-items:stretch;border:1.5px solid var(--line);border-radius:3px;background:var(--bg);overflow:hidden;}
+  .phone-input .phone-prefix{display:flex;align-items:center;padding:0 4px 0 10px;color:var(--muted);font-weight:700;font-size:14px;background:#F1ECDD;}
+  .phone-input input{border:none;background:transparent;flex:1;padding:9px 10px 9px 4px;font-family:inherit;font-size:13.5px;color:var(--ink);}
+  .phone-input input:focus{outline:none;}
+  .phone-hint{font-size:11px;color:var(--muted);margin-top:4px;}
+  .name-row{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;}
+  .cust-id{font-size:10.5px;color:var(--muted);font-weight:700;background:#EEEBE2;padding:1px 6px;border-radius:8px;font-variant-numeric:tabular-nums;flex-shrink:0;}
+  .firma-inline{font-weight:700;color:var(--accent-ink);}
+  .name-sep{color:var(--muted);}
+  .mini-meta{font-size:12.5px;color:#4A524C;margin-top:4px;line-height:1.5;}
+  .stat-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .stat-card{flex:1;min-width:130px;border:1.5px solid var(--line);border-radius:5px;padding:10px 12px;background:var(--surface);}
+  .stat-card .label{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+  .stat-card .value{font-family:'Fraunces',serif;margin-top:3px;}
+  .extra-info-box{border:1.5px solid var(--line);border-radius:5px;padding:12px 16px;margin-bottom:16px;background:#FBF9F3;}
+  .extra-info-row{display:flex;gap:10px;padding:5px 0;border-top:1px dashed var(--line);}
+  .extra-info-row:first-child{border-top:none;}
+  .extra-info-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;min-width:110px;flex-shrink:0;padding-top:1px;}
+  .extra-info-value{font-size:13px;white-space:pre-wrap;}
+  .brand-row{display:flex;align-items:center;gap:14px;}
+  .brand-logo-wrap{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .logo-click{position:relative;display:inline-block;cursor:pointer;}
+  .brand-logo{height:48px;max-width:150px;object-fit:contain;display:block;}
+  .brand-logo-placeholder{width:76px;height:48px;border:1.5px dashed var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10.5px;text-align:center;}
+  .logo-edit-badge{
+    position:absolute;bottom:-4px;right:-4px;width:18px;height:18px;border-radius:50%;
+    background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:9.5px;border:2px solid var(--bg);pointer-events:none;
+  }
+  .field-msg{font-size:11px;margin-top:4px;}
+  .field-msg.error{color:var(--danger);}
+  .auth-wrap{min-height:70vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .auth-card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:32px 30px;max-width:380px;width:100%;box-shadow:0 4px 24px rgba(35,44,42,.06);}
+  .user-badge{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;}
+  .user-badge .role-chip{background:#EEEBE2;padding:1px 7px;border-radius:8px;font-weight:700;font-size:10px;text-transform:uppercase;}
+  .field-msg.ok{color:var(--good);}
+  .field input.invalid{border-color:var(--danger);}
+</style>
+</head>
+<body>
+<div id="root" class="app"><div class="loading">Yükleniyor…</div></div>
+<div id="toast" class="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+'use strict';
+
+// ---------- helpers ----------
+function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function nowISO(){ return new Date().toISOString(); } // full timestamp — used for createdAt so same-day records still sort correctly
+function nowHM(){ return new Date().toTimeString().slice(0,5); }
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function attrEsc(s){ return esc(s).replace(/`/g,'&#96;'); }
+function fmtDate(iso){
+  if(!iso) return '—';
+  const d = new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('tr-TR',{day:'2-digit',month:'short',year:'numeric'});
+}
+function daysBetween(a,b){
+  const d1 = new Date(a+'T00:00:00'), d2 = new Date(b+'T00:00:00');
+  return Math.round((d2-d1)/86400000);
+}
+function digitsOnly(s){ return (s||'').replace(/[^0-9]/g,''); }
+function CHANNEL_LABEL(c){ return {whatsapp:'WhatsApp', telegram:'Telegram', email:'E-posta', other:'Diğer/Telefon'}[c] || c; }
+function CHANNEL_CHIP_CLASS(c){ return {whatsapp:'wa', telegram:'tg', email:'em'}[c] || 'other'; }
+function displayName(c){ return (c.adSoyad && c.adSoyad.trim()) || (c.firma && c.firma.trim()) || c.name || '(İsimsiz)'; }
+function trUpperFirst(s){
+  if(!s) return s;
+  const first = s[0];
+  const upperFirst = (first === 'i') ? 'İ' : (first === 'ı' ? 'I' : first.toLocaleUpperCase('tr-TR'));
+  const rest = s.slice(1).replace(/I/g,'ı').replace(/İ/g,'i').toLocaleLowerCase('tr-TR');
+  return upperFirst + rest;
+}
+function titleCaseTR(full){
+  return (full||'').split(' ').map(w => w.length ? trUpperFirst(w) : w).join(' ');
+}
+function loadImageNaturalSize(dataUrl){
+  return new Promise(resolve=>{
+    if(!dataUrl){ resolve({w:1,h:1}); return; }
+    const img = new Image();
+    img.onload = function(){ resolve({w:img.naturalWidth||1, h:img.naturalHeight||1}); };
+    img.onerror = function(){ resolve({w:1,h:1}); };
+    img.src = dataUrl;
+  });
+}
+const PDF_CONTACT_PHONE = '+90 534 936 44 28';
+const PDF_CONTACT_EMAIL = 'info@freesure.com.tr';
+async function addPdfLogo(doc, pageW, margin){
+  if(!state.logo) return;
+  try{
+    const size = await loadImageNaturalSize(state.logo);
+    const ratio = size.w / size.h;
+    let h = 10, w = 10*ratio;
+    if(w > 28){ w = 28; h = 28/ratio; }
+    doc.addImage(state.logo, 'PNG', pageW-margin-w, margin-4, w, h);
+  }catch(e){ /* logo is cosmetic — skip on failure */ }
+}
+function addPdfFooterToAllPages(doc, pageW, pageH, margin){
+  const totalPages = doc.internal.getNumberOfPages();
+  for(let p=1; p<=totalPages; p++){
+    doc.setPage(p);
+    const y = pageH - 12;
+    doc.setDrawColor(225,220,205); doc.setLineWidth(0.3);
+    doc.line(margin, y-5, pageW-margin, y-5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(150,140,120);
+    doc.text('WhatsApp ' + PDF_CONTACT_PHONE, pageW/2 - 3, y, {align:'right'});
+    doc.setTextColor(190,185,170);
+    doc.text('  ·  ', pageW/2, y, {align:'center'});
+    doc.setTextColor(150,140,120);
+    doc.text(PDF_CONTACT_EMAIL, pageW/2 + 3, y, {align:'left'});
+    doc.setTextColor(0,0,0);
+  }
+}
+function formatMoney(n){
+  return (Number(n)||0).toLocaleString('tr-TR', {maximumFractionDigits:2});
+}
+function isRichOrder(o){ return o && Array.isArray(o.lines); }
+function orderLineSubtotal(o){ return (o.lines||[]).reduce((sum,l)=>sum + (Number(l.qty)||0)*(Number(l.unitPrice)||0), 0); }
+function orderDiscountAmount(o){
+  const sub = orderLineSubtotal(o);
+  if(!o.discountType || !o.discountValue) return 0;
+  return o.discountType==='percent' ? sub * (Number(o.discountValue)||0)/100 : (Number(o.discountValue)||0);
+}
+function orderAmount(o){
+  // Works for both the new rich Sipariş orders (line items) and the old simple manual notes (o.amount).
+  return isRichOrder(o) ? Math.max(0, orderLineSubtotal(o) - orderDiscountAmount(o)) : (Number(o.amount)||0);
+}
+function orderReturnedAmount(o){
+  return (o.returns||[]).reduce((sum,r)=> sum + (r.lines||[]).reduce((s,l)=>{
+    const origLine = (o.lines||[]).find(x=>x.barcode===l.barcode);
+    return s + (origLine ? l.qty*(Number(origLine.unitPrice)||0) : 0);
+  }, 0), 0);
+}
+function orderBalanceDue(o){
+  if(!isRichOrder(o)) return 0; // old-style notes never tracked payment/balance
+  if(o.status==='cancelled' || o.status==='returned') return 0;
+  return Math.max(0, orderAmount(o) - orderReturnedAmount(o) - (Number(o.deposit)||0));
+}
+function orderDateOf(o){ return isRichOrder(o) ? (o.createdAt||'').slice(0,10) : (o.date||''); }
+function paymentsFor(cid){ return state.payments.filter(p=>p.customerId===cid); }
+function totalPaymentsFor(cid){ return paymentsFor(cid).reduce((sum,p)=>sum+(Number(p.amount)||0),0); }
+function customerBalance(customerId, orders){
+  const owed = (orders||[]).reduce((sum,o)=> sum + orderBalanceDue(o), 0);
+  return owed - totalPaymentsFor(customerId); // can go negative — means the customer has a credit (overpaid / paid deposit before final amount)
+}
+function balanceColor(bal){
+  if(bal>0) return 'var(--danger)';
+  if(bal<0) return 'var(--accent-ink)';
+  return 'var(--good)';
+}
+function balanceLabel(bal){
+  if(bal>0) return '$'+formatMoney(bal);
+  if(bal<0) return '$'+formatMoney(Math.abs(bal))+' (Alacaklı)';
+  return '$0';
+}
+function totalOrderValue(orders){
+  return (orders||[]).reduce((sum,o)=> sum + (isRichOrder(o) && (o.status==='cancelled'||o.status==='returned') ? 0 : orderAmount(o)), 0);
+}
+function lastOrderOf(orders){
+  if(!orders || orders.length===0) return null;
+  return [...orders].sort((a,b)=>orderDateOf(b).localeCompare(orderDateOf(a)))[0];
+}
+function lastContactDate(cid){
+  const list = contactsFor(cid);
+  if(list.length===0) return null;
+  return list.reduce((max,c)=> (!max || c.date > max) ? c.date : max, null);
+}
+const NO_CONTACT_WARNING_DAYS = 30;
+const NO_CONTACT_CAUTION_DAYS = 14;
+function lastContactPillHTML(cid){
+  const last = lastContactDate(cid);
+  if(!last) return `<span class="status-pill neutral">Hiç görüşülmedi</span>`;
+  const days = daysBetween(last, todayISO());
+  if(days >= NO_CONTACT_WARNING_DAYS) return `<span class="status-pill danger">⚠ ${days} gündür iletişim yok</span>`;
+  if(days >= NO_CONTACT_CAUTION_DAYS) return `<span class="status-pill warn">${days} gün önce görüşüldü</span>`;
+  return `<span class="status-pill good">${days} gün önce görüşüldü</span>`;
+}
+function customerCodeDisplay(c){
+  return c.customerNo ? ('M-' + String(c.customerNo).padStart(4,'0')) : ('#' + (c.id||'').slice(0,5).toUpperCase());
+}
+function nameLineHTML(c){
+  if(c.firma && c.adSoyad){
+    return `<span class="firma-inline">${esc(c.firma)}</span><span class="name-sep">—</span><span class="name">${esc(c.adSoyad)}</span>`;
+  }
+  return `<span class="name">${esc(displayName(c))}</span>`;
+}
+function isValidEmail(s){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((s||'').trim());
+}
+function validateEmailField(inputId, msgId){
+  const input = document.getElementById(inputId);
+  const msg = document.getElementById(msgId);
+  const v = input.value.trim();
+  if(!v){ input.classList.remove('invalid'); msg.textContent=''; msg.className='field-msg'; return; }
+  if(isValidEmail(v)){
+    input.classList.remove('invalid');
+    msg.textContent = '✓ Geçerli e-posta';
+    msg.className = 'field-msg ok';
+  } else {
+    input.classList.add('invalid');
+    msg.textContent = '"@" işareti ve alan adı (örn. .com) eksik — e-posta geçersiz görünüyor';
+    msg.className = 'field-msg error';
+  }
+}
+function csvField(v){
+  const s = String(v==null?'':v);
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
+function downloadBlob(filename, mime, content){
+  const blob = new Blob([content], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+function parseBulkLine(line){
+  // Excel/Sheets paste = tab separated; comma-separated as fallback
+  const parts = line.includes('\t') ? line.split('\t') : line.split(',');
+  return parts.map(p=>p.trim());
+}
+
+let toastTimer = null;
+function showToast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
+}
+
+// ---------- shared backend (Google Apps Script + Google Sheets) ----------
+const API_URL = 'https://script.google.com/macros/s/AKfycbxWMQn9FmNZXcmv6se-ZrlO7zfjNFyLf-gUzfRMGCV8Y25lT7DVPkRgnRTlcMVtPa02cw/exec';
+
+async function loadAll(){
+  const authParams = session ? ('authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash)) : '';
+  const res = await fetch(API_URL + '?' + authParams);
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+async function loadKey(key, fallback){
+  try{
+    const authParams = session ? ('&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash)) : '';
+    const res = await fetch(API_URL + '?key=' + encodeURIComponent(key) + authParams);
+    if(!res.ok) return fallback;
+    const text = await res.text();
+    if(!text) return fallback;
+    const parsed = JSON.parse(text);
+    return parsed == null ? fallback : parsed;
+  }catch(e){
+    showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
+    return fallback;
+  }
+}
+async function saveKey(key, value){
+  try{
+    // Content-Type text/plain avoids a CORS preflight; Apps Script still parses the JSON body.
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
+    });
+    const data = await res.json();
+    if(!data || !data.ok){ showToast('Kaydetme hatası — tekrar deneyin'); return false; }
+    return true;
+  }catch(e){
+    showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    return false;
+  }
+}
+
+// ---------- authentication ----------
+const AUTH_STORAGE_KEY = 'fs_auth_session_v1';
+let session = null;
+const authState = { screen: 'loading', error: '', loggingIn: false, publicLogo: null, bootstrapLogo: null }; // 'loading' | 'bootstrap' | 'login' | 'app'
+const LOGO_CACHE_KEY = 'fs_logo_cache_v1';
+function loadCachedLogo(){
+  try{ return localStorage.getItem(LOGO_CACHE_KEY) || null; }catch(e){ return null; }
+}
+function saveCachedLogo(dataUrl){
+  try{ if(dataUrl) localStorage.setItem(LOGO_CACHE_KEY, dataUrl); }catch(e){ /* storage full/unavailable — ignore, cosmetic only */ }
+}
+async function fetchPublicLogo(){
+  try{
+    const res = await fetch(API_URL + '?action=publicLogo');
+    const data = await res.json();
+    if(data && data.logo){
+      authState.publicLogo = data.logo;
+      saveCachedLogo(data.logo);
+      if(authState.screen !== 'app') renderAuthScreen();
+    }
+  }catch(e){ /* logo is cosmetic — ignore failures */ }
+}
+
+async function hashPassword(pw){
+  const enc = new TextEncoder().encode(pw);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function loadSessionFromStorage(){
+  try{
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function saveSessionToStorage(s){
+  try{ localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(s)); }catch(e){}
+}
+function clearSessionStorage(){
+  try{ localStorage.removeItem(AUTH_STORAGE_KEY); }catch(e){}
+}
+async function checkBootstrapStatus(){
+  try{
+    const res = await fetch(API_URL + '?action=bootstrapStatus');
+    const data = await res.json();
+    return !!data.hasUsers;
+  }catch(e){ return true; } // assume users exist if we can't tell, safer default
+}
+async function verifySession(s){
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'login', username:s.username, passwordHash:s.passwordHash})
+    });
+    const data = await res.json();
+    return data && data.ok ? data.user : null;
+  }catch(e){ return null; }
+}
+async function boot(){
+  authState.publicLogo = loadCachedLogo();
+  renderAuthScreen();
+  fetchPublicLogo();
+  const stored = loadSessionFromStorage();
+  if(stored){
+    session = { username: stored.username, passwordHash: stored.passwordHash, displayName: stored.displayName||stored.username, role: stored.role||'staff', id: stored.id };
+    authState.screen = 'app';
+    init();
+    startAutoRefresh();
+    verifySession(stored).then(user=>{
+      if(user){
+        session = { username: user.username, passwordHash: stored.passwordHash, displayName: user.displayName, role: user.role, id: user.id };
+      } else {
+        clearSessionStorage();
+        session = null;
+        authState.screen = 'login';
+        renderAuthScreen();
+      }
+    });
+    return;
+  }
+  const hasUsers = await checkBootstrapStatus();
+  authState.screen = hasUsers ? 'login' : 'bootstrap';
+  renderAuthScreen();
+}
+async function submitBootstrap(){
+  if(authState.loggingIn) return;
+  const username = document.getElementById('bs-username').value.trim();
+  const password = document.getElementById('bs-password').value;
+  const displayName = document.getElementById('bs-displayname').value.trim();
+  if(!username || password.length < 4){ authState.error = 'Kullanıcı adı girin, şifre en az 4 karakter olmalı'; renderAuthScreen(); return; }
+  authState.error = '';
+  authState.loggingIn = true;
+  renderAuthScreen();
+  const passwordHash = await hashPassword(password);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bootstrap', username, passwordHash, displayName, logo: authState.bootstrapLogo || null})
+    });
+    const data = await res.json();
+    authState.loggingIn = false;
+    if(data && data.ok){
+      session = { username: data.user.username, passwordHash, displayName: data.user.displayName, role: data.user.role, id: data.user.id };
+      saveSessionToStorage(session);
+      authState.screen = 'app';
+      init();
+      startAutoRefresh();
+    } else {
+      authState.error = 'Kurulum başarısız — sayfayı yenileyip tekrar deneyin';
+      renderAuthScreen();
+    }
+  }catch(e){
+    authState.loggingIn = false;
+    authState.error = 'Sunucuya bağlanılamadı';
+    renderAuthScreen();
+  }
+}
+async function submitLogin(){
+  if(authState.loggingIn) return;
+  const username = document.getElementById('lg-username').value.trim();
+  const password = document.getElementById('lg-password').value;
+  if(!username || !password){ authState.error = 'Kullanıcı adı ve şifre girin'; renderAuthScreen(); return; }
+  authState.error = '';
+  authState.loggingIn = true;
+  renderAuthScreen();
+  const passwordHash = await hashPassword(password);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'login', username, passwordHash})
+    });
+    const data = await res.json();
+    authState.loggingIn = false;
+    if(data && data.ok){
+      session = { username: data.user.username, passwordHash, displayName: data.user.displayName, role: data.user.role, id: data.user.id };
+      saveSessionToStorage(session);
+      authState.screen = 'app';
+      init();
+      startAutoRefresh();
+    } else {
+      authState.error = 'Kullanıcı adı veya şifre hatalı';
+      renderAuthScreen();
+    }
+  }catch(e){
+    authState.loggingIn = false;
+    authState.error = 'Sunucuya bağlanılamadı';
+    renderAuthScreen();
+  }
+}
+function logout(){
+  clearSessionStorage();
+  session = null;
+  location.reload();
+}
+function renderAuthScreen(){
+  const root = document.getElementById('root');
+  if(authState.screen === 'loading'){
+    root.innerHTML = '<div class="loading">Yükleniyor…</div>';
+    return;
+  }
+  const logoHtml = authState.publicLogo ? `<img src="${authState.publicLogo}" alt="Marka logosu" style="max-height:52px;max-width:220px;object-fit:contain;display:block;margin:0 auto 18px" />` : '';
+  if(authState.screen === 'bootstrap'){
+    root.innerHTML = `<div class="auth-wrap">
+      <div class="auth-card">
+        <div class="logo-click" onclick="document.getElementById('bs-logo-file').click()" title="Logo yükle — PNG/JPG/SVG, maks. 30 KB" style="margin:0 auto 18px;width:fit-content">
+          ${authState.bootstrapLogo ? `<img src="${authState.bootstrapLogo}" alt="Marka logosu" style="max-height:52px;max-width:220px;object-fit:contain;display:block" />` : `<div class="brand-logo-placeholder" style="cursor:pointer">+ Logo Ekle (opsiyonel)</div>`}
+        </div>
+        <input type="file" id="bs-logo-file" accept="image/*" style="display:none" onchange="handleBootstrapLogoUpload(event)" />
+        <h2 style="font-family:'Fraunces',serif;margin:0 0 4px">İlk Kurulum</h2>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 18px">Bu sistem için henüz kullanıcı yok. İlk yönetici hesabını oluşturun.</p>
+        <form onsubmit="event.preventDefault(); submitBootstrap(); return false;">
+          <div class="field"><label>Kullanıcı Adı</label><input id="bs-username" type="text" placeholder="Örn. admin" ${authState.loggingIn?'disabled':''} /></div>
+          <div class="field"><label>Ad Soyad</label><input id="bs-displayname" type="text" placeholder="Görünecek isim" ${authState.loggingIn?'disabled':''} /></div>
+          <div class="field"><label>Şifre</label><input id="bs-password" type="password" placeholder="En az 4 karakter" ${authState.loggingIn?'disabled':''} /></div>
+          ${authState.error ? `<div class="field-msg error">${esc(authState.error)}</div>` : ''}
+          ${authState.loggingIn ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Hesap oluşturuluyor…</div>` : ''}
+          <button type="submit" class="btn primary" style="width:100%;margin-top:8px" ${authState.loggingIn?'disabled':''}>Yönetici Hesabı Oluştur</button>
+        </form>
+      </div>
+    </div>`;
+    return;
+  }
+  if(authState.screen === 'login'){
+    root.innerHTML = `<div class="auth-wrap">
+      <div class="auth-card">
+        ${logoHtml}
+        <h2 style="font-family:'Fraunces',serif;margin:0 0 4px">Giriş Yap</h2>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 18px">Müşteri Merkezi &amp; Sipariş</p>
+        <form onsubmit="event.preventDefault(); submitLogin(); return false;">
+          <div class="field"><label>Kullanıcı Adı</label><input id="lg-username" type="text" ${authState.loggingIn?'disabled':''} /></div>
+          <div class="field"><label>Şifre</label><input id="lg-password" type="password" ${authState.loggingIn?'disabled':''} /></div>
+          ${authState.error ? `<div class="field-msg error">${esc(authState.error)}</div>` : ''}
+          ${authState.loggingIn ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Giriş yapılıyor…</div>` : ''}
+          <button type="submit" class="btn primary" style="width:100%;margin-top:8px" ${authState.loggingIn?'disabled':''}>Giriş Yap</button>
+        </form>
+      </div>
+    </div>`;
+  }
+}
+
+// ---------- prediction ----------
+function predictNextOrder(orders){
+  if(!orders || orders.length < 2){
+    return {status:'insufficient', ordersCount: orders ? orders.length : 0};
+  }
+  const dates = orders.map(o=>orderDateOf(o)).filter(Boolean).sort();
+  const intervals = [];
+  for(let i=1;i<dates.length;i++) intervals.push(daysBetween(dates[i-1], dates[i]));
+  const avg = intervals.reduce((a,b)=>a+b,0) / intervals.length;
+  const last = dates[dates.length-1];
+  const nextD = new Date(last+'T00:00:00');
+  nextD.setDate(nextD.getDate() + Math.round(avg));
+  const nextISO = nextD.toISOString().slice(0,10);
+  const diff = daysBetween(todayISO(), nextISO);
+  return {
+    status: diff < -1 ? 'overdue' : (diff <= 3 ? 'due-soon' : 'ok'),
+    avgIntervalDays: Math.round(avg),
+    lastOrderDate: last,
+    nextExpectedDate: nextISO,
+    diffFromToday: diff,
+    ordersCount: orders.length
+  };
+}
+function statusSortValue(orders){
+  const p = predictNextOrder(orders);
+  return p.status === 'insufficient' ? Infinity : p.diffFromToday;
+}
+function statusPillHTML(orders){
+  const p = predictNextOrder(orders);
+  if(p.status==='insufficient'){
+    return `<span class="status-pill neutral">${p.ordersCount===0 ? 'Sipariş yok' : 'Tahmin için 1 sipariş daha'}</span>`;
+  }
+  if(p.status==='overdue') return `<span class="status-pill danger">⚠ ${Math.abs(p.diffFromToday)} gün gecikti</span>`;
+  if(p.status==='due-soon') return `<span class="status-pill warn">${p.diffFromToday<=0 ? 'Bugün bekleniyor' : p.diffFromToday + ' gün kaldı'}</span>`;
+  return `<span class="status-pill good">${p.diffFromToday} gün kaldı</span>`;
+}
+function channelButtonsHTML(c){
+  const wa = digitsOnly(c.phone);
+  const tgUsername = (c.telegram||'').replace('@','').trim();
+  const tgHref = tgUsername ? ('tg://resolve?domain=' + encodeURIComponent(tgUsername)) : (wa ? ('tg://resolve?phone=' + wa) : null);
+  const waHref = wa ? ('whatsapp://send?phone=' + wa) : null;
+  const igUsername = (c.instagram||'').replace('@','').trim();
+  const igHref = igUsername ? ('https://www.instagram.com/' + encodeURIComponent(igUsername) + '/') : null;
+  const em = (c.email||'').trim();
+  const wa2 = digitsOnly(c.phone2);
+  const wa2Href = wa2 ? ('whatsapp://send?phone=' + wa2) : null;
+  return `<div class="chan-buttons" onclick="event.stopPropagation()">
+    <a class="chan-btn wa${waHref?'':' disabled'}" href="${waHref||'#'}" title="WhatsApp — uygulamayı doğrudan açar (kurulu olmalı)">●</a>
+    <a class="chan-btn tg${tgHref?'':' disabled'}" href="${attrEsc(tgHref||'#')}" title="${tgUsername ? 'Telegram (kullanıcı adı) — uygulamayı doğrudan açar' : (wa ? 'Telegram — telefon no ile, sadece uygulama kuruluysa açılır' : 'Telegram')}">✈</a>
+    <a class="chan-btn ig${igHref?'':' disabled'}" href="${attrEsc(igHref||'#')}" target="_blank" rel="noopener" title="Instagram">📷</a>
+    <a class="chan-btn em${em?'':' disabled'}" href="${em?('mailto:'+attrEsc(em)):'#'}" title="E-posta">✉</a>
+    ${wa2Href ? `<a class="chan-btn wa" href="${wa2Href}" title="2. Telefon (WhatsApp) — uygulamayı doğrudan açar" style="position:relative">●<span style="position:absolute;bottom:-3px;right:-3px;background:var(--accent);color:#fff;border-radius:50%;width:12px;height:12px;font-size:8px;line-height:12px;text-align:center">2</span></a>` : ''}
+  </div>`;
+}
+
+// ---------- state ----------
+const state = {
+  loaded: false,
+  customers: [],
+  contacts: [],
+  orders: [],
+  payments: [],
+  meta: { nextCustomerNo: 1 },
+  logo: null,
+  countryFilter: '',
+  sortBy: 'name-asc',
+  search: '',
+  view: 'list',
+  selectedId: null,
+  modalMode: null,   // null | 'new' | customer object (edit)
+  detailTab: 'contacts',
+  bulkImportRunning: false,
+  bulkImportReview: null,
+  bulkImportDuplicates: [],
+  bulkImportResultText: null,
+  bulkImportResultIsError: false,
+  bulkImportError: null,
+  selectedCustomers: new Set(),
+  blockedForDepocu: false,
+  statementCustomerId: null,
+  revenueSelectedYear: null,
+  revenueSelectedMonth: null,
+  revenueBoxOpen: false
+};
+
+async function init(){
+  if(session.role === 'depocu'){
+    state.loaded = true;
+    state.blockedForDepocu = true;
+    render();
+    return;
+  }
+  try{
+    const all = await loadAll();
+    state.customers = []; state.contacts = []; state.orders = []; state.payments = [];
+    Object.keys(all).forEach(k=>{
+      if(!all[k]) return;
+      if(k.indexOf('customer:') === 0) state.customers.push(all[k]);
+      else if(k.indexOf('contact:') === 0) state.contacts.push(all[k]);
+      else if(k.indexOf('order:') === 0){ const o=all[k]; if(o.status==='shipped') o.status='packed'; state.orders.push(o); }
+      else if(k.indexOf('payment:') === 0) state.payments.push(all[k]);
+    });
+    state.meta = (all['meta'] && typeof all['meta'] === 'object') ? all['meta'] : { nextCustomerNo: 1 };
+    if(!state.meta.nextCustomerNo) state.meta.nextCustomerNo = 1;
+    state.logo = all['logo'] || null;
+  }catch(e){
+    showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
+  }
+  state.loaded = true;
+  const urlParams = new URLSearchParams(window.location.search);
+  const deepLinkId = urlParams.get('customer');
+  if(deepLinkId && state.customers.some(c=>c.id===deepLinkId)){
+    selectCustomer(deepLinkId);
+    return;
+  }
+  render();
+}
+async function refreshData(){
+  showToast('Güncelleniyor…');
+  await init();
+  showToast('Güncel veriler yüklendi');
+}
+let autoRefreshTimer = null;
+function startAutoRefresh(){
+  if(autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(silentAutoRefresh, 45000); // every 45s
+}
+async function silentAutoRefresh(){
+  if(document.hidden) return;
+  if(state.modalMode) return; // don't disrupt an open form (new customer, bulk import, payment entry, etc.)
+  if(state.bulkImportRunning) return;
+  if(!state.loaded || state.blockedForDepocu) return;
+  try{
+    await init();
+  }catch(e){ /* silent — a failed background refresh isn't worth interrupting the user for */ }
+}
+async function refreshCustomerDetail(customerId){
+  await refreshData();
+}
+function openAccountStatementModal(customerId){
+  state.statementCustomerId = customerId;
+  state.modalMode = 'accountStatement';
+  render();
+}
+function renderAccountStatementModal(){
+  const customer = state.customers.find(c=>c.id===state.statementCustomerId);
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal">
+      <h2>Cari Hesap Ekstresi</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 14px">${customer?esc(displayName(customer)):''} için isteğe bağlı bir tarih aralığı seçin. Boş bırakırsanız tüm geçmiş dahil edilir.</p>
+      <div class="row2">
+        <div class="field"><label>Başlangıç (opsiyonel)</label><input type="date" id="stmt-from" /></div>
+        <div class="field"><label>Bitiş (opsiyonel)</label><input type="date" id="stmt-to" value="${todayISO()}" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Vazgeç</button>
+        <button class="btn primary" onclick="submitAccountStatement()">Yazdır</button>
+      </div>
+    </div>
+  </div>`;
+}
+function submitAccountStatement(){
+  const from = document.getElementById('stmt-from').value || null;
+  const to = document.getElementById('stmt-to').value || null;
+  const cid = state.statementCustomerId;
+  state.modalMode = null;
+  render();
+  printAccountStatement(cid, from, to);
+}
+function orderEntryTime(o){
+  // Rich orders now store a full ISO timestamp in createdAt — extract the real time instead of
+  // guessing, so same-day entries (an order and a payment, say) sort in the order they actually happened.
+  if(o.createdAt && o.createdAt.length > 10){
+    const d = new Date(o.createdAt);
+    if(!isNaN(d.getTime())) return d.toTimeString().slice(0,8);
+  }
+  return '00:00:00';
+}
+async function printAccountStatement(customerId, fromDate, toDate){
+  if(!window.jspdf){ showToast('PDF kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
+  const customer = state.customers.find(c=>c.id===customerId);
+  if(!customer) return;
+  const orders = ordersFor(customerId).filter(o=>isRichOrder(o) && o.status!=='cancelled');
+  const payments = paymentsFor(customerId);
+
+  const allEntries = [];
+  orders.forEach(o=>{
+    const t = orderEntryTime(o);
+    allEntries.push({ date: orderDateOf(o), time: t, desc: 'Order ' + (o.orderNo||''), debit: orderAmount(o), credit: 0 });
+    if((Number(o.deposit)||0) > 0){
+      allEntries.push({ date: orderDateOf(o), time: t, desc: 'Deposit — Order ' + (o.orderNo||''), debit: 0, credit: Number(o.deposit) });
+    }
+  });
+  payments.forEach(p=>{
+    allEntries.push({ date: p.date, time: (p.time||'00:00')+':00', desc: p.note ? ('Payment — ' + p.note) : 'Payment', debit: 0, credit: Number(p.amount)||0 });
+  });
+  allEntries.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+
+  let openingBalance = 0;
+  let entries = allEntries;
+  if(fromDate){
+    const before = allEntries.filter(e=>e.date < fromDate);
+    openingBalance = before.reduce((sum,e)=> sum + e.debit - e.credit, 0);
+    entries = allEntries.filter(e=>e.date >= fromDate && (!toDate || e.date <= toDate));
+  } else if(toDate){
+    entries = allEntries.filter(e=>e.date <= toDate);
+  }
+
+  let running = openingBalance;
+  entries.forEach(e=>{ running += e.debit - e.credit; e.balance = running; });
+
+  showToast('PDF hazırlanıyor…');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const pageW = 210, pageH = 297, margin = 14;
+  await addPdfLogo(doc, pageW, margin);
+
+  let y = margin;
+  doc.setFont('helvetica','bold'); doc.setFontSize(15);
+  doc.text('ACCOUNT STATEMENT', margin, y+3);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(110,110,110);
+  doc.text('Date: ' + new Date().toLocaleDateString('tr-TR'), pageW-margin, y+10, {align:'right'});
+  const periodLabel = (fromDate||toDate) ? ('Period: ' + (fromDate?new Date(fromDate).toLocaleDateString('tr-TR'):'…') + ' – ' + (toDate?new Date(toDate).toLocaleDateString('tr-TR'):'…')) : 'Period: All Time';
+  doc.text(periodLabel, pageW-margin, y+14, {align:'right'});
+  doc.setTextColor(0,0,0);
+  y += 22;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(130,130,130);
+  doc.text('CUSTOMER', margin, y); y += 4;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(0,0,0);
+  doc.text(displayName(customer), margin, y); y += 4.5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(90,90,90);
+  if(customer.firma && customer.adSoyad){ doc.text(customer.firma, margin, y); y += 4; }
+  if(customer.country){ doc.text(customer.country, margin, y); y += 4; }
+  doc.setTextColor(0,0,0);
+  y += 4;
+
+  doc.setDrawColor(200,200,200); doc.line(margin, y, pageW-margin, y); y += 6;
+
+  const colDate = margin, colDesc = margin+26, colDebit = pageW-margin-58, colCredit = pageW-margin-30, colBal = pageW-margin;
+  doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(130,130,130);
+  doc.text('DATE', colDate, y);
+  doc.text('DESCRIPTION', colDesc, y);
+  doc.text('DEBIT', colDebit, y, {align:'right'});
+  doc.text('CREDIT', colCredit, y, {align:'right'});
+  doc.text('BALANCE', colBal, y, {align:'right'});
+  doc.setTextColor(0,0,0);
+  y += 3;
+  doc.setDrawColor(220,220,220); doc.line(margin, y, pageW-margin, y);
+  y += 5;
+
+  if(fromDate && openingBalance !== 0){
+    doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(100,100,100);
+    doc.text('Opening Balance', colDesc, y);
+    doc.setFont('helvetica','bold');
+    doc.text('$'+formatMoney(Math.abs(openingBalance)) + (openingBalance<0?' CR':''), colBal, y, {align:'right'});
+    doc.setTextColor(0,0,0);
+    y += 6.5;
+    doc.setDrawColor(240,240,240); doc.line(margin, y-2.5, pageW-margin, y-2.5);
+  }
+
+  if(entries.length===0){
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(130,130,130);
+    doc.text('No account activity in this period.', margin, y);
+    doc.setTextColor(0,0,0);
+    y += 6;
+  }
+
+  entries.forEach(e=>{
+    if(y > pageH - margin - 16){ doc.addPage(); y = margin; }
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+    const d = new Date(e.date);
+    doc.text(isNaN(d.getTime()) ? e.date : d.toLocaleDateString('tr-TR'), colDate, y);
+    doc.text(e.desc, colDesc, y, {maxWidth: colDebit-colDesc-4});
+    doc.text(e.debit>0 ? '$'+formatMoney(e.debit) : '—', colDebit, y, {align:'right'});
+    doc.text(e.credit>0 ? '$'+formatMoney(e.credit) : '—', colCredit, y, {align:'right'});
+    doc.setFont('helvetica','bold');
+    doc.text('$'+formatMoney(Math.abs(e.balance)) + (e.balance<0?' CR':''), colBal, y, {align:'right'});
+    y += 6.5;
+    doc.setDrawColor(240,240,240); doc.line(margin, y-2.5, pageW-margin, y-2.5);
+  });
+
+  y += 4;
+  doc.setDrawColor(30,30,30); doc.setLineWidth(0.5); doc.line(margin, y, pageW-margin, y); doc.setLineWidth(0.2);
+  y += 7;
+  doc.setFont('helvetica','bold'); doc.setFontSize(11);
+  doc.text('Closing Balance', pageW-margin-55, y);
+  doc.text('$'+formatMoney(Math.abs(running)) + (running<0?' (Credit)':''), pageW-margin, y, {align:'right'});
+
+  addPdfFooterToAllPages(doc, pageW, pageH, margin);
+  doc.save(`Hesap-Ekstresi-${(customer.adSoyad||customer.firma||'musteri').replace(/[^a-zA-Z0-9]/g,'-')}.pdf`);
+}
+
+function ordersFor(cid){ return state.orders.filter(o=>o.customerId===cid); }
+function contactsFor(cid){ return state.contacts.filter(c=>c.customerId===cid); }
+function computeMaxCustomerNo(){
+  return state.customers.reduce((max,c)=>Math.max(max, Number(c.customerNo)||0), 0);
+}
+function nextCustomerNo(){
+  return computeMaxCustomerNo() + 1;
+}
+async function repairDuplicateCustomerNumbers(){
+  const byNo = {};
+  state.customers.forEach(c=>{
+    const no = Number(c.customerNo)||0;
+    if(!byNo[no]) byNo[no] = [];
+    byNo[no].push(c);
+  });
+  const duplicateGroups = Object.keys(byNo).filter(no=>no!=='0' && byNo[no].length>1);
+  const missingNo = byNo['0'] || [];
+  const totalIssues = duplicateGroups.reduce((sum,no)=>sum+byNo[no].length-1,0) + missingNo.length;
+  if(totalIssues===0){ showToast('Mükerrer veya eksik müşteri numarası bulunamadı'); return; }
+  if(!confirm(`${totalIssues} müşteri kaydında mükerrer/eksik numara bulundu. Bunlara yeni, benzersiz numaralar atanacak (her grupta en eski kayıt orijinal numarasını korur). Devam edilsin mi?`)) return;
+
+  let maxNo = computeMaxCustomerNo();
+  const toUpdate = [];
+  duplicateGroups.forEach(no=>{
+    const group = byNo[no].slice().sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
+    group.slice(1).forEach(c=>{ maxNo++; c.customerNo = maxNo; toUpdate.push(c); });
+  });
+  missingNo.forEach(c=>{ maxNo++; c.customerNo = maxNo; toUpdate.push(c); });
+
+  showToast(`${toUpdate.length} kayıt güncelleniyor…`);
+  render();
+  for(const c of toUpdate){
+    await saveKey('customer:'+c.id, c);
+  }
+  render();
+  showToast(`${toUpdate.length} müşterinin numarası düzeltildi`);
+}
+
+// ---------- mutations ----------
+async function saveCustomer(cust){
+  const orig = state.customers.find(c=>c.id===cust.id);
+  const exists = !!orig;
+  if(!exists){
+    cust.customerNo = nextCustomerNo();
+    cust.createdAt = nowISO();
+    cust.createdBy = session.displayName;
+  } else {
+    cust.customerNo = orig.customerNo;
+    cust.createdAt = orig.createdAt;
+    cust.createdBy = orig.createdBy;
+  }
+  state.customers = exists ? state.customers.map(c=>c.id===cust.id?cust:c) : [...state.customers, cust];
+  state.modalMode = null;
+  render();
+  const ok = await saveKey('customer:'+cust.id, cust);
+  if(!exists) await saveKey('meta', state.meta);
+  if(ok) showToast('Müşteri kaydedildi');
+}
+function toggleCustomerSelect(id){
+  if(state.selectedCustomers.has(id)) state.selectedCustomers.delete(id);
+  else state.selectedCustomers.add(id);
+  render();
+}
+function toggleCustomerSelectAll(visibleIds){
+  const allSelected = visibleIds.every(id=>state.selectedCustomers.has(id));
+  if(allSelected) visibleIds.forEach(id=>state.selectedCustomers.delete(id));
+  else visibleIds.forEach(id=>state.selectedCustomers.add(id));
+  render();
+}
+function blockReasonLabel(reason){
+  return reason==='nonzero_balance' ? 'bakiyesi sıfır değil — önce ödeme alın veya sipariş(ler)i iade alıp/iptal edip bakiyeyi sıfırlayın'
+    : 'silinemedi';
+}
+async function bulkDeleteCustomers(ids){
+  if(ids.length===0) return;
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bulkDeleteCustomers', auth:{username:session.username, passwordHash:session.passwordHash}, customerIds:ids})
+    });
+    const data = await res.json();
+    if(data && data.ok){
+      const blocked = data.blockedCustomers || [];
+      const blockedIds = new Set(blocked.map(b=>b.id));
+      const deletedIds = ids.filter(id=>!blockedIds.has(id));
+      state.customers = state.customers.filter(c=>!deletedIds.includes(c.id));
+      state.contacts = state.contacts.filter(c=>!deletedIds.includes(c.customerId));
+      state.orders = state.orders.filter(o=>!deletedIds.includes(o.customerId));
+      state.payments = state.payments.filter(p=>!deletedIds.includes(p.customerId));
+      deletedIds.forEach(id=>state.selectedCustomers.delete(id));
+      if(state.selectedId && deletedIds.includes(state.selectedId)){ state.view = 'list'; state.selectedId = null; }
+      render();
+      if(blocked.length>0){
+        const lines = blocked.map(b=>{
+          const c = state.customers.find(x=>x.id===b.id) || {adSoyad:'', firma:''};
+          return `• ${displayName(c)}: ${blockReasonLabel(b.reason)}`;
+        }).join('\n');
+        alert(`${data.deletedCustomers} müşteri silindi.\n\n${blocked.length} müşteri silinemedi:\n${lines}`);
+      } else {
+        showToast(`${data.deletedCustomers} müşteri silindi`);
+      }
+    } else {
+      showToast('Silme işlemi başarısız oldu — yetkinizi kontrol edin');
+    }
+  }catch(e){
+    showToast('Sunucuya bağlanılamadı');
+  }
+}
+async function deleteSelectedCustomers(){
+  const ids = Array.from(state.selectedCustomers);
+  if(ids.length===0){ showToast('Önce silmek istediğiniz müşterileri seçin'); return; }
+  const blocked = ids.filter(id=>customerBalance(id, ordersFor(id)) !== 0);
+  const eligible = ids.filter(id=>customerBalance(id, ordersFor(id)) === 0);
+  if(eligible.length===0){ alert(`Seçilen ${ids.length} müşterinin hepsinin bakiyesi sıfır değil — hiçbiri silinemez.`); return; }
+  let msg = `${eligible.length} müşteriyi ve tüm görüşme/sipariş kayıtlarını silmek istediğinize emin misiniz?`;
+  if(blocked.length>0) msg += `\n\n${blocked.length} müşteri bakiyesi sıfır olmadığı için silme dışında bırakılacak.`;
+  if(!confirm(msg)) return;
+  showToast('Siliniyor…');
+  await bulkDeleteCustomers(eligible);
+}
+async function deleteAllCustomers(){
+  const ids = state.customers.map(c=>c.id);
+  if(ids.length===0) return;
+  const blocked = ids.filter(id=>customerBalance(id, ordersFor(id)) !== 0);
+  const eligible = ids.filter(id=>customerBalance(id, ordersFor(id)) === 0);
+  if(eligible.length===0){ alert(`Kayıtlı ${ids.length} müşterinin hepsinin bakiyesi sıfır değil — hiçbiri silinemez.`); return; }
+  const typed = prompt(`${eligible.length} müşteriyi ve tüm görüşme/sipariş geçmişlerini silmek üzeresiniz.${blocked.length>0?` (${blocked.length} müşteri bakiyesi sıfır olmadığı için korunacak.)`:''} Bu geri alınamaz. Onaylamak için "SİL" yazın:`);
+  if(typed !== 'SİL'){ showToast('İşlem iptal edildi'); return; }
+  showToast('Müşteriler siliniyor…');
+  await bulkDeleteCustomers(eligible);
+}
+async function deleteCustomerConfirm(id){
+  const customer = state.customers.find(c=>c.id===id);
+  const bal = customerBalance(id, ordersFor(id));
+  if(bal !== 0){
+    alert(`${customer?displayName(customer):'Bu müşterinin'} bakiyesi sıfır değil (${balanceLabel(bal)}) — silinemez.\n\nÖnce ödeme kaydedin veya ilgili siparişleri iade alın/iptal edin, bakiye sıfırlandıktan sonra tekrar deneyin.`);
+    return;
+  }
+  if(!confirm(`${customer?displayName(customer):'Bu müşteriyi'} ve tüm kayıtlarını silmek istediğinize emin misiniz?`)) return;
+  showToast('Siliniyor…');
+  await bulkDeleteCustomers([id]);
+}
+async function addContactFromForm(cid){
+  const date = document.getElementById('cf-date').value || todayISO();
+  const time = document.getElementById('cf-time').value || nowHM();
+  const channel = document.getElementById('cf-channel').value;
+  const note = document.getElementById('cf-note').value.trim();
+  const contact = {id:uid(), customerId:cid, date, time, channel, note, createdBy: session.displayName};
+  state.contacts = [...state.contacts, contact];
+  render();
+  const ok = await saveKey('contact:'+contact.id, contact);
+  if(ok) showToast('Görüşme kaydedildi');
+}
+async function deleteContact(cid, id){
+  state.contacts = state.contacts.filter(c=>c.id!==id);
+  render();
+  await saveKey('contact:'+id, null);
+}
+async function addOrderFromForm(cid){
+  const date = document.getElementById('of-date').value || todayISO();
+  const amount = parseFloat(document.getElementById('of-amount').value) || 0;
+  const note = document.getElementById('of-note').value.trim();
+  const order = {id:uid(), customerId:cid, date, amount, note, createdBy: session.displayName};
+  state.orders = [...state.orders, order];
+  render();
+  const ok = await saveKey('order:'+order.id, order);
+  if(ok) showToast('Sipariş kaydedildi');
+}
+async function deleteOrder(cid, id){
+  state.orders = state.orders.filter(o=>o.id!==id);
+  render();
+  await saveKey('order:'+id, null);
+}
+async function addPaymentFromForm(cid){
+  const date = document.getElementById('pf-date').value || todayISO();
+  const time = document.getElementById('pf-time').value || '';
+  const amount = parseFloat(document.getElementById('pf-amount').value) || 0;
+  const note = document.getElementById('pf-note').value.trim();
+  if(amount<=0){ showToast('Lütfen geçerli bir tutar girin'); return; }
+  const payment = {id:uid(), customerId:cid, date, time, amount, note, createdBy: session.displayName, createdAt: new Date().toISOString()};
+  state.payments = [...state.payments, payment];
+  render();
+  const ok = await saveKey('payment:'+payment.id, payment);
+  if(ok) showToast('Ödeme kaydedildi'); else showToast('Kaydedilemedi — tekrar deneyin');
+}
+async function deletePayment(cid, id){
+  if(!confirm('Bu ödeme kaydını silmek istediğinize emin misiniz? Bakiye yeniden hesaplanacak.')) return;
+  state.payments = state.payments.filter(p=>p.id!==id);
+  render();
+  await saveKey('payment:'+id, null);
+}
+
+// ---------- UI actions ----------
+function openNewCustomerModal(){ state.modalMode = 'new'; render(); }
+function handleBootstrapLogoUpload(e){
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Lütfen bir görsel dosyası seçin'); return; }
+  if(file.size > 30*1024){ showToast('Logo çok büyük — lütfen 30 KB altında bir dosya kullanın'); return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    authState.bootstrapLogo = ev.target.result;
+    renderAuthScreen();
+  };
+  reader.onerror = function(){ showToast('Dosya okunamadı'); };
+  reader.readAsDataURL(file);
+}
+function handleLogoUpload(e){
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Lütfen bir görsel dosyası seçin'); return; }
+  if(file.size > 30*1024){ showToast('Logo çok büyük — lütfen 30 KB altında bir dosya kullanın'); return; }
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    state.logo = ev.target.result;
+    render();
+    const ok = await saveKey('logo', state.logo);
+    if(ok){ saveCachedLogo(state.logo); showToast('Logo kaydedildi'); } else showToast('Logo kaydedilemedi — dosya çok büyük olabilir');
+  };
+  reader.onerror = function(){ showToast('Dosya okunamadı'); };
+  reader.readAsDataURL(file);
+}
+function openEditCustomerModal(id){ state.modalMode = state.customers.find(c=>c.id===id); render(); }
+function closeModal(){ state.modalMode = null; render(); }
+
+// ---------- user management (admin only) ----------
+let usersList = [];
+async function openUsersModal(){
+  state.modalMode = 'users';
+  render();
+  try{
+    const res = await fetch(API_URL + '?action=listUsers&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash));
+    const data = await res.json();
+    usersList = (data && data.ok) ? data.users : [];
+  }catch(e){ usersList = []; }
+  render();
+}
+async function submitAddUser(){
+  const username = document.getElementById('au-username').value.trim();
+  const displayName = document.getElementById('au-displayname').value.trim();
+  const password = document.getElementById('au-password').value;
+  const role = document.getElementById('au-role').value;
+  if(!username || password.length < 4){ showToast('Kullanıcı adı girin, şifre en az 4 karakter olmalı'); return; }
+  const passwordHash = await hashPassword(password);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'addUser', auth:{username:session.username, passwordHash:session.passwordHash}, newUser:{username, displayName, passwordHash, role}})
+    });
+    const data = await res.json();
+    if(data && data.ok){
+      showToast('Kullanıcı eklendi');
+      document.getElementById('au-username').value=''; document.getElementById('au-displayname').value=''; document.getElementById('au-password').value='';
+      openUsersModal();
+    } else {
+      showToast(data && data.error==='username_taken' ? 'Bu kullanıcı adı zaten kullanılıyor' : 'Kullanıcı eklenemedi');
+    }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+}
+async function deleteUserConfirm(userId, username){
+  if(!confirm('"' + username + '" kullanıcısını silmek istediğinize emin misiniz?')) return;
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'deleteUser', auth:{username:session.username, passwordHash:session.passwordHash}, targetUserId:userId})
+    });
+    const data = await res.json();
+    if(data && data.ok){ showToast('Kullanıcı silindi'); openUsersModal(); }
+    else { showToast(data && data.error==='cannot_delete_last_user' ? 'Son kullanıcı silinemez' : 'Silinemedi'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+}
+function renderUsersModal(){
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal wide">
+      <h2>Kullanıcılar</h2>
+      <div style="margin-bottom:18px">
+        ${usersList.length===0 ? '<div class="log-empty">Yükleniyor…</div>' : usersList.map(u=>`
+          <div class="log-item" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <b>${esc(u.displayName)}</b> <span style="color:var(--muted)">(@${esc(u.username)})</span>
+              <span class="role-chip" style="margin-left:6px">${u.role==='admin'?'Yönetici':(u.role==='depocu'?'Depocu':'Personel')}</span>
+            </div>
+            ${u.username!==session.username ? `<button class="btn small danger-outline" onclick="deleteUserConfirm('${u.id}','${attrEsc(u.username)}')">Sil</button>` : `<span style="font-size:11px;color:var(--muted)">Siz</span>`}
+          </div>`).join('')}
+      </div>
+      <h2 style="font-size:16px">Yeni Kullanıcı Ekle</h2>
+      <div class="row2">
+        <div class="field"><label>Kullanıcı Adı</label><input id="au-username" type="text" /></div>
+        <div class="field"><label>Ad Soyad</label><input id="au-displayname" type="text" /></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Şifre</label><input id="au-password" type="password" placeholder="En az 4 karakter" /></div>
+        <div class="field"><label>Yetki</label>
+          <select id="au-role">
+            <option value="staff">Personel</option>
+            <option value="depocu">Depocu (sadece Depo'ya erişir)</option>
+            <option value="admin">Yönetici</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Kapat</button>
+        <button class="btn primary" onclick="submitAddUser()">Kullanıcı Ekle</button>
+      </div>
+    </div>
+  </div>`;
+}
+function selectCustomer(id){ state.selectedId = id; state.view = 'detail'; state.detailTab = 'contacts'; render(); }
+function goToAdjacentCustomer(direction){
+  const ordered = getFilteredSortedCustomers();
+  const idx = ordered.findIndex(c=>c.id===state.selectedId);
+  if(idx === -1) return;
+  const newIdx = idx + direction;
+  if(newIdx < 0 || newIdx >= ordered.length) return;
+  state.selectedId = ordered[newIdx].id;
+  state.detailTab = 'contacts';
+  render();
+  window.scrollTo(0,0);
+}
+function backToList(){ state.view = 'list'; state.selectedId = null; render(); }
+function setCountryFilter(v){ state.countryFilter = v; render(); }
+function setSortBy(v){ state.sortBy = v; render(); }
+function headerSort(field){
+  if(field==='country'){
+    state.sortBy = (state.sortBy==='country-asc') ? 'country-desc' : 'country-asc';
+  } else if(field==='status'){
+    state.sortBy = (state.sortBy==='status') ? 'status-desc' : 'status';
+  }
+  render();
+}
+function sortIndicator(field){
+  if(field==='country'){
+    if(state.sortBy==='country-asc') return ' ▲';
+    if(state.sortBy==='country-desc') return ' ▼';
+  }
+  if(field==='status'){
+    if(state.sortBy==='status') return ' ▲';
+    if(state.sortBy==='status-desc') return ' ▼';
+  }
+  return '';
+}
+function setSearch(v){ state.search = v; render(); }
+function clearMMSearch(){ state.search = ''; render(); }
+function statusRank(orders){
+  const p = predictNextOrder(orders);
+  if(p.status==='overdue') return 0;
+  if(p.status==='due-soon') return 1;
+  if(p.status==='ok') return 2;
+  return 3;
+}
+function switchTab(t){ state.detailTab = t; render(); }
+function submitCustomerModal(){
+  const adSoyad = document.getElementById('m-adsoyad').value.trim();
+  const firma = titleCaseTR(document.getElementById('m-firma').value.trim());
+  const country = titleCaseTR(document.getElementById('m-country').value.trim());
+  const phone = document.getElementById('m-phone').value.trim() ? ('+' + digitsOnly(document.getElementById('m-phone').value)) : '';
+  const phone2 = document.getElementById('m-phone2').value.trim() ? ('+' + digitsOnly(document.getElementById('m-phone2').value)) : '';
+  const telegram = document.getElementById('m-telegram').value.trim();
+  const email = document.getElementById('m-email').value.trim();
+  const companyType = document.getElementById('m-companytype').value;
+  const contactTitle = document.getElementById('m-contacttitle').value.trim();
+  const website = document.getElementById('m-website').value.trim();
+  const address = document.getElementById('m-address').value.trim();
+  const social = document.getElementById('m-social').value.trim();
+  const instagram = document.getElementById('m-instagram').value.trim().replace('@','');
+  const howMet = document.getElementById('m-howmet').value.trim();
+  const notes = document.getElementById('m-notes').value.trim();
+  if((!adSoyad && !firma) || !country){ showToast('Ad Soyad veya Firma, ve Ülke zorunludur'); return; }
+  if(email && !isValidEmail(email)){ showToast('E-posta geçersiz — "@" ve alan adını kontrol edin'); return; }
+  const existingId = (state.modalMode && state.modalMode !== 'new') ? state.modalMode.id : null;
+  saveCustomer({ id: existingId || uid(), adSoyad, firma, country, phone, phone2, telegram, instagram, email, companyType, contactTitle, website, address, social, howMet, notes });
+}
+
+// ---------- bulk import ----------
+function openBulkModal(){ state.modalMode = 'bulk'; state.bulkImportReview = null; state.bulkImportError = null; render(); }
+function phoneLooksValid(phone){
+  const digits = phone.replace(/[^0-9]/g,'');
+  if(digits.length < 10 || digits.length > 15) return false;
+  if(digits.startsWith('0')) return false; // looks like a local number with no country code
+  return true;
+}
+// Single source of truth for bulk import/export column order — export and import
+// must never drift apart, or values land in the wrong fields on re-import.
+const CUSTOMER_CSV_FIELDS  = ['adSoyad','firma','country','phone','phone2','telegram','instagram','email','companyType','contactTitle','website','howMet','address','social','notes'];
+const CUSTOMER_CSV_HEADERS = ['Ad Soyad','Firma','Ülke','Telefon','2. Telefon','Telegram','Instagram','E-posta','Şirket Türü','Kontak Ünvanı','Web Sitesi','Nasıl Tanıştık','Adres','Sosyal Medya','Notlar'];
+function parseCustomerBulkLines(raw){
+  const rawLines = raw.split('\n');
+  const ready = [];
+  const missingRequired = [];   // can't be saved at all — informational only
+  const suspectPhone = [];      // saveable, but phone doesn't look internationally valid
+  let invalidEmails = 0;
+  let runningNo = computeMaxCustomerNo(); // local counter — never re-reads state mid-loop, so each row gets a unique number
+  let importMoment = Date.now(); // incremented per row so same-batch imports still sort in source order
+  for(let i=0;i<rawLines.length;i++){
+    const rowNum = i + 1; // matches the row number you'd see opening the same file in Excel/Sheets
+    const line = rawLines[i].trim();
+    if(!line) continue;
+    if(/^Ad\s*Soyad\s*[,\t]/i.test(line)) continue; // skip a header row if present
+    const cols = parseBulkLine(line);
+    const raw_ = {};
+    CUSTOMER_CSV_FIELDS.forEach((f,i)=>{ raw_[f] = cols[i]||''; });
+    const adSoyad = titleCaseTR(raw_.adSoyad);
+    const firma = titleCaseTR(raw_.firma);
+    const country = titleCaseTR(raw_.country);
+    if((!adSoyad && !firma) || !country){
+      const reasons = [];
+      if(!adSoyad && !firma) reasons.push('Ad Soyad ve Firma\'nın ikisi de boş (en az biri zorunlu)');
+      if(!country) reasons.push('Ülke boş');
+      missingRequired.push({ line, reason: reasons.join(' · '), rowNum });
+      continue;
+    }
+    const phone = raw_.phone ? ('+' + digitsOnly(raw_.phone)) : '';
+    const phone2 = raw_.phone2 ? ('+' + digitsOnly(raw_.phone2)) : '';
+    const instagram = raw_.instagram.trim().replace('@','');
+    const email = raw_.email.trim();
+    if(email && !isValidEmail(email)) invalidEmails++;
+    runningNo++;
+    const customer = {
+      id: uid(), customerNo: runningNo, createdAt: new Date(importMoment++).toISOString(), createdBy: session.displayName,
+      adSoyad, firma, country, phone, phone2, telegram: raw_.telegram.trim(), instagram, email,
+      companyType: raw_.companyType.trim(), contactTitle: raw_.contactTitle.trim(), website: raw_.website.trim(),
+      howMet: raw_.howMet.trim(), address: raw_.address.trim(), social: raw_.social.trim(), notes: raw_.notes.trim()
+    };
+    if(phone && !phoneLooksValid(phone)){
+      suspectPhone.push({ customer, rawPhone: raw_.phone, rowNum });
+    } else {
+      ready.push(customer);
+    }
+  }
+  return {ready, missingRequired, suspectPhone, invalidEmails};
+}
+function setBulkProgress(text, isError){
+  const el = document.getElementById('bulk-result');
+  if(!el) return;
+  el.style.display = 'block';
+  el.className = 'bulk-result ' + (isError ? 'error' : 'ok');
+  el.textContent = text;
+}
+function stageBulkImport(parsed, sourceName){
+  if(parsed.ready.length===0 && parsed.suspectPhone.length===0 && parsed.missingRequired.length===0){
+    state.bulkImportReview = null;
+    state.bulkImportError = `${sourceName?('"'+sourceName+'": '):''}İçe aktarılacak veri bulunamadı.`;
+    render();
+    return;
+  }
+  state.bulkImportReview = { ...parsed, sourceName, phoneChoice: 'strip' };
+  state.bulkImportError = null;
+  render();
+}
+async function sendCustomerBulkImport(customers){
+  if(customers.length===0){ showToast('İçe aktarılacak geçerli satır bulunamadı'); return; }
+  if(state.bulkImportRunning) return;
+  state.bulkImportRunning = true;
+  render();
+  setBulkProgress(`İşleniyor… ${customers.length} müşteri gönderiliyor, lütfen bekleyin.`);
+  try{
+    const res = await fetch(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bulkImportCustomers', auth:{username:session.username, passwordHash:session.passwordHash}, customers})
+    });
+    const data = await res.json();
+    state.bulkImportRunning = false;
+    if(data && data.ok){
+      await refreshData();
+      const parts = [`✓ ${data.added} müşteri kaydedildi`];
+      if(data.duplicates>0) parts.push(`${data.duplicates} müşteri zaten sistemde kayıtlı olduğu için eklenmedi (aşağıda listelendi)`);
+      state.bulkImportDuplicates = data.duplicateList || [];
+      state.bulkImportResultText = parts.join(' · ') + '.';
+      state.bulkImportResultIsError = data.duplicates>0;
+      showToast(`${data.added} müşteri kaydedildi`);
+      render();
+    } else {
+      state.bulkImportResultText = 'İçe aktarma başarısız oldu — ' + (data && data.error ? ('sunucu hatası: ' + data.error) : 'yetkinizi kontrol edin ve tekrar deneyin.');
+      state.bulkImportResultIsError = true;
+      showToast('İçe aktarma başarısız');
+      render();
+    }
+  }catch(e){
+    state.bulkImportRunning = false;
+    state.bulkImportResultText = 'Sunucuya bağlanılamadı — internet bağlantınızı kontrol edip tekrar deneyin.';
+    state.bulkImportResultIsError = true;
+    render();
+  }
+}
+function setBulkPhoneChoice(v){ state.bulkImportReview.phoneChoice = v; render(); }
+async function confirmBulkImportReview(){
+  const r = state.bulkImportReview;
+  if(!r) return;
+  let finalList = [...r.ready];
+  if(r.phoneChoice === 'asis'){
+    finalList = finalList.concat(r.suspectPhone.map(x=>x.customer));
+  } else if(r.phoneChoice === 'strip'){
+    finalList = finalList.concat(r.suspectPhone.map(x=>({...x.customer, phone:''})));
+  } // 'skip' — leave suspectPhone rows out entirely
+  state.bulkImportReview = null;
+  await sendCustomerBulkImport(finalList);
+}
+function cancelBulkImportReview(){ state.bulkImportReview = null; render(); }
+async function submitBulkImport(){
+  if(state.bulkImportRunning) return;
+  state.bulkImportError = null;
+  const raw = document.getElementById('bulk-textarea').value;
+  if(!raw || !raw.trim()){
+    state.bulkImportError = 'Önce bir CSV dosyası seçin ya da kutuya veri yapıştırın.';
+    render();
+    return;
+  }
+  stageBulkImport(parseCustomerBulkLines(raw), null);
+}
+function handleCustomerBulkFile(e){
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  if(state.bulkImportRunning){ e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    let text = ev.target.result;
+    if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip UTF-8 BOM if present
+    stageBulkImport(parseCustomerBulkLines(text), file.name);
+  };
+  reader.onerror = function(){ showToast('Dosya okunamadı'); };
+  reader.readAsText(file, 'UTF-8');
+  e.target.value = '';
+}
+
+// ---------- export ----------
+function exportCustomersCSV(){
+  const rows = state.customers.map(c=> CUSTOMER_CSV_FIELDS.map(f=> f==='adSoyad' ? (c.adSoyad||c.name||'') : (c[f]||'') ));
+  const csv = [CUSTOMER_CSV_HEADERS, ...rows].map(r=>r.map(csvField).join(',')).join('\n');
+  downloadBlob('musteriler.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  showToast('CSV indirildi');
+}
+function downloadCustomerTemplate(){
+  const example = ['Ayşe Yılmaz','Yılmaz Tekstil','Almanya','+49 151 234 5678','','@ayseyilmaz','ayseyilmaz','ayse@example.com','Toptancı','Satın Alma','www.yilmaztekstil.com','Fuar','','',''];
+  const csv = [CUSTOMER_CSV_HEADERS, example].map(r=>r.map(csvField).join(',')).join('\n');
+  downloadBlob('musteri-yukleme-sablonu.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  showToast('Şablon indirildi');
+}
+function exportFullBackupJSON(){
+  const backup = { customers: state.customers, contacts: state.contacts, orders: state.orders, exportedAt: new Date().toISOString() };
+  downloadBlob('musteri-merkezi-yedek.json', 'application/json', JSON.stringify(backup, null, 2));
+  showToast('Yedek indirildi');
+}
+
+// ---------- render ----------
+function render(){
+  const root = document.getElementById('root');
+  if(!state.loaded){ root.innerHTML = '<div class="loading">Yükleniyor…</div>'; return; }
+
+  const activeEl = document.activeElement;
+  let focusInfo = null;
+  if(activeEl && activeEl.id && root.contains(activeEl)){
+    focusInfo = { id: activeEl.id, start: activeEl.selectionStart, end: activeEl.selectionEnd };
+  }
+
+  if(state.blockedForDepocu){
+    root.innerHTML = `<div class="auth-wrap">
+      <div class="auth-card" style="text-align:center">
+        <h2 style="font-family:'Fraunces',serif;margin:0 0 8px">Bu bölüme erişiminiz yok</h2>
+        <p style="color:var(--muted);font-size:13px;margin:0 0 18px">Depocu hesabınız yalnızca Depo sayfasına erişebilir.</p>
+        <a class="btn primary" href="depo.html" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">Depo'ya Git</a>
+        <div style="margin-top:14px"><a class="nav-link" href="#" onclick="logout();return false;">Çıkış Yap</a></div>
+      </div>
+    </div>`;
+    return;
+  }
+
+  let html = `<div class="banner">
+    <div class="brand-row">
+      <div class="brand-logo-wrap">
+        <div class="logo-click" onclick="document.getElementById('logo-file').click()" title="${state.logo ? 'Logoyu değiştir' : 'Logo yükle'} — PNG/JPG/SVG, maks. 30 KB">
+          ${state.logo ? `<img src="${state.logo}" class="brand-logo" alt="Marka logosu" />` : `<div class="brand-logo-placeholder">Logo yok</div>`}
+          <span class="logo-edit-badge">✎</span>
+        </div>
+        <input type="file" id="logo-file" accept="image/*" style="display:none" onchange="handleLogoUpload(event)" />
+      </div>
+      <div>
+        <h1>Müşteri Merkezi</h1>
+        <div class="sub">Ülkeye göre filtrele, tek tıkla iletişime geç, sipariş ritmini takip et. · <a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş →</a> · <a class="nav-link" href="depo.html" target="_blank" rel="noopener">Depo →</a></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      ${state.view==='list' ? '<button class="btn primary" onclick="openNewCustomerModal()">+ Yeni Müşteri</button>' : ''}
+      <div class="user-badge">
+        <span>${esc(session.displayName)} <span class="role-chip">${session.role==='admin'?'Yönetici':(session.role==='depocu'?'Depocu':'Personel')}</span></span>
+        ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a>' : ''}
+        <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
+      </div>
+    </div>
+  </div>`;
+
+  if(state.view === 'detail'){
+    const customer = state.customers.find(c=>c.id===state.selectedId);
+    html += customer ? renderDetail(customer) : '<div class="empty"><h3>Müşteri bulunamadı</h3></div>';
+  } else {
+    html += renderList();
+  }
+
+  if(state.modalMode === 'bulk'){
+    html += renderBulkModal();
+  } else if(state.modalMode === 'users'){
+    html += renderUsersModal();
+  } else if(state.modalMode === 'accountStatement'){
+    html += renderAccountStatementModal();
+  } else if(state.modalMode){
+    html += renderCustomerModal();
+  }
+
+  root.innerHTML = html;
+
+  if(focusInfo){
+    const el = document.getElementById(focusInfo.id);
+    if(el){
+      el.focus();
+      if(typeof el.setSelectionRange === 'function' && focusInfo.start!=null){
+        try{ el.setSelectionRange(focusInfo.start, focusInfo.end); }catch(e){}
+      }
+    }
+  }
+}
+
+function getFilteredSortedCustomers(){
+  const filtered = state.customers.filter(c=>{
+    if(state.countryFilter && c.country !== state.countryFilter) return false;
+    if(state.search){
+      const q = state.search.toLowerCase();
+      const hay = ((c.adSoyad||'') + ' ' + (c.firma||'') + ' ' + (c.name||'')).toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  return [...filtered].sort((a,b)=>{
+    switch(state.sortBy){
+      case 'name-desc':
+        return displayName(b).localeCompare(displayName(a), 'tr');
+      case 'created-desc':
+        return (b.createdAt||'0000-00-00').localeCompare(a.createdAt||'0000-00-00');
+      case 'created-asc':
+        return (a.createdAt||'9999-99-99').localeCompare(b.createdAt||'9999-99-99');
+      case 'country-asc':
+        return (a.country||'').localeCompare(b.country||'', 'tr');
+      case 'country-desc':
+        return (b.country||'').localeCompare(a.country||'', 'tr');
+      case 'status':
+        return statusRank(ordersFor(a.id)) - statusRank(ordersFor(b.id));
+      case 'status-desc':
+        return statusRank(ordersFor(b.id)) - statusRank(ordersFor(a.id));
+      case 'contact-stale':
+        return (lastContactDate(a.id)||'9999-99-99').localeCompare(lastContactDate(b.id)||'9999-99-99');
+      case 'name-asc':
+      default:
+        return displayName(a).localeCompare(displayName(b), 'tr');
+    }
+  });
+}
+function renderRevenueBox(){
+  const monthly = {}; // 'YYYY-MM' -> total
+  const yearly = {};  // 'YYYY' -> total
+  state.orders.forEach(o=>{
+    if(!isRichOrder(o) || o.status==='cancelled' || o.status==='draft') return;
+    const dateStr = orderDateOf(o);
+    if(!dateStr) return;
+    const ym = dateStr.slice(0,7), y = dateStr.slice(0,4);
+    const amount = orderAmount(o) - orderReturnedAmount(o); // net of any returns
+    monthly[ym] = (monthly[ym]||0) + amount;
+    yearly[y] = (yearly[y]||0) + amount;
+  });
+  const yearKeys = Object.keys(yearly).sort().reverse();
+  if(yearKeys.length===0) return '';
+
+  const monthNames = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+  if(!state.revenueSelectedYear || !yearKeys.includes(state.revenueSelectedYear)) state.revenueSelectedYear = yearKeys[0];
+  const selYear = state.revenueSelectedYear;
+  const selMonth = state.revenueSelectedMonth; // '01'..'12' or null (null = whole year)
+  const selectedTotal = selMonth ? (monthly[selYear+'-'+selMonth]||0) : yearly[selYear];
+  const selectedLabel = selMonth ? (monthNames[parseInt(selMonth,10)-1] + ' ' + selYear) : selYear;
+
+  return `<details class="extra-fields" style="margin-bottom:14px" ${state.revenueBoxOpen?'open':''} ontoggle="state.revenueBoxOpen=this.open">
+    <summary>📊 Aylık ve Yıllık Ciro</summary>
+    <div class="extra-fields-body">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        ${yearKeys.map(y=>`<button class="btn small ${y===selYear?'primary':'ghost'}" onclick="setRevenuePeriod('${y}', null)">${esc(y)} · $${formatMoney(yearly[y])}</button>`).join('')}
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px">
+        ${monthNames.map((mName,i)=>{
+          const mKey = String(i+1).padStart(2,'0');
+          const ym = selYear+'-'+mKey;
+          const active = selMonth===mKey;
+          return `<button class="btn small ${active?'primary':'ghost'}" style="padding:5px 9px;font-size:11.5px" onclick="setRevenuePeriod('${selYear}', '${mKey}')">${mName}</button>`;
+        }).join('')}
+      </div>
+      <div class="extra-info-box" style="margin-bottom:0">
+        <div class="extra-info-row"><span class="extra-info-label">${esc(selectedLabel)} Toplam Ciro</span><span class="extra-info-value" style="font-weight:700;font-size:15px">$${formatMoney(selectedTotal)}</span></div>
+      </div>
+      <div class="field-msg" style="margin-top:8px">İptal edilmiş ve taslak siparişler dahil edilmez; iade edilen tutarlar düşülmüştür.</div>
+    </div>
+  </details>`;
+}
+function setRevenuePeriod(year, month){
+  state.revenueSelectedYear = year;
+  state.revenueSelectedMonth = month;
+  state.revenueBoxOpen = true;
+  render();
+}
+function renderList(){
+  const countries = Array.from(new Set(state.customers.map(c=>c.country).filter(Boolean))).sort();
+  const sorted = getFilteredSortedCustomers();
+
+  const visibleIds = sorted.map(c=>c.id);
+  const allSelected = visibleIds.length>0 && visibleIds.every(id=>state.selectedCustomers.has(id));
+  const selectedCount = state.selectedCustomers.size;
+
+  let out = `<div class="toolbar">
+    <select onchange="setCountryFilter(this.value)">
+      <option value="">Tüm ülkeler</option>
+      ${countries.map(c=>`<option value="${attrEsc(c)}" ${state.countryFilter===c?'selected':''}>${esc(c)}</option>`).join('')}
+    </select>
+    <select onchange="setSortBy(this.value)">
+      <option value="name-asc" ${state.sortBy==='name-asc'?'selected':''}>İsme Göre (A-Z)</option>
+      <option value="name-desc" ${state.sortBy==='name-desc'?'selected':''}>İsme Göre (Z-A)</option>
+      <option value="created-desc" ${state.sortBy==='created-desc'?'selected':''}>Kayıt Tarihi (Yeni → Eski)</option>
+      <option value="created-asc" ${state.sortBy==='created-asc'?'selected':''}>Kayıt Tarihi (Eski → Yeni)</option>
+      <option value="country-asc" ${state.sortBy==='country-asc'?'selected':''}>Ülkeye Göre (A-Z)</option>
+      <option value="country-desc" ${state.sortBy==='country-desc'?'selected':''}>Ülkeye Göre (Z-A)</option>
+      <option value="status" ${state.sortBy==='status'?'selected':''}>Sipariş Durumu (Geciken önce)</option>
+      <option value="status-desc" ${state.sortBy==='status-desc'?'selected':''}>Sipariş Durumu (Sağlıklı önce)</option>
+      <option value="contact-stale" ${state.sortBy==='contact-stale'?'selected':''}>Son İletişim (En eski önce)</option>
+    </select>
+    <input type="text" id="mm-search-input" placeholder="İsme veya firmaya göre ara…" value="${attrEsc(state.search)}" onkeydown="if(event.key==='Enter') setSearch(this.value)" />
+    <button class="btn ghost small" onclick="setSearch(document.getElementById('mm-search-input').value)">Ara</button>
+    ${state.search ? `<button class="btn ghost small" onclick="clearMMSearch()">✕ Temizle</button>` : ''}
+    <button class="btn ghost small" onclick="openBulkModal()">Toplu Müşteri Ekle</button>
+    <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
+    <button class="btn ghost small" onclick="exportCustomersCSV()">Müşterileri İndir (CSV)</button>
+    <button class="btn ghost small" onclick="exportFullBackupJSON()">Tüm Verileri Yedekle (JSON)</button>
+    ${session.role==='admin' ? `<button class="btn ghost small" onclick="repairDuplicateCustomerNumbers()">Mükerrer Numaraları Düzelt</button>` : ''}
+    <button class="btn danger-outline small" ${selectedCount===0?'disabled':''} onclick="deleteSelectedCustomers()">Seçilenleri Sil (${selectedCount})</button>
+    <button class="btn danger-outline small" onclick="deleteAllCustomers()">Tümünü Sil</button>
+    <div class="count">${sorted.length} / ${state.customers.length} müşteri</div>
+  </div>`;
+
+  out += renderRevenueBox();
+
+  if(sorted.length === 0){
+    out += `<div class="empty">
+      <h3>${state.customers.length===0 ? 'Henüz müşteri eklenmedi' : 'Sonuç bulunamadı'}</h3>
+      <p>${state.customers.length===0 ? '"+ Yeni Müşteri" ile ilk kaydınızı oluşturun.' : 'Filtreyi değiştirmeyi deneyin.'}</p>
+    </div>`;
+  } else {
+    out += `<div class="ledger">
+      <div class="ledger-row head" style="grid-template-columns:28px 1fr 110px 150px 150px 150px">
+        <div><input type="checkbox" ${allSelected?'checked':''} onchange="toggleCustomerSelectAll(${JSON.stringify(visibleIds)})" title="Tümünü seç" /></div>
+        <div>Müşteri</div><div class="sortable" onclick="headerSort('country')">Ülke${sortIndicator('country')}</div><div class="sortable" onclick="headerSort('status')">Sipariş Durumu${sortIndicator('status')}</div><div>İletişim</div><div></div>
+      </div>
+      ${sorted.map(c=>`
+        <div class="ledger-row" style="grid-template-columns:28px 1fr 110px 150px 150px 150px" onclick="selectCustomer('${c.id}')">
+          <div onclick="event.stopPropagation()"><input type="checkbox" ${state.selectedCustomers.has(c.id)?'checked':''} onchange="toggleCustomerSelect('${c.id}')" /></div>
+          <div class="name-cell">
+            <div class="name-row"><span class="cust-id">${customerCodeDisplay(c)}</span>${nameLineHTML(c)}</div>
+            <div style="margin-top:5px">${lastContactPillHTML(c.id)}</div>
+            <div class="mini-meta">Kayıt: ${c.createdAt?fmtDate(c.createdAt):'—'} · Toplam: ${formatMoney(totalOrderValue(ordersFor(c.id)))}${lastOrderOf(ordersFor(c.id)) ? ' · Son sipariş: '+formatMoney(orderAmount(lastOrderOf(ordersFor(c.id)))) : ''} · <span style="color:${balanceColor(customerBalance(c.id,ordersFor(c.id)))}">Bakiye: ${balanceLabel(customerBalance(c.id,ordersFor(c.id)))}</span></div>
+          </div>
+          <div style="color:var(--muted)">${esc(c.country)}</div>
+          <div>${statusPillHTML(ordersFor(c.id))}</div>
+          <div>${channelButtonsHTML(c)}</div>
+          <div style="text-align:right;display:flex;gap:6px;justify-content:flex-end">
+            <button class="btn small ghost" onclick="event.stopPropagation();openEditCustomerModal('${c.id}')">Düzenle</button>
+            <button class="btn small danger-outline" onclick="event.stopPropagation();deleteCustomerConfirm('${c.id}')">Sil</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+  return out;
+}
+
+function renderDetail(customer){
+  const orders = ordersFor(customer.id);
+  const contacts = contactsFor(customer.id);
+  const p = predictNextOrder(orders);
+  const sortedContacts = [...contacts].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const sortedOrders = [...orders].sort((a,b)=>orderDateOf(b).localeCompare(orderDateOf(a)));
+  const ordered = getFilteredSortedCustomers();
+  const curIdx = ordered.findIndex(c=>c.id===customer.id);
+  const hasPrev = curIdx > 0;
+  const hasNext = curIdx !== -1 && curIdx < ordered.length - 1;
+
+  let out = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <button class="btn ghost small" onclick="backToList()">← Listeye dön</button>
+    <div style="display:flex;align-items:center;gap:8px">
+      ${curIdx!==-1 ? `<span style="font-size:12px;color:var(--muted)">${curIdx+1} / ${ordered.length}</span>` : ''}
+      <button class="btn ghost small" ${hasPrev?'':'disabled'} onclick="goToAdjacentCustomer(-1)" title="Önceki müşteri">← Önceki</button>
+      <button class="btn ghost small" ${hasNext?'':'disabled'} onclick="goToAdjacentCustomer(1)" title="Sonraki müşteri">Sonraki →</button>
+      <button class="btn ghost small" onclick="refreshCustomerDetail('${customer.id}')" title="Bakiye ve sipariş bilgilerini güncelle (Sipariş sayfasında değişiklik yaptıysanız)">↻ Yenile</button>
+    </div>
+  </div>
+  <div class="detail-head">
+    <div>
+      <h2>${esc(displayName(customer))}</h2>
+      <div class="detail-meta">${esc(customer.country)}${(customer.adSoyad && customer.firma) ? ' · ' + esc(customer.firma) : ''}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      ${channelButtonsHTML(customer)}
+      <button class="btn small ghost" onclick="openEditCustomerModal('${customer.id}')">Düzenle</button>
+      <button class="btn small danger-outline" onclick="deleteCustomerConfirm('${customer.id}')">Sil</button>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-card"><div class="label">Müşteri No</div><div class="value" style="font-size:15px">${customerCodeDisplay(customer)}</div></div>
+    <div class="stat-card"><div class="label">Kayıt Tarihi</div><div class="value" style="font-size:14px">${customer.createdAt ? fmtDate(customer.createdAt) : '—'}</div></div>
+    <div class="stat-card"><div class="label">Kaydeden</div><div class="value" style="font-size:14px">${customer.createdBy ? esc(customer.createdBy) : '—'}</div></div>
+    <div class="stat-card"><div class="label">Son İletişim</div><div class="value" style="font-size:14px">${(()=>{ const last=lastContactDate(customer.id); if(!last) return '—'; const days=daysBetween(last, todayISO()); return days>=NO_CONTACT_WARNING_DAYS ? `<span style="color:var(--danger)">⚠ ${fmtDate(last)}</span>` : fmtDate(last); })()}</div></div>
+    <div class="stat-card"><div class="label">Toplam Sipariş</div><div class="value" style="font-size:14px">${formatMoney(totalOrderValue(orders))}</div></div>
+    <div class="stat-card"><div class="label">Son Sipariş Tarihi</div><div class="value" style="font-size:14px">${lastOrderOf(orders) ? fmtDate(orderDateOf(lastOrderOf(orders))) : '—'}</div></div>
+    <div class="stat-card"><div class="label">Bakiye</div><div class="value" style="font-size:14px;color:${balanceColor(customerBalance(customer.id,orders))}">${balanceLabel(customerBalance(customer.id,orders))}</div></div>
+  </div>
+  ${orders.some(o=>isRichOrder(o)) ? `<div style="margin:-6px 0 16px"><a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş detaylarını Sipariş sayfasında gör →</a></div>` : ''}
+  <div style="margin:-6px 0 16px"><a class="nav-link" href="#" onclick="openAccountStatementModal('${customer.id}');return false;">🖨 Cari Hesap Ekstresi Yazdır (PDF)</a></div>
+
+  <div class="predict-box">
+    <div>
+      <div class="label">Tahmini sıradaki sipariş</div>
+      <div class="value">${p.status==='insufficient' ? (p.ordersCount===0?'Henüz sipariş yok':'Tahmin için en az 2 sipariş gerekli') : fmtDate(p.nextExpectedDate)}</div>
+    </div>
+    ${p.status!=='insufficient' ? `<div style="text-align:right">
+      <div class="label">Ortalama sipariş aralığı</div>
+      <div class="value" style="font-size:15px">${p.avgIntervalDays} gün</div>
+    </div>` : ''}
+    ${statusPillHTML(orders)}
+  </div>
+
+  ${(customer.address || customer.social || customer.instagram || customer.howMet || customer.notes || customer.companyType || customer.contactTitle || customer.website || customer.phone2) ? `<div class="extra-info-box">
+    ${customer.companyType ? `<div class="extra-info-row"><span class="extra-info-label">Şirket Türü</span><span class="extra-info-value">${esc(customer.companyType)}</span></div>` : ''}
+    ${customer.contactTitle ? `<div class="extra-info-row"><span class="extra-info-label">Kontak Ünvanı</span><span class="extra-info-value">${esc(customer.contactTitle)}</span></div>` : ''}
+    ${customer.phone2 ? `<div class="extra-info-row"><span class="extra-info-label">2. Telefon</span><span class="extra-info-value">${esc(customer.phone2)}</span></div>` : ''}
+    ${customer.website ? `<div class="extra-info-row"><span class="extra-info-label">Web Sitesi</span><span class="extra-info-value"><a href="${customer.website.startsWith('http')?attrEsc(customer.website):'https://'+attrEsc(customer.website)}" target="_blank" rel="noopener">${esc(customer.website)}</a></span></div>` : ''}
+    ${customer.instagram ? `<div class="extra-info-row"><span class="extra-info-label">Instagram</span><span class="extra-info-value">@${esc(customer.instagram)}</span></div>` : ''}
+    ${customer.howMet ? `<div class="extra-info-row"><span class="extra-info-label">Nasıl Tanıştık</span><span class="extra-info-value">${esc(customer.howMet)}</span></div>` : ''}
+    ${customer.address ? `<div class="extra-info-row"><span class="extra-info-label">Adres</span><span class="extra-info-value">${esc(customer.address)}</span></div>` : ''}
+    ${customer.social ? `<div class="extra-info-row"><span class="extra-info-label">Sosyal Medya</span><span class="extra-info-value">${esc(customer.social)}</span></div>` : ''}
+    ${customer.notes ? `<div class="extra-info-row"><span class="extra-info-label">Notlar</span><span class="extra-info-value">${esc(customer.notes)}</span></div>` : ''}
+  </div>` : ''}
+
+  <div class="tabs">
+    <div class="tab ${state.detailTab==='contacts'?'active':''}" onclick="switchTab('contacts')">İletişim Geçmişi (${contacts.length})</div>
+    <div class="tab ${state.detailTab==='orders'?'active':''}" onclick="switchTab('orders')">Siparişler (${orders.length})</div>
+    <div class="tab ${state.detailTab==='payments'?'active':''}" onclick="switchTab('payments')">Ödemeler (${paymentsFor(customer.id).length})</div>
+  </div>`;
+
+  if(state.detailTab === 'contacts'){
+    out += `<div class="mini-form">
+      <div class="f"><label>Tarih</label><input type="date" id="cf-date" value="${todayISO()}" /></div>
+      <div class="f"><label>Saat</label><input type="time" id="cf-time" value="${nowHM()}" /></div>
+      <div class="f"><label>Kanal</label>
+        <select id="cf-channel">
+          <option value="whatsapp">WhatsApp</option>
+          <option value="telegram">Telegram</option>
+          <option value="email">E-posta</option>
+          <option value="other">Diğer / Telefon</option>
+        </select>
+      </div>
+      <div class="f" style="flex:1"><label>Not</label><textarea id="cf-note" placeholder="Görüşme notu…"></textarea></div>
+      <button class="btn small primary" onclick="addContactFromForm('${customer.id}')">Ekle</button>
+    </div>`;
+    if(sortedContacts.length===0) out += `<div class="log-empty">Henüz kayıtlı görüşme yok.</div>`;
+    out += sortedContacts.map(c=>`
+      <div class="log-item">
+        <div class="meta">
+          <span class="chip ${CHANNEL_CHIP_CLASS(c.channel)}">${CHANNEL_LABEL(c.channel)}</span>
+          <span>${fmtDate(c.date)} · ${esc(c.time)}</span>
+          ${c.createdBy ? `<span style="color:var(--muted);font-size:11px">· ${esc(c.createdBy)}</span>` : ''}
+          <button class="btn small ghost" style="margin-left:auto;padding:2px 8px" onclick="deleteContact('${customer.id}','${c.id}')">Sil</button>
+        </div>
+        ${c.note ? `<div class="note">${esc(c.note)}</div>` : ''}
+      </div>`).join('');
+  } else if(state.detailTab === 'orders'){
+    out += `<div class="bulk-help" style="margin-bottom:10px">Detaylı, stok rezervasyonlu siparişler için <a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş sayfasını</a> kullanın. Aşağıdaki basit form sadece hızlı bir not/tutar kaydı içindir.</div>
+    <div class="mini-form">
+      <div class="f"><label>Sipariş Tarihi</label><input type="date" id="of-date" value="${todayISO()}" /></div>
+      <div class="f"><label>Tutar</label><input type="number" id="of-amount" step="0.01" min="0" placeholder="0" style="width:110px" /></div>
+      <div class="f" style="flex:1"><label>Not</label><textarea id="of-note" placeholder="Sipariş detayı…"></textarea></div>
+      <button class="btn small primary" onclick="addOrderFromForm('${customer.id}')">Not Ekle</button>
+    </div>`;
+    if(sortedOrders.length===0) out += `<div class="log-empty">Henüz kayıtlı sipariş yok.</div>`;
+    out += sortedOrders.map(o=>{
+      if(isRichOrder(o)){
+        const bal = orderBalanceDue(o);
+        const statusChipClass = {draft:'other', approved:'wa', packed:'wa', delivered:'wa', returned:'other', cancelled:'other'}[o.status] || 'other';
+        const statusLabel = {draft:'Taslak', approved:'Onaylandı', packed:'Hazırlanıyor', delivered:'Teslim Edildi', returned:'İade Edildi', cancelled:'İptal Edildi'}[o.status] || o.status;
+        return `<div class="log-item">
+          <div class="meta">
+            <span class="chip other">${esc(o.orderNo||'')}</span>
+            <span class="chip ${statusChipClass}">${esc(statusLabel)}</span>
+            <span>${fmtDate(orderDateOf(o))}</span>
+            <span style="font-weight:700;color:var(--ink)">${formatMoney(orderAmount(o))}</span>
+            ${bal>0 ? `<span style="color:var(--danger);font-size:11px">Bakiye: ${formatMoney(bal)}</span>` : ''}
+            <a class="nav-link" style="margin-left:auto" href="siparis.html" target="_blank" rel="noopener">Detay →</a>
+          </div>
+        </div>`;
+      }
+      return `<div class="log-item">
+        <div class="meta">
+          <span>${fmtDate(o.date)}</span>
+          ${o.amount ? `<span style="font-weight:700;color:var(--ink)">${formatMoney(o.amount)}</span>` : ''}
+          ${o.createdBy ? `<span style="color:var(--muted);font-size:11px">· ${esc(o.createdBy)}</span>` : ''}
+          <button class="btn small ghost" style="margin-left:auto;padding:2px 8px" onclick="deleteOrder('${customer.id}','${o.id}')">Sil</button>
+        </div>
+        ${o.note ? `<div class="note">${esc(o.note)}</div>` : ''}
+      </div>`;
+    }).join('');
+  } else if(state.detailTab === 'payments'){
+    const pays = [...paymentsFor(customer.id)].sort((a,b)=>(b.date+ (b.time||'')).localeCompare(a.date+(a.time||'')));
+    out += `<div class="mini-form">
+      <div class="f"><label>Ödeme Tarihi</label><input type="date" id="pf-date" value="${todayISO()}" /></div>
+      <div class="f"><label>Saat</label><input type="time" id="pf-time" value="${new Date().toTimeString().slice(0,5)}" style="width:100px" /></div>
+      <div class="f"><label>Tutar ($)</label><input type="number" id="pf-amount" step="0.01" min="0" placeholder="0" style="width:110px" /></div>
+      <div class="f" style="flex:1"><label>Açıklama</label><textarea id="pf-note" placeholder="Örn. Havale, banka: ..., açıklama"></textarea></div>
+      <button class="btn small primary" onclick="addPaymentFromForm('${customer.id}')">Ödeme Ekle</button>
+    </div>`;
+    if(pays.length===0) out += `<div class="log-empty">Henüz kayıtlı ödeme yok.</div>`;
+    out += pays.map(p=>`
+      <div class="log-item">
+        <div class="meta">
+          <span>${fmtDate(p.date)}${p.time?' · '+esc(p.time):''}</span>
+          <span style="font-weight:700;color:var(--good)">+$${formatMoney(p.amount)}</span>
+          ${p.createdBy ? `<span style="color:var(--muted);font-size:11px">· ${esc(p.createdBy)}</span>` : ''}
+          <button class="btn small ghost" style="margin-left:auto;padding:2px 8px" onclick="deletePayment('${customer.id}','${p.id}')">Sil</button>
+        </div>
+        ${p.note ? `<div class="note">${esc(p.note)}</div>` : ''}
+      </div>`).join('');
+  }
+  return out;
+}
+
+function renderCustomerModal(){
+  const initial = (state.modalMode && state.modalMode !== 'new') ? state.modalMode : null;
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal">
+      <h2>${initial ? 'Müşteriyi Düzenle' : 'Yeni Müşteri'}</h2>
+      <div class="row2">
+        <div class="field">
+          <label>Ad Soyad</label>
+          <input id="m-adsoyad" value="${attrEsc(initial?.adSoyad||initial?.name||'')}" placeholder="Örn. Ayşe Yılmaz" onblur="this.value = titleCaseTR(this.value)" />
+        </div>
+        <div class="field">
+          <label>Firma</label>
+          <input id="m-firma" value="${attrEsc(initial?.firma||'')}" placeholder="Örn. Yılmaz Tekstil Ltd." onblur="this.value = titleCaseTR(this.value)" />
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Ülke *</label>
+          <input id="m-country" value="${attrEsc(initial?.country||'')}" placeholder="Örn. Almanya" onblur="this.value = titleCaseTR(this.value)" />
+        </div>
+        <div class="field">
+          <label>WhatsApp / Telefon</label>
+          <div class="phone-input">
+            <span class="phone-prefix">+</span>
+            <input id="m-phone" type="tel" inputmode="numeric" value="${attrEsc(digitsOnly(initial?.phone||''))}" placeholder="90 555 123 45 67" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" />
+          </div>
+          <div class="phone-hint">Ülke koduyla birlikte, boşluk bırakarak yazabilirsiniz — "+" işaretini siz eklemeyin.</div>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Telegram kullanıcı adı</label>
+          <input id="m-telegram" value="${attrEsc(initial?.telegram||'')}" placeholder="Örn. @ayseyilmaz" />
+        </div>
+        <div class="field">
+          <label>E-posta</label>
+          <input id="m-email" value="${attrEsc(initial?.email||'')}" placeholder="Örn. ayse@example.com" oninput="validateEmailField('m-email','m-email-msg')" />
+          <div id="m-email-msg" class="field-msg"></div>
+        </div>
+      </div>
+      <details class="extra-fields" ${(initial && (initial.companyType||initial.phone2||initial.contactTitle||initial.website||initial.instagram||initial.howMet||initial.address||initial.social||initial.notes)) ? 'open' : ''}>
+        <summary>Ek Bilgiler (opsiyonel) — şirket türü, ikinci telefon, adres, notlar ve daha fazlası</summary>
+        <div class="extra-fields-body">
+          <div class="row2">
+            <div class="field">
+              <label>Şirket Türü</label>
+              <select id="m-companytype">
+                <option value="" ${!initial?.companyType?'selected':''}>Seçiniz…</option>
+                <option value="Online" ${initial?.companyType==='Online'?'selected':''}>Online</option>
+                <option value="Toptancı" ${initial?.companyType==='Toptancı'?'selected':''}>Toptancı</option>
+                <option value="Mağazacı" ${initial?.companyType==='Mağazacı'?'selected':''}>Mağazacı</option>
+                <option value="Zincir Mağaza" ${initial?.companyType==='Zincir Mağaza'?'selected':''}>Zincir Mağaza</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>İkinci Telefon (opsiyonel)</label>
+              <div class="phone-input">
+                <span class="phone-prefix">+</span>
+                <input id="m-phone2" type="tel" inputmode="numeric" value="${attrEsc(digitsOnly(initial?.phone2||''))}" placeholder="90 555 987 65 43" oninput="this.value=this.value.replace(/[^0-9 ]/g,'')" />
+              </div>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label>Kontak Kişinin Ünvanı</label>
+              <input id="m-contacttitle" list="contacttitle-suggestions" value="${attrEsc(initial?.contactTitle||'')}" placeholder="Örn. Firma Sahibi, Satın Alma" />
+              <datalist id="contacttitle-suggestions">
+                <option value="Firma Sahibi">
+                <option value="Genel Müdür">
+                <option value="Satın Alma">
+                <option value="Tasarımcı">
+                <option value="Mağaza Müdürü">
+              </datalist>
+            </div>
+            <div class="field">
+              <label>Web Sitesi (opsiyonel)</label>
+              <input id="m-website" value="${attrEsc(initial?.website||'')}" placeholder="Örn. www.firma.com" />
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label>Instagram Kullanıcı Adı (opsiyonel)</label>
+              <input id="m-instagram" value="${attrEsc(initial?.instagram||'')}" placeholder="Örn. @ayseyilmaz" />
+            </div>
+            <div class="field">
+              <label>Nasıl Tanıştık / Kaynak (opsiyonel)</label>
+              <input id="m-howmet" list="howmet-suggestions" value="${attrEsc(initial?.howMet||'')}" placeholder="Örn. Fuar, Instagram, Google Haritalar" />
+              <datalist id="howmet-suggestions">
+                <option value="Fuar">
+                <option value="Instagram">
+                <option value="Google Haritalar">
+                <option value="B2B Ziyaret">
+                <option value="Referans / Tavsiye">
+                <option value="Web Sitesi">
+                <option value="WhatsApp">
+              </datalist>
+            </div>
+          </div>
+          <div class="field">
+            <label>Adres (opsiyonel)</label>
+            <textarea id="m-address" placeholder="Müşteri paylaşmak isterse tam teslimat adresi…">${esc(initial?.address||'')}</textarea>
+          </div>
+          <div class="field">
+            <label>Diğer Sosyal Medya (opsiyonel)</label>
+            <input id="m-social" value="${attrEsc(initial?.social||'')}" placeholder="Örn. Facebook: ... · TikTok: ..." />
+          </div>
+          <div class="field">
+            <label>Notlar (opsiyonel)</label>
+            <textarea id="m-notes" placeholder="Örn. Çalıştığı kargo firması, kargo kodu, özel talepler…">${esc(initial?.notes||'')}</textarea>
+          </div>
+        </div>
+      </details>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Vazgeç</button>
+        <button class="btn primary" onclick="submitCustomerModal()">Kaydet</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderBulkModal(){
+  const running = state.bulkImportRunning;
+  const r = state.bulkImportReview;
+  return `<div class="overlay" onmousedown="if(!${running} && event.target===event.currentTarget) closeModal()">
+    <div class="modal wide">
+      <h2>Toplu Müşteri Ekle</h2>
+      ${running ? `
+        <div class="bulk-help" style="text-align:center;padding:20px">
+          <div style="font-weight:700;margin-bottom:4px">⏳ İşleniyor…</div>
+          <div style="font-size:12px">Büyük listeler bir süre sürebilir. Bu pencereyi kapatmayın veya sayfayı yenilemeyin.</div>
+        </div>
+      ` : r ? `
+        <div class="bulk-help">
+          ${r.sourceName ? `<b>📄 ${esc(r.sourceName)}</b><br/>` : ''}
+          <b>${r.ready.length}</b> müşteri hazır, sorunsuz içe aktarılacak.
+          ${r.invalidEmails>0 ? `<br/>${r.invalidEmails} satırda e-posta geçersiz görünüyor (yine de kaydedilecek, sonradan düzeltebilirsiniz).` : ''}
+        </div>
+        ${r.missingRequired.length>0 ? `
+          <details style="margin-bottom:14px">
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--danger);font-weight:600">⚠ ${r.missingRequired.length} satır kaydedilemiyor — hangileri ve neden olduğunu görmek için tıklayın</summary>
+            <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;margin-top:6px">
+              ${r.missingRequired.map(m=>`<div style="padding:6px 10px;border-bottom:1px solid var(--line);font-size:11.5px">
+                <div style="font-weight:700;color:var(--ink)">Satır ${m.rowNum}</div>
+                <div style="font-family:ui-monospace,Menlo,monospace;color:var(--muted);margin-top:2px">${esc(m.line)}</div>
+                <div style="color:var(--danger);margin-top:2px">↳ ${esc(m.reason)}</div>
+              </div>`).join('')}
+            </div>
+            <div class="field-msg" style="margin-top:4px">Kaynak dosyanızda düzeltip ayrıca tekrar yükleyebilirsiniz.</div>
+          </details>
+        ` : ''}
+        ${r.suspectPhone.length>0 ? `
+          <div class="bulk-help" style="border-color:var(--warn);background:var(--warn-bg)">
+            <b>⚠ ${r.suspectPhone.length} satırda telefon numarası ülke kodu içermiyor gibi görünüyor</b> — bu haliyle WhatsApp/Telegram düğmeleri çalışmayabilir. Ne yapmak istersiniz?
+          </div>
+          <details style="margin-bottom:10px">
+            <summary style="cursor:pointer;font-size:12px;color:var(--warn);font-weight:600">Hangi satırlar olduğunu görmek için tıklayın</summary>
+            <div style="max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;margin-top:6px">
+              ${r.suspectPhone.map(s=>`<div style="padding:5px 10px;border-bottom:1px solid var(--line);font-size:11.5px"><b>Satır ${s.rowNum}</b> · ${esc(s.customer.adSoyad||s.customer.firma||'')} · <code>${esc(s.rawPhone)}</code></div>`).join('')}
+            </div>
+          </details>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;color:var(--ink);margin-bottom:6px">
+              <input type="radio" name="phoneChoice" value="strip" ${r.phoneChoice==='strip'?'checked':''} onchange="setBulkPhoneChoice('strip')" style="width:auto" />
+              Bu müşterileri <b>telefonsuz</b> kaydet (diğer bilgiler kalsın, telefonu sonra elle düzeltirsiniz)
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;color:var(--ink);margin-bottom:6px">
+              <input type="radio" name="phoneChoice" value="asis" ${r.phoneChoice==='asis'?'checked':''} onchange="setBulkPhoneChoice('asis')" style="width:auto" />
+              Telefonu <b>olduğu gibi</b> kaydet (riski kabul ediyorum)
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:400;color:var(--ink)">
+              <input type="radio" name="phoneChoice" value="skip" ${r.phoneChoice==='skip'?'checked':''} onchange="setBulkPhoneChoice('skip')" style="width:auto" />
+              Bu ${r.suspectPhone.length} satırı <b>hiç kaydetme</b>, atla
+            </label>
+          </div>
+        ` : ''}
+      ` : `
+        <div class="bulk-help">
+          Sütunlar (bu sırayla): <code>${CUSTOMER_CSV_HEADERS.join(', ')}</code><br/>
+          Sadece Ülke ve en az Ad Soyad ya da Firma zorunludur, gerisi opsiyoneldir.<br/>
+          Telefonu ülke koduyla yazın (örn. <code>+49 151 234 5678</code>) — WhatsApp/Telegram düğmelerinin çalışması için gerekli.<br/>
+          <b>Aynı müşteriyi (telefon veya ad+firma+ülke eşleşmesiyle) ikinci kez göndermeniz durumda otomatik atlanır ve size hangileri olduğu gösterilir.</b>
+        </div>
+        <button class="btn ghost small" style="margin-bottom:12px" onclick="downloadCustomerTemplate()">📄 Doğru Formatta Boş Şablon İndir</button>
+        <div class="upload-drop" onclick="document.getElementById('bulk-file').click()" style="margin-bottom:14px">
+          CSV dosyası seçmek için tıklayın<br/><span style="font-size:10.5px">Excel/Google Sheets'ten dışa aktardığınız dosyayı seçin</span>
+        </div>
+        <input type="file" id="bulk-file" accept=".csv,.txt" style="display:none" onchange="handleCustomerBulkFile(event)" />
+        <div style="text-align:center;color:var(--muted);font-size:11px;margin:10px 0">— veya —</div>
+        <textarea id="bulk-textarea" placeholder="Ayşe Yılmaz, Yılmaz Tekstil, Almanya, +49 151 234 5678, , @ayseyilmaz, ayseyilmaz, ayse@example.com"></textarea>
+        ${state.bulkImportDuplicates.length>0 ? `
+          <details style="margin-top:14px" open>
+            <summary style="cursor:pointer;font-size:12.5px;color:var(--warn);font-weight:600">⚠ Son yüklemede ${state.bulkImportDuplicates.length} müşteri zaten kayıtlı olduğu için eklenmedi — görmek için tıklayın</summary>
+            <div style="max-height:180px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;margin-top:6px">
+              ${state.bulkImportDuplicates.map(d=>`<div style="padding:6px 10px;border-bottom:1px solid var(--line);font-size:12px">${esc(d.adSoyad||'')||esc(d.firma||'')} ${d.firma&&d.adSoyad?'— '+esc(d.firma):''} · ${esc(d.country||'')}${d.phone?' · '+esc(d.phone):''}</div>`).join('')}
+            </div>
+          </details>
+        ` : ''}
+      `}
+      <div id="bulk-result" class="bulk-result ${(state.bulkImportError||state.bulkImportResultIsError)?'error':'ok'}" style="${(state.bulkImportError||state.bulkImportResultText)?'display:block':'display:none'}">${state.bulkImportError?esc(state.bulkImportError):(state.bulkImportResultText?esc(state.bulkImportResultText):'')}</div>
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="${r?'cancelBulkImportReview()':'closeModal()'}">${r?'Vazgeç':'Kapat'}</button>
+        ${(!running && r && (r.ready.length + r.suspectPhone.length)>0) ? `<button class="btn primary" onclick="confirmBulkImportReview()">Şimdi İçe Aktar (${r.ready.length + (r.phoneChoice==='skip'?0:r.suspectPhone.length)})</button>` : ''}
+        ${(!running && !r) ? `<button class="btn primary" onclick="submitBulkImport()">İçe Aktar</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+boot();
+</script>
+</body>
+</html>
