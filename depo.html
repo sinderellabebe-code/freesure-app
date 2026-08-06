@@ -1525,12 +1525,13 @@ function remainingForLine(order, barcode){
 // ---------- Camera barcode scanning (phone camera, no physical scanner needed) ----------
 let cameraScannerInstance = null;
 let cameraScannerMode = null; // 'quick' or 'pack'
-let cameraScannerLastCode = null;
-let cameraScannerLastTime = 0;
+let cameraScannerLastCode = null; // the code currently sitting in view, already processed
+let cameraScannerArmed = true;    // true = ready to accept the next (different) scan
 async function openCameraScanner(mode){
   if(!window.Html5Qrcode){ showToast('Kamera kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   cameraScannerMode = mode;
   cameraScannerLastCode = null;
+  cameraScannerArmed = true;
   state.modalMode = 'cameraScanner';
   render();
   setTimeout(async ()=>{
@@ -1541,15 +1542,22 @@ async function openCameraScanner(mode){
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 260, height: 140 }, formatsToSupport: formats },
         (decodedText)=>{
-          const now = Date.now();
-          if(decodedText === cameraScannerLastCode && now - cameraScannerLastTime < 2000) return; // ignore repeat reads of the same code
+          // Same code still sitting in the frame from the last successful read — ignore until
+          // it's removed from view (tracked below) or a genuinely different code appears.
+          if(!cameraScannerArmed && decodedText === cameraScannerLastCode) return;
           cameraScannerLastCode = decodedText;
-          cameraScannerLastTime = now;
+          cameraScannerArmed = false;
           if(navigator.vibrate) navigator.vibrate(80);
+          updateCameraScanFeedback(decodedText, 'reading');
           if(cameraScannerMode === 'quick') processQuickScan(decodedText);
           else if(cameraScannerMode === 'pack') processPackScan(decodedText);
         },
-        ()=>{ /* per-frame scan miss — expected constantly while aiming, ignore */ }
+        ()=>{
+          // No code decoded in this frame — the barcode has left the view (or never entered it).
+          // Re-arm so the same code can be scanned again next time it's shown.
+          cameraScannerArmed = true;
+          cameraScannerLastCode = null;
+        }
       );
     }catch(err){
       showToast('Kameraya erişilemedi — tarayıcının kamera iznini kontrol edin');
@@ -1557,6 +1565,20 @@ async function openCameraScanner(mode){
       render();
     }
   }, 100);
+}
+function updateCameraScanFeedback(barcode, status){
+  const el = document.getElementById('camera-scan-feedback');
+  if(!el) return;
+  if(status==='reading'){
+    el.textContent = '📡 Okundu: ' + barcode;
+    el.style.color = 'var(--muted)';
+  } else if(status==='ok'){
+    el.textContent = '✓ Kaydedildi: ' + barcode;
+    el.style.color = 'var(--good)';
+  } else if(status==='error'){
+    el.textContent = '⚠ Hata: ' + barcode;
+    el.style.color = 'var(--danger)';
+  }
 }
 async function stopCameraStream(){
   if(cameraScannerInstance){
@@ -1577,7 +1599,8 @@ function renderCameraScannerModal(){
     <div class="modal" style="max-width:420px">
       <h2 style="margin-bottom:10px">📷 Kamera ile Tara</h2>
       <div id="camera-scan-region" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
-      ${order ? `<div id="camera-scan-count" style="text-align:center;font-weight:700;margin-top:10px;font-size:14px">${totalConfirmed} / ${totalNeeded} onaylandı</div>` : ''}
+      <div id="camera-scan-feedback" style="text-align:center;font-weight:700;margin-top:10px;font-size:13px;min-height:18px;color:var(--muted)">Barkod bekleniyor…</div>
+      ${order ? `<div id="camera-scan-count" style="text-align:center;font-weight:700;margin-top:6px;font-size:14px">${totalConfirmed} / ${totalNeeded} onaylandı</div>` : ''}
       <p style="font-size:12px;color:var(--muted);margin-top:10px">Barkodu kameraya, ekrandaki kutunun içine gelecek şekilde tutun — algılanınca otomatik işlenir.</p>
       <div class="modal-actions">
         <button class="btn ghost" onclick="closeCameraScanner()">Kapat</button>
@@ -1886,10 +1909,12 @@ async function processQueuedScan(entry){
   if(r.ok){
     entry.status = 'ok';
     entry.stock = r.stock;
+    if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'ok');
   } else {
     entry.status = 'error';
     entry.errorMsg = r.networkError ? 'Bağlantı hatası' : 'Kaydedilemedi';
     playAlertSound();
+    if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'error');
   }
   render();
 }
