@@ -1530,14 +1530,18 @@ let cameraScannerInstance = null;
 let cameraScannerMode = null; // 'quick' or 'pack'
 let cameraScannerLastCode = null; // the code currently sitting in view, already processed
 let cameraScannerArmed = true;    // true = ready to accept the next (different) scan
+let cameraScannerLastScanAt = 0;  // enforce a minimum gap between accepted scans
+const CAMERA_SCAN_MIN_INTERVAL_MS = 500;
 async function openCameraScanner(mode, keepBatch){
   if(!window.Html5Qrcode){ showToast('Kamera kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   cameraScannerMode = mode;
   cameraScannerLastCode = null;
   cameraScannerArmed = true;
+  cameraScannerLastScanAt = 0;
   if(mode==='quick' && !keepBatch){
     state.cameraBatchItems = {};
     state.cameraReviewing = false;
+    if(!state.scan || !state.scan.mode) state.scan = { mode: 'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
   }
   state.modalMode = 'cameraScanner';
   render();
@@ -1552,6 +1556,11 @@ async function openCameraScanner(mode, keepBatch){
           // Same code still sitting in the frame from the last successful read — ignore until
           // it's removed from view (tracked below) or a genuinely different code appears.
           if(!cameraScannerArmed && decodedText === cameraScannerLastCode) return;
+          // Also enforce a minimum real-world gap between accepted scans, even for different
+          // codes — the camera reads much faster than someone can physically move to the next item.
+          const now = Date.now();
+          if(now - cameraScannerLastScanAt < CAMERA_SCAN_MIN_INTERVAL_MS) return;
+          cameraScannerLastScanAt = now;
           cameraScannerLastCode = decodedText;
           cameraScannerArmed = false;
           if(cameraScannerMode === 'quick') processCameraQuickScan(decodedText);
@@ -1570,6 +1579,21 @@ async function openCameraScanner(mode, keepBatch){
       render();
     }
   }, 100);
+}
+function setCameraScanMode(mode){
+  if(!state.scan) state.scan = { mode: 'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
+  state.scan.mode = mode;
+  const inBtn = document.getElementById('camera-mode-in');
+  const outBtn = document.getElementById('camera-mode-out');
+  if(inBtn && outBtn){
+    if(mode==='in'){
+      inBtn.style.background = 'var(--good)'; inBtn.style.color = '#fff'; inBtn.style.borderColor = 'var(--good)';
+      outBtn.style.background = ''; outBtn.style.color = ''; outBtn.style.borderColor = '';
+    } else {
+      outBtn.style.background = 'var(--danger)'; outBtn.style.color = '#fff'; outBtn.style.borderColor = 'var(--danger)';
+      inBtn.style.background = ''; inBtn.style.color = ''; inBtn.style.borderColor = '';
+    }
+  }
 }
 function processCameraQuickScan(barcode){
   const item = state.warehouseItems.find(w=>w.barcode===barcode);
@@ -1649,11 +1673,12 @@ function adjustCameraBatchQty(barcode, delta){
 async function commitCameraBatchScan(){
   const items = Object.values(state.cameraBatchItems||{});
   if(items.length===0){ showToast('Kaydedilecek ürün yok'); return; }
+  const mode = (state.scan && state.scan.mode) || 'out';
   state.cameraBatchRunning = true;
   render();
   let okCount = 0, errCount = 0;
   for(const it of items){
-    const r = await postStockMovement(it.barcode, 'in', it.qty, 'Kamera ile toplu tarama', it.refNo, it.colorName, it.sizeLabel);
+    const r = await postStockMovement(it.barcode, mode, it.qty, 'Kamera ile toplu tarama', it.refNo, it.colorName, it.sizeLabel);
     if(r.ok) okCount++; else errCount++;
   }
   state.cameraBatchRunning = false;
@@ -1661,7 +1686,7 @@ async function commitCameraBatchScan(){
   state.cameraReviewing = false;
   state.modalMode = null;
   await refreshData();
-  showToast(errCount>0 ? `${okCount} ürün kaydedildi, ${errCount} ürün kaydedilemedi` : `${okCount} ürün Depo'ya kaydedildi`);
+  showToast(errCount>0 ? `${okCount} ürün kaydedildi, ${errCount} ürün kaydedilemedi` : `${okCount} ürün ${mode==='in'?'girişi':'çıkışı'} Depo'ya kaydedildi`);
 }
 async function stopCameraStream(){
   if(cameraScannerInstance){
@@ -1687,9 +1712,16 @@ function renderCameraScannerModal(){
   const totalConfirmed = order ? Object.values(state.packingProgress).reduce((s,v)=>s+(Number(v)||0),0) : 0;
   const totalNeeded = order ? order.lines.reduce((s,l)=>s+remainingForLine(order,l.barcode),0) + totalConfirmed : 0;
   const isQuick = cameraScannerMode==='quick';
+  const scanMode = (state.scan && state.scan.mode) || 'out';
   return `<div class="overlay">
     <div class="modal" style="max-width:420px">
       <h2 style="margin-bottom:10px">📷 Kamera ile Tara</h2>
+      ${isQuick ? `
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <button id="camera-mode-out" class="btn small" style="flex:1;${scanMode==='out'?'background:var(--danger);color:#fff;border-color:var(--danger)':''}" onclick="setCameraScanMode('out')">− Çıkış</button>
+          <button id="camera-mode-in" class="btn small" style="flex:1;${scanMode==='in'?'background:var(--good);color:#fff;border-color:var(--good)':''}" onclick="setCameraScanMode('in')">+ Giriş</button>
+        </div>
+      ` : ''}
       <div id="camera-scan-region" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
       <div id="camera-scan-feedback" style="text-align:center;font-weight:700;margin-top:10px;font-size:13px;min-height:18px;color:var(--muted)">Barkod bekleniyor…</div>
       ${order ? `<div id="camera-scan-count" style="text-align:center;font-weight:700;margin-top:6px;font-size:14px">${totalConfirmed} / ${totalNeeded} onaylandı</div>` : ''}
@@ -1709,9 +1741,11 @@ function renderCameraScannerModal(){
 function renderCameraBatchReviewModal(){
   const items = Object.values(state.cameraBatchItems||{}).sort((a,b)=> (a.refNo+a.colorName+a.sizeLabel).localeCompare(b.refNo+b.colorName+b.sizeLabel));
   const running = state.cameraBatchRunning;
+  const scanMode = (state.scan && state.scan.mode) || 'out';
   return `<div class="overlay">
     <div class="modal" style="max-width:440px">
       <h2 style="margin-bottom:6px">Taranan Ürünleri Onayla</h2>
+      <div style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;margin-bottom:10px;background:${scanMode==='in'?'var(--good)':'var(--danger)'};color:#fff">${scanMode==='in'?'+ GİRİŞ olarak kaydedilecek':'− ÇIKIŞ olarak kaydedilecek'}</div>
       <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Depoya kaydetmeden önce kontrol edin — gerekirse adetleri düzeltin veya bir satırı kaldırın.</p>
       <div style="max-height:320px;overflow-y:auto;margin-bottom:10px">
         ${items.length===0 ? `<div style="text-align:center;color:var(--muted);padding:14px 0">Liste boş</div>` : items.map(it=>`
