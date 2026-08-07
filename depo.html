@@ -1531,7 +1531,10 @@ let cameraScannerMode = null; // 'quick' or 'pack'
 let cameraScannerLastCode = null; // the code currently sitting in view, already processed
 let cameraScannerArmed = true;    // true = ready to accept the next (different) scan
 let cameraScannerLastScanAt = 0;  // enforce a minimum gap between accepted scans
-const CAMERA_SCAN_MIN_INTERVAL_MS = 600;
+// Minimum time (ms) that must pass between two accepted camera scans (even for different
+// barcodes). Higher = slower/more deliberate scanning, lower = faster but easier to double-read.
+// To adjust yourself: just change this one number, save, and re-upload depo.html.
+const CAMERA_SCAN_MIN_INTERVAL_MS = 1000;
 async function openCameraScanner(mode, keepBatch){
   if(!window.Html5Qrcode){ showToast('Kamera kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   cameraScannerMode = mode;
