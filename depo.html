@@ -221,12 +221,12 @@ function downloadBlob(filename, mime, content){
 }
 
 let toastTimer = null;
-function showToast(msg){
+function showToast(msg, persistent){
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>el.classList.remove('show'), 2400);
+  if(!persistent) toastTimer = setTimeout(()=>el.classList.remove('show'), 2400);
 }
 
 // ---------- EAN-13 barcode ----------
@@ -791,7 +791,7 @@ async function repairReservations(){
   }
 }
 async function refreshData(){
-  showToast('Güncelleniyor…');
+  showToast('Güncelleniyor…', true); // stays visible (no gap) until the reload actually finishes
   await init();
   showToast('Güncel veriler yüklendi');
 }
@@ -1531,7 +1531,7 @@ let cameraScannerMode = null; // 'quick' or 'pack'
 let cameraScannerLastCode = null; // the code currently sitting in view, already processed
 let cameraScannerArmed = true;    // true = ready to accept the next (different) scan
 let cameraScannerLastScanAt = 0;  // enforce a minimum gap between accepted scans
-const CAMERA_SCAN_MIN_INTERVAL_MS = 500;
+const CAMERA_SCAN_MIN_INTERVAL_MS = 600;
 async function openCameraScanner(mode, keepBatch){
   if(!window.Html5Qrcode){ showToast('Kamera kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   cameraScannerMode = mode;

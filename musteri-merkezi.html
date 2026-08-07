@@ -419,12 +419,12 @@ function parseBulkLine(line){
 }
 
 let toastTimer = null;
-function showToast(msg){
+function showToast(msg, persistent){
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
+  if(!persistent) toastTimer = setTimeout(()=>el.classList.remove('show'), 2200);
 }
 
 // ---------- shared backend (Google Apps Script + Google Sheets) ----------
@@ -784,7 +784,7 @@ async function init(){
   render();
 }
 async function refreshData(){
-  showToast('Güncelleniyor…');
+  showToast('Güncelleniyor…', true); // stays visible (no gap) until the reload actually finishes
   await init();
   showToast('Güncel veriler yüklendi');
 }
