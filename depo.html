@@ -651,6 +651,9 @@ const state = {
   packScanError: null,
   newOrderPopup: null,
   returnToPackOrderId: null,
+  cameraBatchItems: {},
+  cameraReviewing: false,
+  cameraBatchRunning: false,
   repairingReservations: false,
   depoBulkResultIsError: false,
   stockPriceUpdateFile: null,
@@ -1527,11 +1530,15 @@ let cameraScannerInstance = null;
 let cameraScannerMode = null; // 'quick' or 'pack'
 let cameraScannerLastCode = null; // the code currently sitting in view, already processed
 let cameraScannerArmed = true;    // true = ready to accept the next (different) scan
-async function openCameraScanner(mode){
+async function openCameraScanner(mode, keepBatch){
   if(!window.Html5Qrcode){ showToast('Kamera kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   cameraScannerMode = mode;
   cameraScannerLastCode = null;
   cameraScannerArmed = true;
+  if(mode==='quick' && !keepBatch){
+    state.cameraBatchItems = {};
+    state.cameraReviewing = false;
+  }
   state.modalMode = 'cameraScanner';
   render();
   setTimeout(async ()=>{
@@ -1547,10 +1554,8 @@ async function openCameraScanner(mode){
           if(!cameraScannerArmed && decodedText === cameraScannerLastCode) return;
           cameraScannerLastCode = decodedText;
           cameraScannerArmed = false;
-          if(navigator.vibrate) navigator.vibrate(80);
-          updateCameraScanFeedback(decodedText, 'reading');
-          if(cameraScannerMode === 'quick') processQuickScan(decodedText);
-          else if(cameraScannerMode === 'pack') processPackScan(decodedText);
+          if(cameraScannerMode === 'quick') processCameraQuickScan(decodedText);
+          else if(cameraScannerMode === 'pack') { if(navigator.vibrate) navigator.vibrate(80); updateCameraScanFeedback(decodedText, 'reading'); processPackScan(decodedText); }
         },
         ()=>{
           // No code decoded in this frame — the barcode has left the view (or never entered it).
@@ -1566,19 +1571,97 @@ async function openCameraScanner(mode){
     }
   }, 100);
 }
+function processCameraQuickScan(barcode){
+  const item = state.warehouseItems.find(w=>w.barcode===barcode);
+  if(!item){
+    if(navigator.vibrate) navigator.vibrate([60,40,60]);
+    playAlertSound();
+    updateCameraScanFeedback(barcode, 'unknown');
+    return;
+  }
+  if(navigator.vibrate) navigator.vibrate(60);
+  playSuccessBeep();
+  if(!state.cameraBatchItems[barcode]){
+    state.cameraBatchItems[barcode] = { barcode, refNo:item.refNo, colorName:item.colorName, sizeLabel:item.sizeLabel, qty:0 };
+  }
+  state.cameraBatchItems[barcode].qty += 1;
+  updateCameraScanFeedback(barcode, 'added');
+  updateCameraBatchListDOM();
+}
 function updateCameraScanFeedback(barcode, status){
   const el = document.getElementById('camera-scan-feedback');
   if(!el) return;
   if(status==='reading'){
     el.textContent = '📡 Okundu: ' + barcode;
     el.style.color = 'var(--muted)';
+  } else if(status==='added'){
+    const item = state.cameraBatchItems[barcode];
+    el.textContent = `✓ ${detailRefLabel(item.refNo, item.colorName, item.sizeLabel)} — toplam ${item.qty} adet`;
+    el.style.color = 'var(--good)';
   } else if(status==='ok'){
     el.textContent = '✓ Kaydedildi: ' + barcode;
     el.style.color = 'var(--good)';
   } else if(status==='error'){
     el.textContent = '⚠ Hata: ' + barcode;
     el.style.color = 'var(--danger)';
+  } else if(status==='unknown'){
+    el.textContent = '⚠ Tanınmayan barkod: ' + barcode;
+    el.style.color = 'var(--danger)';
   }
+}
+function cameraBatchTotalQty(){
+  return Object.values(state.cameraBatchItems||{}).reduce((s,it)=>s+it.qty, 0);
+}
+function renderCameraBatchListRows(){
+  const items = Object.values(state.cameraBatchItems||{}).sort((a,b)=> (a.refNo+a.colorName+a.sizeLabel).localeCompare(b.refNo+b.colorName+b.sizeLabel));
+  if(items.length===0) return `<div style="text-align:center;color:var(--muted);font-size:12px;padding:10px 0">Henüz okutma yok</div>`;
+  return items.map(it=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--line);font-size:12.5px">
+      <span>${esc(it.refNo)} · ${esc(it.colorName)} · ${esc(it.sizeLabel)}</span>
+      <span style="font-weight:700">${it.qty} adet</span>
+    </div>
+  `).join('');
+}
+function updateCameraBatchListDOM(){
+  const listEl = document.getElementById('camera-batch-list');
+  const totalEl = document.getElementById('camera-batch-total');
+  const btnEl = document.getElementById('camera-batch-finish-btn');
+  if(listEl) listEl.innerHTML = renderCameraBatchListRows();
+  if(totalEl) totalEl.textContent = cameraBatchTotalQty() + ' adet okutuldu';
+  if(btnEl) btnEl.disabled = cameraBatchTotalQty()===0;
+}
+async function finishCameraBatchScan(){
+  await stopCameraStream();
+  state.cameraReviewing = true;
+  render();
+}
+function removeCameraBatchItem(barcode){
+  delete state.cameraBatchItems[barcode];
+  render();
+}
+function adjustCameraBatchQty(barcode, delta){
+  const it = state.cameraBatchItems[barcode];
+  if(!it) return;
+  it.qty = Math.max(0, it.qty + delta);
+  if(it.qty===0) delete state.cameraBatchItems[barcode];
+  render();
+}
+async function commitCameraBatchScan(){
+  const items = Object.values(state.cameraBatchItems||{});
+  if(items.length===0){ showToast('Kaydedilecek ürün yok'); return; }
+  state.cameraBatchRunning = true;
+  render();
+  let okCount = 0, errCount = 0;
+  for(const it of items){
+    const r = await postStockMovement(it.barcode, 'in', it.qty, 'Kamera ile toplu tarama', it.refNo, it.colorName, it.sizeLabel);
+    if(r.ok) okCount++; else errCount++;
+  }
+  state.cameraBatchRunning = false;
+  state.cameraBatchItems = {};
+  state.cameraReviewing = false;
+  state.modalMode = null;
+  await refreshData();
+  showToast(errCount>0 ? `${okCount} ürün kaydedildi, ${errCount} ürün kaydedilemedi` : `${okCount} ürün Depo'ya kaydedildi`);
 }
 async function stopCameraStream(){
   if(cameraScannerInstance){
@@ -1587,23 +1670,65 @@ async function stopCameraStream(){
   }
 }
 async function closeCameraScanner(){
+  if(cameraScannerMode==='quick' && cameraBatchTotalQty()>0){
+    if(!confirm(`${cameraBatchTotalQty()} adet okutma kaydedilmeden kaybolacak. Vazgeçmek istediğinize emin misiniz?`)) return;
+  }
   await stopCameraStream();
   state.modalMode = null;
+  state.cameraReviewing = false;
+  state.cameraBatchItems = {};
   render();
 }
 function renderCameraScannerModal(){
+  if(cameraScannerMode==='quick' && state.cameraReviewing){
+    return renderCameraBatchReviewModal();
+  }
   const order = cameraScannerMode==='pack' ? state.pendingPackingOrders.find(o=>o.id===state.packingOrderId) : null;
   const totalConfirmed = order ? Object.values(state.packingProgress).reduce((s,v)=>s+(Number(v)||0),0) : 0;
   const totalNeeded = order ? order.lines.reduce((s,l)=>s+remainingForLine(order,l.barcode),0) + totalConfirmed : 0;
+  const isQuick = cameraScannerMode==='quick';
   return `<div class="overlay">
     <div class="modal" style="max-width:420px">
       <h2 style="margin-bottom:10px">📷 Kamera ile Tara</h2>
       <div id="camera-scan-region" style="width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:220px"></div>
       <div id="camera-scan-feedback" style="text-align:center;font-weight:700;margin-top:10px;font-size:13px;min-height:18px;color:var(--muted)">Barkod bekleniyor…</div>
       ${order ? `<div id="camera-scan-count" style="text-align:center;font-weight:700;margin-top:6px;font-size:14px">${totalConfirmed} / ${totalNeeded} onaylandı</div>` : ''}
-      <p style="font-size:12px;color:var(--muted);margin-top:10px">Barkodu kameraya, ekrandaki kutunun içine gelecek şekilde tutun — algılanınca otomatik işlenir.</p>
+      ${isQuick ? `
+        <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+          <div id="camera-batch-total" style="font-weight:700;font-size:13px;margin-bottom:6px">${cameraBatchTotalQty()} adet okutuldu</div>
+          <div id="camera-batch-list" style="max-height:140px;overflow-y:auto">${renderCameraBatchListRows()}</div>
+        </div>
+      ` : `<p style="font-size:12px;color:var(--muted);margin-top:10px">Barkodu kameraya, ekrandaki kutunun içine gelecek şekilde tutun — algılanınca otomatik işlenir.</p>`}
       <div class="modal-actions">
-        <button class="btn ghost" onclick="closeCameraScanner()">Kapat</button>
+        <button class="btn ghost" onclick="closeCameraScanner()">Vazgeç</button>
+        ${isQuick ? `<button id="camera-batch-finish-btn" class="btn primary" ${cameraBatchTotalQty()===0?'disabled':''} onclick="finishCameraBatchScan()">✓ Taramayı Bitir</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+function renderCameraBatchReviewModal(){
+  const items = Object.values(state.cameraBatchItems||{}).sort((a,b)=> (a.refNo+a.colorName+a.sizeLabel).localeCompare(b.refNo+b.colorName+b.sizeLabel));
+  const running = state.cameraBatchRunning;
+  return `<div class="overlay">
+    <div class="modal" style="max-width:440px">
+      <h2 style="margin-bottom:6px">Taranan Ürünleri Onayla</h2>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Depoya kaydetmeden önce kontrol edin — gerekirse adetleri düzeltin veya bir satırı kaldırın.</p>
+      <div style="max-height:320px;overflow-y:auto;margin-bottom:10px">
+        ${items.length===0 ? `<div style="text-align:center;color:var(--muted);padding:14px 0">Liste boş</div>` : items.map(it=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">
+            <div style="flex:1;font-size:13px">${esc(it.refNo)} · ${esc(it.colorName)} · ${esc(it.sizeLabel)}</div>
+            <button class="btn ghost small" ${running?'disabled':''} onclick="adjustCameraBatchQty('${attrEsc(it.barcode)}', -1)">−</button>
+            <span style="min-width:28px;text-align:center;font-weight:700">${it.qty}</span>
+            <button class="btn ghost small" ${running?'disabled':''} onclick="adjustCameraBatchQty('${attrEsc(it.barcode)}', 1)">+</button>
+            <button class="btn ghost small" ${running?'disabled':''} onclick="removeCameraBatchItem('${attrEsc(it.barcode)}')" title="Kaldır">✕</button>
+          </div>
+        `).join('')}
+      </div>
+      <div style="font-weight:700;margin-bottom:12px">Toplam: ${cameraBatchTotalQty()} adet</div>
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="closeCameraScanner()">Vazgeç</button>
+        <button class="btn ghost" ${running?'disabled':''} onclick="state.cameraReviewing=false;openCameraScanner('quick', true);">↩ Taramaya Devam Et</button>
+        <button class="btn primary" ${running||items.length===0?'disabled':''} onclick="commitCameraBatchScan()">${running?'⏳ Kaydediliyor…':'✓ Depoya Kaydet'}</button>
       </div>
     </div>
   </div>`;
@@ -1819,6 +1944,22 @@ function toggleScanRapidMode(){
 // Distinct two-tone alert sound — different from a typical barcode-scanner beep,
 // so the operator notices a problem even without looking at the screen.
 let audioCtx = null;
+function playSuccessBeep(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 1046; // pleasant, distinct from the error tone
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.22, now+0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, now+0.12);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(now); osc.stop(now+0.13);
+  }catch(e){ /* audio unavailable — vibration/visual feedback still works */ }
+}
 function playAlertSound(){
   try{
     if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
