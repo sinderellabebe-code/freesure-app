@@ -650,7 +650,7 @@ const state = {
   packingRunning: false,
   packScanError: null,
   newOrderPopup: null,
-  unknownScanAlert: null,
+  bigScanAlert: null,
   returnToPackOrderId: null,
   cameraBatchItems: {},
   cameraReviewing: false,
@@ -746,21 +746,26 @@ async function silentAutoRefresh(){
   }catch(e){ /* silent — a failed background refresh isn't worth interrupting the user for */ }
 }
 function dismissNewOrderPopup(){ state.newOrderPopup = null; render(); }
-function renderUnknownScanAlert(){
-  const a = state.unknownScanAlert;
-  return `<div style="position:fixed;inset:0;z-index:300;background:rgba(160,30,30,.94);display:flex;align-items:center;justify-content:center;padding:24px" onclick="dismissUnknownScanAlert()">
-    <div style="text-align:center;color:#fff;max-width:420px" onclick="event.stopPropagation()">
+function showBigScanAlert(title, detail, focusId){
+  state.bigScanAlert = { title, detail, focusId: focusId || 'scan-barcode' };
+  render();
+}
+function renderBigScanAlert(){
+  const a = state.bigScanAlert;
+  return `<div style="position:fixed;inset:0;z-index:300;background:rgba(160,30,30,.94);display:flex;align-items:center;justify-content:center;padding:24px" onclick="dismissBigScanAlert()">
+    <div style="text-align:center;color:#fff;max-width:440px" onclick="event.stopPropagation()">
       <div style="font-size:64px;line-height:1;margin-bottom:10px">⚠</div>
-      <div style="font-size:24px;font-weight:800;margin-bottom:10px">BARKOD TANINMIYOR</div>
-      <div style="font-size:20px;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.15);border-radius:8px;padding:12px;margin-bottom:20px">${esc(a.barcode)}</div>
-      <button class="btn primary" style="width:100%;padding:16px;font-size:16px;font-weight:700;background:#fff;color:#8C1F1F;border:none" onclick="dismissUnknownScanAlert()">Tamam, Liste Üzerinden Çözeceğim</button>
+      <div style="font-size:24px;font-weight:800;margin-bottom:10px">${esc(a.title)}</div>
+      <div style="font-size:18px;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.15);border-radius:8px;padding:12px;margin-bottom:20px">${esc(a.detail)}</div>
+      <button class="btn primary" style="width:100%;padding:16px;font-size:16px;font-weight:700;background:#fff;color:#8C1F1F;border:none" onclick="dismissBigScanAlert()">Tamam, Devam Ediyorum</button>
     </div>
   </div>`;
 }
-function dismissUnknownScanAlert(){
-  state.unknownScanAlert = null;
+function dismissBigScanAlert(){
+  const focusId = state.bigScanAlert ? state.bigScanAlert.focusId : 'scan-barcode';
+  state.bigScanAlert = null;
   render();
-  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+  setTimeout(()=>{ const el=document.getElementById(focusId); if(el) el.focus(); }, 60);
 }
 function renderNewOrderPopup(){
   const p = state.newOrderPopup;
@@ -1823,9 +1828,9 @@ function processPackScan(barcode){
   if(!line){
     if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'packOrder'; }
     playAlertSound();
+    if(navigator.vibrate) navigator.vibrate([120,60,120,60,120]);
     state.packScanError = 'Bu barkod bu siparişte yok: ' + barcode;
-    render();
-    setTimeout(()=>{ const el=document.getElementById('pack-scan-input'); if(el) el.focus(); }, 60);
+    showBigScanAlert('BU SİPARİŞTE YOK', barcode, 'pack-scan-input');
     return;
   }
   const remaining = remainingForLine(order, barcode);
@@ -1833,9 +1838,11 @@ function processPackScan(barcode){
   if(remaining<=0 || current >= remaining){
     if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'packOrder'; }
     playAlertSound();
+    if(navigator.vibrate) navigator.vibrate([120,60,120,60,120]);
     state.packScanError = remaining<=0
       ? `⚠ FAZLA OKUTMA: ${detailRefLabel(line.refNo, line.colorName, line.sizeLabel)} — bu ürün için tüm miktar zaten hazırlanmış!`
       : `⚠ FAZLA OKUTMA: ${detailRefLabel(line.refNo, line.colorName, line.sizeLabel)} — kalan ${remaining} adet zaten tamamlandı, fazladan okuttunuz! Fazlalığı elinizden çıkarıp aşağıdaki düğmeyle devam edin.`;
+    showBigScanAlert('FAZLA OKUTMA', detailRefLabel(line.refNo, line.colorName, line.sizeLabel), 'pack-scan-input');
   } else {
     state.packScanError = null;
     state.packingProgress[barcode] = current + 1;
@@ -2037,17 +2044,17 @@ function playAlertSound(){
     if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if(audioCtx.state === 'suspended') audioCtx.resume();
     const now = audioCtx.currentTime;
-    [660, 330].forEach((freq, i)=>{
+    [660, 330, 660].forEach((freq, i)=>{
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'square';
       osc.frequency.value = freq;
-      const t = now + i*0.16;
+      const t = now + i*0.18;
       gain.gain.setValueAtTime(0.001, t);
-      gain.gain.exponentialRampToValueAtTime(0.3, t+0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, t+0.15);
+      gain.gain.exponentialRampToValueAtTime(1.0, t+0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t+0.17);
       osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(t); osc.stop(t+0.16);
+      osc.start(t); osc.stop(t+0.18);
     });
   }catch(e){ /* audio unavailable — ignore, visual warning still shows */ }
 }
@@ -2063,8 +2070,7 @@ function processQuickScan(barcode){
     if(navigator.vibrate) navigator.vibrate([120,60,120,60,120]);
     const entryId = uid();
     state.scan.sessionLog.unshift({id:entryId, barcode, status:'unknown'});
-    state.unknownScanAlert = { entryId, barcode };
-    render();
+    showBigScanAlert('BARKOD TANINMIYOR', barcode, 'scan-barcode');
     return;
   }
   if(state.scan.rapidMode){
@@ -2283,7 +2289,7 @@ function render(){
   else if(state.modalMode === 'packOrder') html += renderPackOrderModal();
 
   if(state.newOrderPopup) html += renderNewOrderPopup();
-  if(state.unknownScanAlert) html += renderUnknownScanAlert();
+  if(state.bigScanAlert) html += renderBigScanAlert();
 
   root.innerHTML = html;
 
