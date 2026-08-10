@@ -669,6 +669,7 @@ const state = {
   stockCountFilterYear: 'all',
   stockCountFilterFrom: '',
   stockCountFilterTo: '',
+  depoImageLightbox: null,
   returnToPackOrderId: null,
   cameraBatchItems: {},
   cameraReviewing: false,
@@ -1628,6 +1629,17 @@ async function commitBulkImageImport(){
 function isBarcodeInCatalog(barcode){
   return state.skus.some(s=>s.barcode===barcode);
 }
+function imageForRefColor(refNo, colorName){
+  const product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
+  if(!product) return null;
+  const variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+  return variant ? variant.image : null;
+}
+function openDepoImageLightbox(refNo, colorName){
+  state.depoImageLightbox = { refNo, colorName };
+  state.modalMode = 'depoImageLightbox';
+  render();
+}
 async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
   let product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
   if(!product){
@@ -2512,6 +2524,7 @@ function render(){
   else if(state.modalMode === 'cameraScanner') html += renderCameraScannerModal();
   else if(state.modalMode === 'packOrder') html += renderPackOrderModal();
   else if(state.modalMode === 'stockCount') html += renderStockCountModal();
+  else if(state.modalMode === 'depoImageLightbox') html += renderDepoImageLightbox();
 
   if(state.newOrderPopup) html += renderNewOrderPopup();
   if(state.bigScanAlert) html += renderBigScanAlert();
@@ -2541,6 +2554,20 @@ function render(){
 
 // ---------- Depo view ----------
 const DEPO_PAGE_SIZE = 100;
+function renderDepoImageLightbox(){
+  const lb = state.depoImageLightbox;
+  if(!lb) return '';
+  const img = imageForRefColor(lb.refNo, lb.colorName);
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal" style="text-align:center">
+      <h2 style="margin-bottom:14px">${esc(lb.refNo)} — ${esc(lb.colorName)}</h2>
+      ${img ? `<img src="${img}" style="max-width:100%;max-height:60vh;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff" />` : `<div class="empty"><h3>Resim yok</h3></div>`}
+      <div class="modal-actions" style="justify-content:center;margin-top:16px">
+        <button class="btn ghost" onclick="closeModal()">Kapat</button>
+      </div>
+    </div>
+  </div>`;
+}
 function renderDepoView(){
   if(!state.fxRate) ensureFxRateLoaded();
   const q = state.depoSearch.trim().toLowerCase();
@@ -2609,11 +2636,11 @@ function renderDepoView(){
       <p>${state.warehouseItems.length===0 ? '"Toplu Stok Yükle" ile Excel\'deki mevcut stok listenizi içe aktarabilirsiniz.' : 'Aramayı değiştirmeyi deneyin.'}</p>
     </div>`;
   } else {
-    const cols = canManage ? '26px 56px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 130px 1fr 150px 80px 90px';
+    const cols = canManage ? '26px 56px 44px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 44px 130px 1fr 150px 80px 90px';
     out += `<div class="depo-table-wrap"><table class="depo-table" style="--depo-cols:${cols}">
       <thead><tr>
         ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll(${JSON.stringify(visibleBarcodes)})" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
-        <th>Sıra No</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}<th>Kataloğa Ekle</th>${canManage?'<th></th>':''}
+        <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}<th>Kataloğa Ekle</th>${canManage?'<th></th>':''}
       </tr></thead>
       <tbody>
       ${pageItems.map((it,idx)=>{
@@ -2622,9 +2649,14 @@ function renderDepoView(){
         const price = canManage ? priceForBarcode(it.barcode, it.refNo) : null;
         const tryPrice = (price!=null && state.fxRate) ? (price*state.fxRate) : null;
         const reserved = Number(it.reserved)||0;
+        const img = imageForRefColor(it.refNo, it.colorName);
         return `<tr>
           ${canManage ? `<td><input type="checkbox" ${state.depoSelected.has(it.barcode)?'checked':''} onchange="toggleDepoSelect('${attrEsc(it.barcode)}')" /></td>` : ''}
           <td class="depo-td-muted">${(state.depoPage-1)*DEPO_PAGE_SIZE + idx + 1}</td>
+          <td>${img
+            ? `<img src="${img}" onclick="openDepoImageLightbox('${attrEsc(it.refNo)}','${attrEsc(it.colorName)}')" style="width:36px;height:36px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;cursor:pointer" />`
+            : `<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:4px;color:var(--muted);font-size:9px;text-align:center">Yok</div>`
+          }</td>
           <td class="mini-meta" style="font-size:11.5px">${esc(it.barcode)}</td>
           <td class="name" style="font-size:13px">${esc(detailRefLabel(it.refNo, it.colorName, it.sizeLabel))}</td>
           <td>

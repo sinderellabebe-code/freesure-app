@@ -3317,7 +3317,7 @@ function renderProductsView(){
                 ? `<img src="${e.image}" onclick="openGalleryLightbox('${attrEsc(e.refNo)}','${attrEsc(e.colorName)}')" style="width:110px;height:110px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:6px;cursor:pointer" />`
                 : `<div onclick="document.getElementById('single-img-${attrEsc(e.refNo)}-${attrEsc(e.colorName).replace(/[^a-zA-Z0-9]/g,'')}').click()" style="width:110px;height:110px;display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--line);border-radius:6px;cursor:pointer;color:var(--muted);font-size:11px;text-align:center;padding:6px">+ Resim Yükle</div>`
               }
-              <input type="file" id="single-img-${attrEsc(e.refNo)}-${attrEsc(e.colorName).replace(/[^a-zA-Z0-9]/g,'')}" accept="image/*" style="display:none" onchange="handleSingleVariantImage(event,'${attrEsc(e.refNo)}','${attrEsc(e.colorName)}')" />
+              <input type="file" id="single-img-${attrEsc(e.refNo)}-${attrEsc(e.colorName).replace(/[^a-zA-Z0-9]/g,'')}" accept="image/*" capture="environment" style="display:none" onchange="handleSingleVariantImage(event,'${attrEsc(e.refNo)}','${attrEsc(e.colorName)}')" />
               <div style="font-size:11px;margin-top:4px;color:var(--muted)">${esc(e.colorName)}</div>
             </div>
           `).join('')}
