@@ -978,6 +978,7 @@ async function openStockCountHistoryDetail(countId){
   render();
 }
 function openStockCountAnalysisTab(){
+  if(session.role==='depocu') return;
   state.view = 'stockCountAnalysis';
   state.stockCountAnalysisSubView = 'list';
   render();
@@ -2495,7 +2496,7 @@ function render(){
         <h1>Depo</h1>
         <div class="top-nav">
           <a class="top-nav-item ${state.view==='depo'?'active':''}" href="#" onclick="state.view='depo';render();return false;">📦 Depo</a>
-          <a class="top-nav-item ${state.view==='stockCountAnalysis'?'active':''}" href="#" onclick="openStockCountAnalysisTab();return false;">📊 Sayım Analizi</a>
+          ${!isDepocu ? `<a class="top-nav-item ${state.view==='stockCountAnalysis'?'active':''}" href="#" onclick="openStockCountAnalysisTab();return false;">📊 Sayım Analizi</a>` : ''}
           ${!isDepocu ? `<a class="top-nav-item external" href="siparis.html" target="_blank" rel="noopener">📋 Sipariş ↗</a>
           <a class="top-nav-item external" href="musteri-merkezi.html" target="_blank" rel="noopener">👥 Müşteri Merkezi ↗</a>` : ''}
         </div>
@@ -3424,10 +3425,10 @@ function renderScanModal(){
         <div style="margin-bottom:18px">
           <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
           <div style="max-height:320px;overflow-y:auto">
-          ${s.sessionLog.map(l=>l.status==='unknown' ? `<div class="log-item" style="padding:8px 0;background:var(--danger-bg)">
+          ${s.sessionLog.map(l=>l.status==='unknown' ? `<div class="log-item" style="padding:10px 10px;background:#FFDCC2;border-left:4px solid #D9480F;border-radius:4px;margin-bottom:4px">
             <div class="meta" style="flex-wrap:wrap;gap:6px">
-              <span class="chip other">⚠ Tanınmıyor</span>
-              <span style="font-variant-numeric:tabular-nums">${esc(l.barcode)}</span>
+              <span class="chip other" style="background:#D9480F;color:#fff;font-weight:700">⚠ Tanınmıyor</span>
+              <span style="font-variant-numeric:tabular-nums;font-weight:700">${esc(l.barcode)}</span>
               <div style="width:100%;display:flex;gap:6px;margin-top:4px">
                 <button class="btn small ghost" style="flex:1" onclick="dismissUnknownScanEntry('${l.id}')">🗑 Sil (Muhtemelen Hatalı Okuma)</button>
                 <button class="btn small primary" style="flex:1" onclick="defineUnknownScanEntry('${l.id}')">+ Yeni Barkod Olarak Tanımla</button>
