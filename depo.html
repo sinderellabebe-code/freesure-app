@@ -650,6 +650,7 @@ const state = {
   packingRunning: false,
   packScanError: null,
   newOrderPopup: null,
+  unknownScanAlert: null,
   returnToPackOrderId: null,
   cameraBatchItems: {},
   cameraReviewing: false,
@@ -745,6 +746,22 @@ async function silentAutoRefresh(){
   }catch(e){ /* silent — a failed background refresh isn't worth interrupting the user for */ }
 }
 function dismissNewOrderPopup(){ state.newOrderPopup = null; render(); }
+function renderUnknownScanAlert(){
+  const a = state.unknownScanAlert;
+  return `<div style="position:fixed;inset:0;z-index:300;background:rgba(160,30,30,.94);display:flex;align-items:center;justify-content:center;padding:24px" onclick="dismissUnknownScanAlert()">
+    <div style="text-align:center;color:#fff;max-width:420px" onclick="event.stopPropagation()">
+      <div style="font-size:64px;line-height:1;margin-bottom:10px">⚠</div>
+      <div style="font-size:24px;font-weight:800;margin-bottom:10px">BARKOD TANINMIYOR</div>
+      <div style="font-size:20px;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.15);border-radius:8px;padding:12px;margin-bottom:20px">${esc(a.barcode)}</div>
+      <button class="btn primary" style="width:100%;padding:16px;font-size:16px;font-weight:700;background:#fff;color:#8C1F1F;border:none" onclick="dismissUnknownScanAlert()">Tamam, Liste Üzerinden Çözeceğim</button>
+    </div>
+  </div>`;
+}
+function dismissUnknownScanAlert(){
+  state.unknownScanAlert = null;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
 function renderNewOrderPopup(){
   const p = state.newOrderPopup;
   const plural = p.count>1;
@@ -2043,7 +2060,10 @@ function processQuickScan(barcode){
     if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'scan'; }
     const el = document.getElementById('scan-barcode'); if(el) el.value = '';
     playAlertSound();
-    state.scan.sessionLog.unshift({id:uid(), barcode, status:'unknown'});
+    if(navigator.vibrate) navigator.vibrate([120,60,120,60,120]);
+    const entryId = uid();
+    state.scan.sessionLog.unshift({id:entryId, barcode, status:'unknown'});
+    state.unknownScanAlert = { entryId, barcode };
     render();
     return;
   }
@@ -2263,6 +2283,7 @@ function render(){
   else if(state.modalMode === 'packOrder') html += renderPackOrderModal();
 
   if(state.newOrderPopup) html += renderNewOrderPopup();
+  if(state.unknownScanAlert) html += renderUnknownScanAlert();
 
   root.innerHTML = html;
 
@@ -2835,8 +2856,34 @@ function renderScanModal(){
         <input type="checkbox" ${s.rapidMode?'checked':''} ${s.stage==='pending'?'disabled':''} onchange="toggleScanRapidMode()" style="width:auto" />
         <b>Hızlı Sayım Modu</b> — her taramada miktar sormadan otomatik 1 adet kaydet
       </label>
+      ${s.sessionLog.length>0 ? `
+        <div style="margin-bottom:18px">
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
+          <div style="max-height:320px;overflow-y:auto">
+          ${s.sessionLog.map(l=>l.status==='unknown' ? `<div class="log-item" style="padding:8px 0;background:var(--danger-bg)">
+            <div class="meta" style="flex-wrap:wrap;gap:6px">
+              <span class="chip other">⚠ Tanınmıyor</span>
+              <span style="font-variant-numeric:tabular-nums">${esc(l.barcode)}</span>
+              <div style="width:100%;display:flex;gap:6px;margin-top:4px">
+                <button class="btn small ghost" style="flex:1" onclick="dismissUnknownScanEntry('${l.id}')">🗑 Sil (Muhtemelen Hatalı Okuma)</button>
+                <button class="btn small primary" style="flex:1" onclick="defineUnknownScanEntry('${l.id}')">+ Yeni Barkod Olarak Tanımla</button>
+              </div>
+            </div>
+          </div>` : `<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='pending'?'background:#FBF9F3':''}">
+            <div class="meta">
+              <span class="chip ${l.mode==='in'?'wa':'other'}">${l.mode==='in'?'Giriş':'Çıkış'}</span>
+              <span>${esc(detailRefLabel(l.refNo, l.colorName, l.sizeLabel))}</span>
+              <span style="font-weight:700;margin-left:auto">${l.mode==='in'?'+':'−'}${l.qty}</span>
+              ${l.status==='pending' ? '<span style="font-size:11px;color:var(--muted)">⏳</span>' : ''}
+              ${l.status==='ok' ? '<span style="font-size:12px;color:var(--good)">✓</span>' : ''}
+              ${l.status==='error' ? `<span style="font-size:11px;color:var(--danger)">⚠ ${esc(l.errorMsg||'')}</span><button class="btn small danger-outline" style="padding:2px 8px" onclick="retryQueuedScan('${l.id}')">Tekrar Dene</button>` : ''}
+            </div>
+          </div>`).join('')}
+          </div>
+        </div>
+      ` : ''}
       ${s.lastResult ? `<div class="bulk-result ${s.lastResult.ok?'ok':'error'}" style="display:block;margin-bottom:12px">${esc(s.lastResult.text)}</div>` : ''}
-      ${blocked ? `<div class="bulk-result error" style="display:block;margin-bottom:12px">⚠ Listede çözülmemiş bir barkod var — yeni tarama yapabilmek için aşağıda "Sil" veya "Yeni Barkod Olarak Tanımla" seçin.</div>` : ''}
+      ${blocked ? `<div class="bulk-result error" style="display:block;margin-bottom:12px">⚠ Yukarıdaki listede çözülmemiş bir barkod var — yeni tarama yapabilmek için "Sil" veya "Yeni Barkod Olarak Tanımla" seçin.</div>` : ''}
       ${s.stage==='pending' ? `
         <div class="field">
           <label>Barkodu Okutun</label>
@@ -2845,7 +2892,7 @@ function renderScanModal(){
       ` : s.stage==='scan' ? `
         <div class="field">
           <label>Barkodu Okutun</label>
-          <input id="scan-barcode" type="text" autocomplete="off" ${blocked?'disabled':''} style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums${blocked?';background:#F1ECDD':''}" onkeydown="handleScanBarcodeKey(event)" placeholder="${blocked?'Önce aşağıdaki barkodu çözün':'Okuyucuyla tarayın ya da elle yazıp Enter tuşuna basın'}" />
+          <input id="scan-barcode" type="text" autocomplete="off" ${blocked?'disabled':''} style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums${blocked?';background:#F1ECDD':''}" onkeydown="handleScanBarcodeKey(event)" placeholder="${blocked?'Önce yukarıdaki barkodu çözün':'Okuyucuyla tarayın ya da elle yazıp Enter tuşuna basın'}" />
           <button class="btn ghost small" style="width:100%;margin-top:8px" ${blocked?'disabled':''} onclick="openCameraScanner('quick')">📷 Telefon Kamerasıyla Tara</button>
         </div>
       ` : s.stage==='unknown' ? `
@@ -2873,32 +2920,6 @@ function renderScanModal(){
         </div>
         <div class="field-msg">Enter'a basınca kaydedilir ve bir sonraki taramaya geçilir</div>
       `}
-      ${s.sessionLog.length>0 ? `
-        <div style="margin-top:20px">
-          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
-          <div style="max-height:320px;overflow-y:auto">
-          ${s.sessionLog.map(l=>l.status==='unknown' ? `<div class="log-item" style="padding:8px 0;background:var(--danger-bg)">
-            <div class="meta" style="flex-wrap:wrap;gap:6px">
-              <span class="chip other">⚠ Tanınmıyor</span>
-              <span style="font-variant-numeric:tabular-nums">${esc(l.barcode)}</span>
-              <div style="width:100%;display:flex;gap:6px;margin-top:4px">
-                <button class="btn small ghost" style="flex:1" onclick="dismissUnknownScanEntry('${l.id}')">🗑 Sil (Muhtemelen Hatalı Okuma)</button>
-                <button class="btn small primary" style="flex:1" onclick="defineUnknownScanEntry('${l.id}')">+ Yeni Barkod Olarak Tanımla</button>
-              </div>
-            </div>
-          </div>` : `<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='pending'?'background:#FBF9F3':''}">
-            <div class="meta">
-              <span class="chip ${l.mode==='in'?'wa':'other'}">${l.mode==='in'?'Giriş':'Çıkış'}</span>
-              <span>${esc(detailRefLabel(l.refNo, l.colorName, l.sizeLabel))}</span>
-              <span style="font-weight:700;margin-left:auto">${l.mode==='in'?'+':'−'}${l.qty}</span>
-              ${l.status==='pending' ? '<span style="font-size:11px;color:var(--muted)">⏳</span>' : ''}
-              ${l.status==='ok' ? '<span style="font-size:12px;color:var(--good)">✓</span>' : ''}
-              ${l.status==='error' ? `<span style="font-size:11px;color:var(--danger)">⚠ ${esc(l.errorMsg||'')}</span><button class="btn small danger-outline" style="padding:2px 8px" onclick="retryQueuedScan('${l.id}')">Tekrar Dene</button>` : ''}
-            </div>
-          </div>`).join('')}
-          </div>
-        </div>
-      ` : ''}
     </div>
   </div>`;
 }
