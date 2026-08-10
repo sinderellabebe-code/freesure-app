@@ -586,19 +586,17 @@ async function processImageFile(file, maxWidth, quality){
 
   // Decode the source image. createImageBitmap with a resize hint lets the browser decode
   // directly at a smaller size — this avoids ever holding a full-resolution decode of a huge
-  // phone photo (e.g. a 12MP+ iPhone shot) in memory, which is the likely cause of silent
-  // failures/corruption on some devices. Falls back to the classic <img> approach if needed.
+  // phone photo (e.g. a 12MP+ iPhone shot) in memory, which can otherwise cause failures on
+  // some devices. Falls back to the classic <img> approach if createImageBitmap isn't available.
   let source, sw, sh;
   try{
     if(window.createImageBitmap){
-      const targetW = Math.min(1000, file.size > 0 ? 1000 : 1000);
-      source = await createImageBitmap(file, {resizeWidth: targetW, resizeQuality: 'medium'});
+      source = await createImageBitmap(file, {resizeWidth: 1000, resizeQuality: 'medium'});
       sw = source.width; sh = source.height;
     }
   }catch(err){ source = null; }
 
   if(!source){
-    // Fallback path via FileReader + <img>, for browsers without createImageBitmap resize support.
     const dataUrl = await new Promise((resolve, reject)=>{
       const reader = new FileReader();
       reader.onload = e=>resolve(e.target.result);
@@ -617,82 +615,19 @@ async function processImageFile(file, maxWidth, quality){
     source = img;
   }
 
-  const c0 = document.createElement('canvas');
-  c0.width = sw; c0.height = sh;
-  const ctx0 = c0.getContext('2d');
-  ctx0.drawImage(source, 0, 0, sw, sh);
-
-  let minX=0, minY=0, maxX=sw-1, maxY=sh-1, bgR=255, bgG=255, bgB=255;
-  let data = null;
-  try{ data = ctx0.getImageData(0,0,sw,sh).data; }catch(err){ data = null; }
-
-  if(data){
-    const bg = sampleBackgroundColor(data, sw, sh);
-    bgR = bg[0]; bgG = bg[1]; bgB = bg[2];
-    const BBOX_DIST = 32; // how different a pixel must be from bg to count as "product"
-    let fMinX=sw, fMinY=sh, fMaxX=0, fMaxY=0, found=false;
-    for(let y=0;y<sh;y++){
-      for(let x=0;x<sw;x++){
-        const idx=(y*sw+x)*4;
-        const r=data[idx], g=data[idx+1], b=data[idx+2], a=data[idx+3];
-        if(a>10 && colorDist(r,g,b,bgR,bgG,bgB) > BBOX_DIST){
-          found = true;
-          if(x<fMinX)fMinX=x; if(x>fMaxX)fMaxX=x;
-          if(y<fMinY)fMinY=y; if(y>fMaxY)fMaxY=y;
-        }
-      }
-    }
-    if(found){
-      const pad = Math.round(Math.min(sw,sh) * 0.05);
-      minX = Math.max(0, fMinX-pad); minY = Math.max(0, fMinY-pad);
-      maxX = Math.min(sw-1, fMaxX+pad); maxY = Math.min(sh-1, fMaxY+pad);
-    }
-  }
-
-  const cw = maxX-minX+1, ch = maxY-minY+1;
-  const outScale = Math.min(1, maxWidth / cw);
-  const ow = Math.max(1, Math.round(cw*outScale)), oh = Math.max(1, Math.round(ch*outScale));
+  // Simple, reliable resize — no background detection/cropping, so there's no risk of eating
+  // into a light-colored product. Keeps the photo exactly as taken, just sized down.
+  const outScale = Math.min(1, maxWidth / sw);
+  const ow = Math.max(1, Math.round(sw*outScale)), oh = Math.max(1, Math.round(sh*outScale));
   const c1 = document.createElement('canvas');
   c1.width = ow; c1.height = oh;
   const ctx1 = c1.getContext('2d');
   ctx1.fillStyle = '#ffffff';
   ctx1.fillRect(0,0,ow,oh);
-  ctx1.drawImage(c0, minX, minY, cw, ch, 0, 0, ow, oh);
-
-  try{
-    const id = ctx1.getImageData(0,0,ow,oh);
-    const d = id.data;
-    const WHITEN_DIST = 26; // how close to bg color to flatten to pure white
-    // Flood-fill from the border: only whiten pixels REACHABLE from the edge through a
-    // continuous run of background-like color. A white/light product (e.g. white baby shoes)
-    // sitting on a white background is protected, because there's no path from the border into
-    // the product without crossing its outline/shading — unlike a blanket per-pixel check, this
-    // can't "reach into" the product and erase it just because the colors are similar.
-    const w = ow, h = oh;
-    const visited = new Uint8Array(w*h);
-    const stackX = [];
-    const stackY = [];
-    for(let x=0;x<w;x++){ stackX.push(x,x); stackY.push(0,h-1); }
-    for(let y=0;y<h;y++){ stackX.push(0,w-1); stackY.push(y,y); }
-    while(stackX.length>0){
-      const x = stackX.pop(), y = stackY.pop();
-      if(x<0||x>=w||y<0||y>=h) continue;
-      const idx = y*w+x;
-      if(visited[idx]) continue;
-      const pidx = idx*4;
-      if(colorDist(d[pidx],d[pidx+1],d[pidx+2], bgR,bgG,bgB) > WHITEN_DIST) continue;
-      visited[idx] = 1;
-      stackX.push(x+1,x-1,x,x); stackY.push(y,y,y+1,y-1);
-    }
-    for(let i=0;i<w*h;i++){
-      if(visited[i]){ const pidx=i*4; d[pidx]=255; d[pidx+1]=255; d[pidx+2]=255; }
-    }
-    ctx1.putImageData(id,0,0);
-  }catch(err){ /* keep as-is if pixel access fails — still goes through the safe export below */ }
+  ctx1.drawImage(source, 0, 0, ow, oh);
 
   // Safety net: a Sheets cell silently drops data past ~50,000 characters. Try progressively
-  // lower quality (never lower resolution) until the encoded image comfortably fits. This ALWAYS
-  // runs — there is no path that saves an uncompressed/oversized original anymore.
+  // lower quality (never lower resolution) until the encoded image comfortably fits.
   const MAX_IMAGE_CHARS = 38000;
   let q = quality;
   let out = c1.toDataURL('image/jpeg', q);
@@ -1974,7 +1909,7 @@ async function handleVariantImageSelect(e){
   if(!file) return;
   if(!file.type.startsWith('image/')){ showToast('Lütfen bir görsel dosyası seçin (JPG, PNG)'); return; }
   if(file.size > 12*1024*1024){ showToast('Dosya çok büyük — lütfen 12 MB altında bir fotoğraf seçin'); return; }
-  showToast('Görsel işleniyor…');
+  showToast('Görsel işleniyor…', true);
   try{
     const processed = await processImageFile(file);
     state.pendingImage = processed;
@@ -3263,7 +3198,7 @@ async function handleSingleVariantImage(e, refNo, colorName){
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
   if(!file) return;
-  showToast('Resim işleniyor…');
+  showToast('Resim işleniyor…', true);
   try{
     const processed = await processImageFile(file);
     const repItem = state.warehouseItems.find(w=>orderGroupKey(w.refNo,w.colorName)===orderGroupKey(refNo,colorName));
