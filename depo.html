@@ -958,7 +958,7 @@ async function submitDepoMove(){
     showToast(r.networkError ? 'Sunucuya bağlanılamadı' : 'Kaydedilemedi — yetkinizi kontrol edin');
   }
 }
-function openDepoBulkModal(){ state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; render(); }
+function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; render(); }
 function downloadDepoBulkTemplate(){
   const header = ['Barkod','Referans No','Renk','Beden','Mevcut Stok','Fiyat'];
   const example = ['1288002000115','2000','RED','1','24','$18.50'];
@@ -1027,6 +1027,7 @@ async function deleteAllDepoItems(){
   await deleteWarehouseItems(barcodes);
 }
 function exportDepoCSV(){
+  if(session.role==='depocu') return;
   if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
   const header = ['Barkod','Referans No','Renk','Beden','Detay Referans','Depo Girişi','Depo Çıkışı','Kalan Stok','Fiyat (USD)'];
   const rows = [...state.warehouseItems]
@@ -1458,6 +1459,10 @@ function closeNewDepoItemSuccess(){ state.modalMode = null; state.newDepoItemSuc
 function addAnotherDepoItem(){ state.newDepoItemSuccess = null; render(); }
 
 // ---------- Hızlı Tarama (barkod okuyucu ile) ----------
+function openScanModePrompt(){
+  state.modalMode = 'scanModePrompt';
+  render();
+}
 function openScanMode(mode){
   state.scan = { mode: mode||'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
   state.modalMode = 'depoScan';
@@ -1465,6 +1470,19 @@ function openScanMode(mode){
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
 function closeScanMode(){ state.modalMode = null; render(); }
+function renderScanModePromptModal(){
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal" style="max-width:380px;text-align:center">
+      <h2 style="margin-bottom:6px">Ne Yapacaksınız?</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:18px">Hatalı işlemi önlemek için önce yönü seçin.</p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn" style="padding:20px;font-size:17px;font-weight:800;background:var(--good);color:#fff;border-color:var(--good)" onclick="openScanMode('in')">+ DEPOYA GİRİŞ</button>
+        <button class="btn" style="padding:20px;font-size:17px;font-weight:800;background:var(--danger);color:#fff;border-color:var(--danger)" onclick="openScanMode('out')">− DEPODAN ÇIKIŞ</button>
+      </div>
+      <button class="btn ghost small" style="margin-top:16px" onclick="closeModal()">Vazgeç</button>
+    </div>
+  </div>`;
+}
 
 // ---------- Bekleyen Siparişler — depocu barkod okutarak/toplu girerek siparişi hazırlar ----------
 function fmtDateOrder(iso){
@@ -2019,15 +2037,14 @@ function playAlertSound(){
 function processQuickScan(barcode){
   barcode = (barcode||'').trim();
   if(!barcode) return;
+  if(hasUnresolvedUnknownScan()) return; // blocked until the pending unknown entry is resolved
   const item = state.warehouseItems.find(w=>w.barcode===barcode);
   if(!item){
     if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'scan'; }
     const el = document.getElementById('scan-barcode'); if(el) el.value = '';
-    state.scan.barcode = barcode;
-    state.scan.stage = 'unknown';
     playAlertSound();
+    state.scan.sessionLog.unshift({id:uid(), barcode, status:'unknown'});
     render();
-    setTimeout(()=>{ const el2=document.getElementById('scan-new-ref'); if(el2) el2.focus(); }, 60);
     return;
   }
   if(state.scan.rapidMode){
@@ -2042,12 +2059,29 @@ function processQuickScan(barcode){
     setTimeout(()=>{ const el=document.getElementById('scan-qty'); if(el){ el.focus(); el.select(); } }, 60);
   }
 }
+function hasUnresolvedUnknownScan(){
+  return (state.scan.sessionLog||[]).some(l=>l.status==='unknown');
+}
 function handleScanBarcodeKey(e){
   if(e.key !== 'Enter') return;
   processQuickScan(e.target.value);
 }
+function dismissUnknownScanEntry(entryId){
+  state.scan.sessionLog = state.scan.sessionLog.filter(l=>l.id!==entryId);
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
+}
+function defineUnknownScanEntry(entryId){
+  const entry = state.scan.sessionLog.find(l=>l.id===entryId);
+  if(!entry) return;
+  state.scan.barcode = entry.barcode;
+  state.scan.stage = 'unknown';
+  state.scan.pendingUnknownEntryId = entryId;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-new-ref'); if(el) el.focus(); }, 60);
+}
 function cancelScanUnknown(){
-  state.scan.stage = 'scan'; state.scan.barcode = '';
+  state.scan.stage = 'scan'; state.scan.barcode = ''; state.scan.pendingUnknownEntryId = null;
   render();
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
@@ -2058,6 +2092,11 @@ function confirmScanUnknown(){
   if(!refNo && !colorName){ showToast('En az referans veya renk bilgisi girin'); return; }
   const item = { barcode: state.scan.barcode, refNo, colorName, sizeLabel, stock: 0 };
   if(!state.warehouseItems.find(w=>w.barcode===item.barcode)) state.warehouseItems.push(item);
+  // This barcode is now defined — clear the pending "unknown" log entry it came from, if any.
+  if(state.scan.pendingUnknownEntryId){
+    state.scan.sessionLog = state.scan.sessionLog.filter(l=>l.id!==state.scan.pendingUnknownEntryId);
+    state.scan.pendingUnknownEntryId = null;
+  }
   if(state.scan.rapidMode){
     state.scan.stage = 'scan'; state.scan.barcode='';
     queueScan(item, 1);
@@ -2218,6 +2257,7 @@ function render(){
   else if(state.modalMode === 'bulkImage' && !isDepocu) html += renderBulkImageModal();
   else if(state.modalMode === 'newDepoItem' && !isDepocu) html += renderNewDepoItemModal();
   else if(state.modalMode === 'depoScan') html += renderScanModal();
+  else if(state.modalMode === 'scanModePrompt') html += renderScanModePromptModal();
   else if(state.modalMode === 'pendingOrders') html += renderPendingOrdersModal();
   else if(state.modalMode === 'cameraScanner') html += renderCameraScannerModal();
   else if(state.modalMode === 'packOrder') html += renderPackOrderModal();
@@ -2296,15 +2336,15 @@ function renderDepoView(){
       <option value="recent-first" ${state.depoSortBy==='recent-first'?'selected':''}>Son Hareket (Yeniden Eskiye)</option>
       <option value="oldest-first" ${state.depoSortBy==='oldest-first'?'selected':''}>Son Hareket (Eskiden Yeniye)</option>
     </select>
-    <button class="btn primary small" onclick="openScanMode('out')">📷 Hızlı Tarama</button>
+    <button class="btn primary small" onclick="openScanModePrompt()">📷 Hızlı Tarama</button>
     <button class="btn ${state.pendingPackingOrders.length>0?'primary':'ghost'} small" onclick="openPendingOrdersModal()">📦 Bekleyen Siparişler${state.pendingPackingOrders.length>0?' ('+state.pendingPackingOrders.length+')':''}</button>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openNewDepoItemModal()">+ Yeni Depo Kaydı</button>` : ''}
-    <button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Stok Yükle (Excel)</button>
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Stok Yükle (Excel)</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.repairingReservations?'disabled':''} onclick="repairReservations()" title="Rezerve miktarlarını, gerçekte onaylı siparişlerde ne olması gerektiğine göre yeniden hesaplar">${state.repairingReservations?'⏳ Onarılıyor…':'🔧 Rezerveleri Onar'}</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
-    <button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}
     <div class="count">${items.length} / ${state.warehouseItems.length} kayıt</div>
@@ -2780,21 +2820,23 @@ function renderNewDepoItemModal(){
 
 function renderScanModal(){
   const s = state.scan;
+  const blocked = hasUnresolvedUnknownScan();
   return `<div class="overlay">
     <div class="modal wide">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <h2 style="margin:0">Hızlı Tarama</h2>
         <button class="btn small ghost" ${s.stage==='pending'?'disabled':''} onclick="closeScanMode()">Kapat</button>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="btn small ${s.mode==='out'?'':'ghost'}" ${s.stage==='pending'?'disabled':''} style="${s.mode==='out'?'background:var(--danger);color:#fff;border-color:var(--danger)':''}" onclick="setScanMode('out')">− Çıkış</button>
-        <button class="btn small ${s.mode==='in'?'primary':'ghost'}" ${s.stage==='pending'?'disabled':''} onclick="setScanMode('in')">+ Giriş</button>
+      <div style="text-align:center;padding:14px;border-radius:6px;margin-bottom:14px;font-size:17px;font-weight:800;letter-spacing:.02em;${s.mode==='in'?'background:var(--good);color:#fff':'background:var(--danger);color:#fff'}">
+        ${s.mode==='in' ? '+ DEPOYA GİRİŞ' : '− DEPODAN ÇIKIŞ'}
       </div>
+      <div class="field-msg" style="text-align:center;margin:-8px 0 14px">Yönü değiştirmek için bu ekranı kapatıp "Hızlı Tarama"yı tekrar açın.</div>
       <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:16px;cursor:pointer">
         <input type="checkbox" ${s.rapidMode?'checked':''} ${s.stage==='pending'?'disabled':''} onchange="toggleScanRapidMode()" style="width:auto" />
         <b>Hızlı Sayım Modu</b> — her taramada miktar sormadan otomatik 1 adet kaydet
       </label>
       ${s.lastResult ? `<div class="bulk-result ${s.lastResult.ok?'ok':'error'}" style="display:block;margin-bottom:12px">${esc(s.lastResult.text)}</div>` : ''}
+      ${blocked ? `<div class="bulk-result error" style="display:block;margin-bottom:12px">⚠ Listede çözülmemiş bir barkod var — yeni tarama yapabilmek için aşağıda "Sil" veya "Yeni Barkod Olarak Tanımla" seçin.</div>` : ''}
       ${s.stage==='pending' ? `
         <div class="field">
           <label>Barkodu Okutun</label>
@@ -2803,21 +2845,21 @@ function renderScanModal(){
       ` : s.stage==='scan' ? `
         <div class="field">
           <label>Barkodu Okutun</label>
-          <input id="scan-barcode" type="text" autocomplete="off" style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums" onkeydown="handleScanBarcodeKey(event)" placeholder="Okuyucuyla tarayın ya da elle yazıp Enter'a basın" />
-          <button class="btn ghost small" style="width:100%;margin-top:8px" onclick="openCameraScanner('quick')">📷 Telefon Kamerasıyla Tara</button>
+          <input id="scan-barcode" type="text" autocomplete="off" ${blocked?'disabled':''} style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums${blocked?';background:#F1ECDD':''}" onkeydown="handleScanBarcodeKey(event)" placeholder="${blocked?'Önce aşağıdaki barkodu çözün':'Okuyucuyla tarayın ya da elle yazıp Enter tuşuna basın'}" />
+          <button class="btn ghost small" style="width:100%;margin-top:8px" ${blocked?'disabled':''} onclick="openCameraScanner('quick')">📷 Telefon Kamerasıyla Tara</button>
         </div>
       ` : s.stage==='unknown' ? `
         <div class="bulk-result error" style="display:block;text-align:center;font-size:14px">
           ⚠ <b>${esc(s.barcode)}</b> barkodu sistemde kayıtlı değil.
         </div>
-        <p style="font-size:13px;color:var(--muted);margin:12px 0 10px">Bu barkodu şimdi kaydetmek ister misiniz? Bilgileri girip devam edin — barkod olduğu gibi kaydedilecek, yeni bir barkod üretilmeyecek.</p>
+        <p style="font-size:13px;color:var(--muted);margin:12px 0 10px">Genelde barkod tanımlama sipariş alınırken veya model Depo'ya eklenirken yapılır — bu barkodun okunmaması çoğunlukla bir <b>okuma hatasından</b> kaynaklanır. Gerçekten yeni bir ürünse aşağıya bilgilerini girip kaydedebilirsiniz.</p>
         <div class="row2">
           <div class="field"><label>Referans No</label><input id="scan-new-ref" type="text" /></div>
           <div class="field"><label>Renk</label><input id="scan-new-color" type="text" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" /></div>
         </div>
         <div class="field"><label>Beden</label><input id="scan-new-size" type="text" placeholder="Örn. 1, Size 1, 19-20" /></div>
         <div class="modal-actions" style="margin-top:0">
-          <button class="btn ghost" onclick="cancelScanUnknown()">Vazgeç</button>
+          <button class="btn ghost" onclick="cancelScanUnknown()">Geri</button>
           <button class="btn primary" onclick="confirmScanUnknown()">Kaydet ve Devam Et</button>
         </div>
       ` : `
@@ -2834,7 +2876,17 @@ function renderScanModal(){
       ${s.sessionLog.length>0 ? `
         <div style="margin-top:20px">
           <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
-          ${s.sessionLog.slice(0,12).map(l=>`<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='pending'?'background:#FBF9F3':''}">
+          <div style="max-height:320px;overflow-y:auto">
+          ${s.sessionLog.map(l=>l.status==='unknown' ? `<div class="log-item" style="padding:8px 0;background:var(--danger-bg)">
+            <div class="meta" style="flex-wrap:wrap;gap:6px">
+              <span class="chip other">⚠ Tanınmıyor</span>
+              <span style="font-variant-numeric:tabular-nums">${esc(l.barcode)}</span>
+              <div style="width:100%;display:flex;gap:6px;margin-top:4px">
+                <button class="btn small ghost" style="flex:1" onclick="dismissUnknownScanEntry('${l.id}')">🗑 Sil (Muhtemelen Hatalı Okuma)</button>
+                <button class="btn small primary" style="flex:1" onclick="defineUnknownScanEntry('${l.id}')">+ Yeni Barkod Olarak Tanımla</button>
+              </div>
+            </div>
+          </div>` : `<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='pending'?'background:#FBF9F3':''}">
             <div class="meta">
               <span class="chip ${l.mode==='in'?'wa':'other'}">${l.mode==='in'?'Giriş':'Çıkış'}</span>
               <span>${esc(detailRefLabel(l.refNo, l.colorName, l.sizeLabel))}</span>
@@ -2844,6 +2896,7 @@ function renderScanModal(){
               ${l.status==='error' ? `<span style="font-size:11px;color:var(--danger)">⚠ ${esc(l.errorMsg||'')}</span><button class="btn small danger-outline" style="padding:2px 8px" onclick="retryQueuedScan('${l.id}')">Tekrar Dene</button>` : ''}
             </div>
           </div>`).join('')}
+          </div>
         </div>
       ` : ''}
     </div>
