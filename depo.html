@@ -30,6 +30,11 @@
   .banner .sub{color:var(--muted);font-size:13px;margin-top:4px;}
   .nav-link{font-size:12px;color:var(--accent-ink);text-decoration:none;font-weight:600;}
   .nav-link:hover{text-decoration:underline;}
+  .top-nav{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
+  .top-nav-item{display:inline-flex;align-items:center;gap:4px;padding:8px 15px;border-radius:7px;font-size:13.5px;font-weight:700;text-decoration:none;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);transition:border-color .15s,background .15s;}
+  .top-nav-item:hover{border-color:var(--accent-ink);}
+  .top-nav-item.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .top-nav-item.external{color:var(--accent-ink);}
   .brand-row{display:flex;align-items:center;gap:14px;}
   .brand-logo-wrap{display:flex;flex-direction:column;align-items:center;gap:5px;}
   .logo-click{position:relative;display:inline-block;cursor:pointer;}
@@ -629,6 +634,7 @@ function processImageFile(file, maxWidth, quality){
 // ---------- state ----------
 const state = {
   loaded: false,
+  view: 'depo', // 'depo' | 'stockCountAnalysis'
   products: [],
   variants: [],
   skus: [],
@@ -659,6 +665,7 @@ const state = {
   stockCountHistoryDetail: null,
   stockCountFinalizePreview: null,
   stockCountRunning: false,
+  stockCountAnalysisSubView: 'list',
   returnToPackOrderId: null,
   cameraBatchItems: {},
   cameraReviewing: false,
@@ -958,12 +965,19 @@ async function openStockCountHistoryDetail(countId){
     if(data && data.ok){
       state.stockCountHistoryDetail = data.count;
       state.stockCountView = 'historyDetail';
+      state.stockCountAnalysisSubView = 'detail';
     } else {
       showToast('Yüklenemedi');
     }
   }catch(e){ showToast('Sunucuya bağlanılamadı'); }
   state.stockCountRunning = false;
   render();
+}
+function openStockCountAnalysisTab(){
+  state.view = 'stockCountAnalysis';
+  state.stockCountAnalysisSubView = 'list';
+  render();
+  loadStockCountHistory();
 }
 function renderNewOrderPopup(){
   const p = state.newOrderPopup;
@@ -2458,8 +2472,11 @@ function render(){
       </div>
       <div>
         <h1>Depo</h1>
-        <div class="sub">
-          ${isDepocu ? 'Barkod bazlı stok girişi ve çıkışı' : `Barkod bazlı stok girişi ve çıkışı · <a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş →</a> · <a class="nav-link" href="musteri-merkezi.html" target="_blank" rel="noopener">Müşteri Merkezi →</a>`}
+        <div class="top-nav">
+          <a class="top-nav-item ${state.view==='depo'?'active':''}" href="#" onclick="state.view='depo';render();return false;">📦 Depo</a>
+          <a class="top-nav-item ${state.view==='stockCountAnalysis'?'active':''}" href="#" onclick="openStockCountAnalysisTab();return false;">📊 Sayım Analizi</a>
+          ${!isDepocu ? `<a class="top-nav-item external" href="siparis.html" target="_blank" rel="noopener">📋 Sipariş ↗</a>
+          <a class="top-nav-item external" href="musteri-merkezi.html" target="_blank" rel="noopener">👥 Müşteri Merkezi ↗</a>` : ''}
         </div>
       </div>
     </div>
@@ -2472,7 +2489,7 @@ function render(){
     </div>
   </div>`;
 
-  html += renderDepoView();
+  html += state.view==='stockCountAnalysis' ? renderStockCountAnalysisTab() : renderDepoView();
 
   if(state.modalMode === 'users') html += renderUsersModal();
   else if(state.modalMode === 'depoMove') html += renderDepoMoveModal();
@@ -3045,6 +3062,82 @@ function renderNewDepoItemModal(){
   </div>`;
 }
 
+function renderStockCountAnalysisTab(){
+  if(state.stockCountAnalysisSubView==='detail') return renderStockCountAnalysisDetail();
+  const completed = state.stockCountHistory.filter(c=>c.status!=='cancelled');
+  return `<div style="max-width:900px">
+    <h2 style="margin:0 0 4px">📊 Depo Sayım Analizi</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Tamamlanmış her sayımın dönem özeti — eski stok, giren (üretilen/depoya alınan), çıkan ve nihai stok. Bir sayıma tıklayarak kalem bazlı dökümü ve dönemler arası trendi görebilirsiniz.</p>
+    ${completed.length===0 ? `<div class="empty"><h3>Henüz tamamlanmış bir sayım yok</h3><p>"📦 Depo" sekmesindeki "Depo Sayımı" düğmesiyle ilk sayımınızı başlatabilirsiniz.</p></div>` : `
+      <div class="depo-table-wrap"><table class="depo-table" style="min-width:720px">
+        <thead><tr><th>Sayım</th><th>Tarih</th><th>Eski Stok</th><th>Giren (Üretilen)</th><th>Çıkan</th><th>Nihai Stok</th><th>Fark Bulunan</th></tr></thead>
+        <tbody>
+          ${completed.map(c=>{
+            const s = c.periodSummary;
+            const opening = s ? s.perBarcode.reduce((sum,r)=>sum+r.openingStock,0) : 0;
+            const finalStock = s ? s.perBarcode.reduce((sum,r)=>sum+r.countedQty,0) : 0;
+            return `<tr style="cursor:pointer" onclick="openStockCountHistoryDetail('${c.id}')">
+              <td style="font-weight:700">${esc(c.name)}</td>
+              <td class="depo-td-muted">${fmtDateOrder(c.completedAt||c.startedAt)}</td>
+              <td>${s?opening:'—'}</td>
+              <td style="color:var(--good);font-weight:700">${s?'+'+s.totals.totalIn:'—'}</td>
+              <td style="color:var(--danger)">${s?'−'+s.totals.totalOut:'—'}</td>
+              <td style="font-weight:700">${s?finalStock:'—'}</td>
+              <td>${s && s.totals.itemsWithDifference>0 ? `<span class="chip other" style="background:var(--danger-bg);color:var(--danger)">${s.totals.itemsWithDifference}</span>` : (s?'✓':'—')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    `}
+  </div>`;
+}
+function renderStockCountAnalysisDetail(){
+  const c = state.stockCountHistoryDetail;
+  if(!c) return '';
+  const s = c.periodSummary;
+  const allCompleted = state.stockCountHistory.filter(x=>x.status==='completed' && x.periodSummary).slice(0,8).reverse();
+  const maxIn = Math.max(1, ...allCompleted.map(x=>x.periodSummary.totals.totalIn||0));
+  return `<div style="max-width:900px">
+    <button class="btn ghost small" style="margin-bottom:14px" onclick="state.stockCountAnalysisSubView='list';render();">← Sayım Analizine Dön</button>
+    <h2 style="margin:0 0 4px">${esc(c.name)}</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:18px">${fmtDateOrder(c.startedAt)} → ${c.completedAt?fmtDateOrder(c.completedAt):'—'} · ${esc(c.completedBy||'')}</p>
+    ${!s ? `<div class="empty"><h3>Bu sayım için özet yok</h3></div>` : `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px">
+        <div class="extra-info-box" style="margin:0;text-align:center"><div class="mini-meta">ESKİ STOK</div><div style="font-size:20px;font-weight:800">${s.perBarcode.reduce((sum,r)=>sum+r.openingStock,0)}</div></div>
+        <div class="extra-info-box" style="margin:0;text-align:center"><div class="mini-meta">GİREN (ÜRETİLEN)</div><div style="font-size:20px;font-weight:800;color:var(--good)">+${s.totals.totalIn}</div></div>
+        <div class="extra-info-box" style="margin:0;text-align:center"><div class="mini-meta">ÇIKAN</div><div style="font-size:20px;font-weight:800;color:var(--danger)">−${s.totals.totalOut}</div></div>
+        <div class="extra-info-box" style="margin:0;text-align:center"><div class="mini-meta">NİHAİ STOK</div><div style="font-size:20px;font-weight:800">${s.perBarcode.reduce((sum,r)=>sum+r.countedQty,0)}</div></div>
+      </div>
+      ${allCompleted.length>1 ? `
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:700">Dönemler Arası Üretim/Giriş Trendi</div>
+        <div style="margin-bottom:26px">
+          ${allCompleted.map(x=>`
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+              <div style="width:150px;font-size:11.5px;color:var(--muted);text-align:right;flex-shrink:0">${esc(x.name)}</div>
+              <div style="flex:1;background:var(--line);border-radius:3px;overflow:hidden">
+                <div style="width:${Math.round((x.periodSummary.totals.totalIn||0)/maxIn*100)}%;min-width:28px;background:${x.id===c.id?'var(--accent-ink)':'var(--muted)'};padding:5px 8px;color:#fff;font-size:11.5px;font-weight:700;white-space:nowrap">${x.periodSummary.totals.totalIn||0}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:8px;font-weight:700">Kalem Detayı</div>
+      <div class="depo-table-wrap"><table class="depo-table" style="min-width:640px">
+        <thead><tr><th>Ürün</th><th>Eski Stok</th><th>Giren</th><th>Çıkan</th><th>Nihai Stok</th><th>Fark</th></tr></thead>
+        <tbody>
+          ${[...s.perBarcode].sort((a,b)=>Math.abs(b.difference)-Math.abs(a.difference)).map(r=>`<tr style="${r.difference!==0?'background:var(--danger-bg)':''}">
+            <td>${esc(r.refNo)} · ${esc(r.colorName)} · ${esc(r.sizeLabel)}</td>
+            <td class="depo-td-muted">${r.openingStock}</td>
+            <td style="color:var(--good)">+${r.totalIn}</td>
+            <td style="color:var(--danger)">−${r.totalOut}</td>
+            <td style="font-weight:700">${r.countedQty}</td>
+            <td style="font-weight:700;color:${r.difference>0?'var(--good)':r.difference<0?'var(--danger)':'var(--muted)'}">${r.difference>0?'+':''}${r.difference}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    `}
+  </div>`;
+}
 function renderStockCountModal(){
   if(state.stockCountView==='finalizePreview') return renderStockCountFinalizePreviewView();
   if(state.stockCountView==='history') return renderStockCountHistoryView();

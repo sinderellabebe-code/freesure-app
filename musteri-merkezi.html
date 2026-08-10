@@ -45,6 +45,11 @@
   .banner .sub{color:var(--muted);font-size:13px;margin-top:4px;}
   .nav-link{font-size:12px;color:var(--accent-ink);text-decoration:none;font-weight:600;}
   .nav-link:hover{text-decoration:underline;}
+  .top-nav{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
+  .top-nav-item{display:inline-flex;align-items:center;gap:4px;padding:8px 15px;border-radius:7px;font-size:13.5px;font-weight:700;text-decoration:none;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);transition:border-color .15s,background .15s;}
+  .top-nav-item:hover{border-color:var(--accent-ink);}
+  .top-nav-item.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .top-nav-item.external{color:var(--accent-ink);}
   .btn{
     border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);
     padding:9px 16px;border-radius:3px;font-weight:600;font-size:13px;
@@ -748,9 +753,22 @@ const state = {
   statementCustomerId: null,
   revenueSelectedYear: null,
   revenueSelectedMonth: null,
-  revenueBoxOpen: false
+  revenueBoxOpen: false,
+  latestStockCount: null
 };
 
+async function fetchLatestStockCountSummary(){
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=listStockCounts' + authParams);
+    const data = await res.json();
+    if(data && data.ok){
+      const completed = (data.counts||[]).filter(c=>c.status==='completed' && c.periodSummary);
+      state.latestStockCount = completed.length>0 ? completed[0] : null;
+      render();
+    }
+  }catch(e){ /* supplemental info — silent fail */ }
+}
 async function init(){
   if(session.role === 'depocu'){
     state.loaded = true;
@@ -771,6 +789,7 @@ async function init(){
     state.meta = (all['meta'] && typeof all['meta'] === 'object') ? all['meta'] : { nextCustomerNo: 1 };
     if(!state.meta.nextCustomerNo) state.meta.nextCustomerNo = 1;
     state.logo = all['logo'] || null;
+    fetchLatestStockCountSummary(); // non-blocking — revenue box shows it once it arrives
   }catch(e){
     showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
   }
@@ -1538,7 +1557,10 @@ function render(){
       </div>
       <div>
         <h1>Müşteri Merkezi</h1>
-        <div class="sub">Ülkeye göre filtrele, tek tıkla iletişime geç, sipariş ritmini takip et. · <a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş →</a> · <a class="nav-link" href="depo.html" target="_blank" rel="noopener">Depo →</a></div>
+        <div class="top-nav">
+          <a class="top-nav-item external" href="siparis.html" target="_blank" rel="noopener">📋 Sipariş ↗</a>
+          <a class="top-nav-item external" href="depo.html" target="_blank" rel="noopener">📦 Depo ↗</a>
+        </div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
@@ -1655,6 +1677,14 @@ function renderRevenueBox(){
         <div class="extra-info-row"><span class="extra-info-label">${esc(selectedLabel)} Toplam Ciro</span><span class="extra-info-value" style="font-weight:700;font-size:15px">$${formatMoney(selectedTotal)}</span></div>
       </div>
       <div class="field-msg" style="margin-top:8px">İptal edilmiş ve taslak siparişler dahil edilmez; iade edilen tutarlar düşülmüştür.</div>
+      ${state.latestStockCount ? `
+        <div class="extra-info-box" style="margin-top:14px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-bottom:6px">Son Depo Sayımı — ${esc(state.latestStockCount.name)}</div>
+          <div class="extra-info-row"><span class="extra-info-label">Dönemde Depoya Giren (Üretilen)</span><span class="extra-info-value" style="color:var(--good)">+${state.latestStockCount.periodSummary.totals.totalIn}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Dönemde Depodan Çıkan</span><span class="extra-info-value" style="color:var(--danger)">−${state.latestStockCount.periodSummary.totals.totalOut}</span></div>
+          <a class="nav-link" href="depo.html" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px">📊 Detaylı Sayım Analizini Depo'da Gör →</a>
+        </div>
+      ` : ''}
     </div>
   </details>`;
 }
