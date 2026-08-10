@@ -666,6 +666,9 @@ const state = {
   stockCountFinalizePreview: null,
   stockCountRunning: false,
   stockCountAnalysisSubView: 'list',
+  stockCountFilterYear: 'all',
+  stockCountFilterFrom: '',
+  stockCountFilterTo: '',
   returnToPackOrderId: null,
   cameraBatchItems: {},
   cameraReviewing: false,
@@ -1724,6 +1727,12 @@ function fmtDateOrder(iso){
   const d = new Date(iso);
   if(isNaN(d.getTime())) return iso;
   return d.toLocaleDateString('tr-TR');
+}
+function fmtDateTimeOrder(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'});
 }
 function openPendingOrdersModal(){ state.modalMode = 'pendingOrders'; render(); }
 function openPackOrderModal(orderId){
@@ -3064,11 +3073,40 @@ function renderNewDepoItemModal(){
 
 function renderStockCountAnalysisTab(){
   if(state.stockCountAnalysisSubView==='detail') return renderStockCountAnalysisDetail();
-  const completed = state.stockCountHistory.filter(c=>c.status!=='cancelled');
+  const allCompleted = state.stockCountHistory.filter(c=>c.status!=='cancelled');
+
+  const years = Array.from(new Set(allCompleted.map(c=>(c.completedAt||c.startedAt||'').slice(0,4)).filter(Boolean))).sort().reverse();
+  const filterYear = state.stockCountFilterYear || 'all';
+  const filterFrom = state.stockCountFilterFrom || '';
+  const filterTo = state.stockCountFilterTo || '';
+
+  const completed = allCompleted.filter(c=>{
+    const d = (c.completedAt||c.startedAt||'').slice(0,10);
+    if(!d) return true;
+    if(filterYear!=='all' && d.slice(0,4)!==filterYear) return false;
+    if(filterFrom && d < filterFrom) return false;
+    if(filterTo && d > filterTo) return false;
+    return true;
+  });
+
   return `<div style="max-width:900px">
     <h2 style="margin:0 0 4px">📊 Depo Sayım Analizi</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Tamamlanmış her sayımın dönem özeti — eski stok, giren (üretilen/depoya alınan), çıkan ve nihai stok. Bir sayıma tıklayarak kalem bazlı dökümü ve dönemler arası trendi görebilirsiniz.</p>
-    ${completed.length===0 ? `<div class="empty"><h3>Henüz tamamlanmış bir sayım yok</h3><p>"📦 Depo" sekmesindeki "Depo Sayımı" düğmesiyle ilk sayımınızı başlatabilirsiniz.</p></div>` : `
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Tamamlanmış her sayımın dönem özeti — eski stok, giren (üretilen/depoya alınan), çıkan ve nihai stok. Bir sayıma tıklayarak kalem bazlı dökümü ve dönemler arası trendi görebilirsiniz.</p>
+    ${years.length>0 ? `
+      <div class="toolbar" style="margin-bottom:16px">
+        <select onchange="state.stockCountFilterYear=this.value;render();">
+          <option value="all" ${filterYear==='all'?'selected':''}>Tüm Yıllar</option>
+          ${years.map(y=>`<option value="${y}" ${filterYear===y?'selected':''}>${y}</option>`).join('')}
+        </select>
+        <span style="font-size:12px;color:var(--muted)">veya tarih aralığı:</span>
+        <input type="date" value="${filterFrom}" onchange="state.stockCountFilterFrom=this.value;render();" style="width:auto" />
+        <span style="font-size:12px;color:var(--muted)">—</span>
+        <input type="date" value="${filterTo}" onchange="state.stockCountFilterTo=this.value;render();" style="width:auto" />
+        ${(filterYear!=='all'||filterFrom||filterTo) ? `<button class="btn ghost small" onclick="state.stockCountFilterYear='all';state.stockCountFilterFrom='';state.stockCountFilterTo='';render();">✕ Filtreyi Temizle</button>` : ''}
+        <div class="count">${completed.length} / ${allCompleted.length} sayım</div>
+      </div>
+    ` : ''}
+    ${completed.length===0 ? `<div class="empty"><h3>${allCompleted.length===0?'Henüz tamamlanmış bir sayım yok':'Bu filtreye uyan sayım yok'}</h3><p>${allCompleted.length===0?'"📦 Depo" sekmesindeki "Depo Sayımı" düğmesiyle ilk sayımınızı başlatabilirsiniz.':'Filtreyi genişletmeyi deneyin.'}</p></div>` : `
       <div class="depo-table-wrap"><table class="depo-table" style="min-width:720px">
         <thead><tr><th>Sayım</th><th>Tarih</th><th>Eski Stok</th><th>Giren (Üretilen)</th><th>Çıkan</th><th>Nihai Stok</th><th>Fark Bulunan</th></tr></thead>
         <tbody>
@@ -3078,7 +3116,7 @@ function renderStockCountAnalysisTab(){
             const finalStock = s ? s.perBarcode.reduce((sum,r)=>sum+r.countedQty,0) : 0;
             return `<tr style="cursor:pointer" onclick="openStockCountHistoryDetail('${c.id}')">
               <td style="font-weight:700">${esc(c.name)}</td>
-              <td class="depo-td-muted">${fmtDateOrder(c.completedAt||c.startedAt)}</td>
+              <td class="depo-td-muted">${fmtDateTimeOrder(c.completedAt||c.startedAt)}</td>
               <td>${s?opening:'—'}</td>
               <td style="color:var(--good);font-weight:700">${s?'+'+s.totals.totalIn:'—'}</td>
               <td style="color:var(--danger)">${s?'−'+s.totals.totalOut:'—'}</td>
@@ -3100,7 +3138,7 @@ function renderStockCountAnalysisDetail(){
   return `<div style="max-width:900px">
     <button class="btn ghost small" style="margin-bottom:14px" onclick="state.stockCountAnalysisSubView='list';render();">← Sayım Analizine Dön</button>
     <h2 style="margin:0 0 4px">${esc(c.name)}</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:18px">${fmtDateOrder(c.startedAt)} → ${c.completedAt?fmtDateOrder(c.completedAt):'—'} · ${esc(c.completedBy||'')}</p>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:18px">${fmtDateTimeOrder(c.startedAt)} → ${c.completedAt?fmtDateTimeOrder(c.completedAt):'—'} · ${esc(c.completedBy||'')}</p>
     ${!s ? `<div class="empty"><h3>Bu sayım için özet yok</h3></div>` : `
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px">
         <div class="extra-info-box" style="margin:0;text-align:center"><div class="mini-meta">ESKİ STOK</div><div style="font-size:20px;font-weight:800">${s.perBarcode.reduce((sum,r)=>sum+r.openingStock,0)}</div></div>
@@ -3169,7 +3207,7 @@ function renderStockCountMainView(){
                   <span>${esc(c.name)}</span>
                   <span class="chip ${c.status==='completed'?'wa':'other'}" style="margin-left:auto">${c.status==='completed'?'Tamamlandı':'İptal Edildi'}</span>
                 </div>
-                <div class="mini-meta">${fmtDateOrder(c.startedAt)}${c.completedAt?' → '+fmtDateOrder(c.completedAt):''}</div>
+                <div class="mini-meta">${fmtDateTimeOrder(c.startedAt)}${c.completedAt?' → '+fmtDateTimeOrder(c.completedAt):''}</div>
               </div>
             `).join('')}
           </div>
@@ -3187,7 +3225,7 @@ function renderStockCountMainView(){
         <h2 style="margin:0">📋 ${esc(count.name)}</h2>
         <button class="btn small ghost" onclick="closeStockCountModal()">Kapat</button>
       </div>
-      <div class="field-msg" style="margin-bottom:14px">Başlangıç: ${fmtDateOrder(count.startedAt)} · ${esc(count.startedBy)} ${!isDepocu ? `· <a href="#" onclick="loadStockCountHistory();state.stockCountView='history';render();return false;">Sayım Geçmişi</a>` : ''}</div>
+      <div class="field-msg" style="margin-bottom:14px">Başlangıç: ${fmtDateTimeOrder(count.startedAt)} · ${esc(count.startedBy)} ${!isDepocu ? `· <a href="#" onclick="loadStockCountHistory();state.stockCountView='history';render();return false;">Sayım Geçmişi</a>` : ''}</div>
 
       <div class="field">
         <label>Barkodu Okutun</label>
@@ -3276,7 +3314,7 @@ function renderStockCountHistoryView(){
             <span>${esc(c.name)}</span>
             <span class="chip ${c.status==='completed'?'wa':'other'}" style="margin-left:auto">${c.status==='completed'?'Tamamlandı':c.status==='active'?'Aktif':'İptal Edildi'}</span>
           </div>
-          <div class="mini-meta">${fmtDateOrder(c.startedAt)}${c.completedAt?' → '+fmtDateOrder(c.completedAt):''}</div>
+          <div class="mini-meta">${fmtDateTimeOrder(c.startedAt)}${c.completedAt?' → '+fmtDateTimeOrder(c.completedAt):''}</div>
         </div>
       `).join('')}
     </div>
@@ -3295,7 +3333,7 @@ function renderStockCountHistoryDetailView(){
         <h2 style="margin:0">${esc(c.name)}</h2>
         <button class="btn small ghost" onclick="state.stockCountView='history';render();">← Geri</button>
       </div>
-      <div class="field-msg" style="margin-bottom:14px">${fmtDateOrder(c.startedAt)} → ${c.completedAt?fmtDateOrder(c.completedAt):'—'} · ${esc(c.completedBy||'')}</div>
+      <div class="field-msg" style="margin-bottom:14px">${fmtDateTimeOrder(c.startedAt)} → ${c.completedAt?fmtDateTimeOrder(c.completedAt):'—'} · ${esc(c.completedBy||'')}</div>
       ${!s ? `<div class="empty"><h3>Bu sayım için özet yok</h3><p>İptal edilmiş olabilir.</p></div>` : `
         <div class="extra-info-box" style="margin-bottom:16px">
           <div class="extra-info-row"><span class="extra-info-label">Sayılan Kalem</span><span class="extra-info-value">${s.totals.itemsCounted}</span></div>
@@ -3308,7 +3346,7 @@ function renderStockCountHistoryDetailView(){
           <div style="margin-bottom:18px">
             ${allCompleted.map(x=>`
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                <div style="width:90px;font-size:11px;color:var(--muted);text-align:right;flex-shrink:0">${fmtDateOrder(x.completedAt)}</div>
+                <div style="width:90px;font-size:11px;color:var(--muted);text-align:right;flex-shrink:0">${fmtDateTimeOrder(x.completedAt)}</div>
                 <div style="flex:1;background:var(--line);border-radius:3px;overflow:hidden">
                   <div style="width:${Math.round((x.periodSummary.totals.totalIn||0)/maxIn*100)}%;background:${x.id===c.id?'var(--accent-ink)':'var(--muted)'};padding:4px 6px;color:#fff;font-size:11px;font-weight:700;white-space:nowrap">${x.periodSummary.totals.totalIn||0}</div>
                 </div>
