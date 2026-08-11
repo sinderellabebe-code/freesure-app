@@ -644,6 +644,7 @@ const state = {
   depoBulkSkippedLinesData: [],
   depoBulkTotalMovements: 0,
   depoBulkAllConflicts: [],
+  depoBulkChunkErrorReason: {},
   newDepoItemSaving: false,
   newDepoItemSuccess: null,
   newDepoItemImage: null,
@@ -1212,7 +1213,7 @@ async function submitDepoMove(){
     render();
   }
 }
-function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; state.depoBulkChunks = null; state.depoBulkTotalMovements = 0; state.depoBulkAllConflicts = []; render(); }
+function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; state.depoBulkChunks = null; state.depoBulkTotalMovements = 0; state.depoBulkAllConflicts = []; state.depoBulkChunkErrorReason = {}; render(); }
 function downloadDepoBulkTemplate(){
   const header = ['Barkod','Referans No','Renk','Beden'];
   const example = ['1288002000115','2000','RED','1'];
@@ -1374,7 +1375,7 @@ function parseDepoBulkLines(raw){
   }
   return {items, skipped: skippedLines.length, skippedLines, batchDupes};
 }
-const DEPO_BULK_CHUNK_SIZE = 200;
+const DEPO_BULK_CHUNK_SIZE = 40; // kept small deliberately — large chunks were timing out server-side
 function setDepoBulkProgress(text, isError){
   const el = document.getElementById('depo-bulk-result');
   if(!el) return;
@@ -1407,10 +1408,11 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRe
 
   let totalMovements = 0, totalProcessed = 0;
   const allConflicts = state.depoBulkAllConflicts && isRetry ? state.depoBulkAllConflicts : [];
+  const chunkErrorReason = state.depoBulkChunkErrorReason && isRetry ? state.depoBulkChunkErrorReason : {};
   const toSend = chunks.map((c,i)=>i).filter(i=>chunkStatus[i]!=='ok');
   let doneSoFar = 0;
   for(const i of toSend){
-    setDepoBulkProgress(`İşleniyor… parça ${doneSoFar+1}/${toSend.length} gönderiliyor — lütfen bu pencereyi kapatmayın.`);
+    setDepoBulkProgress(`İşleniyor… parça ${doneSoFar+1}/${toSend.length} gönderiliyor (${chunks[i].length} kayıt) — lütfen bu pencereyi kapatmayın.`);
     try{
       const res = await fetchWithTimeout(API_URL, {
         method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1419,16 +1421,20 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRe
       const data = await res.json();
       if(data && data.ok){
         chunkStatus[i] = 'ok';
+        delete chunkErrorReason[i];
         totalMovements += data.movementsWritten||0;
         if(data.conflicts && data.conflicts.length) allConflicts.push(...data.conflicts);
       } else {
         chunkStatus[i] = 'error';
+        chunkErrorReason[i] = (data && data.error==='lock_timeout') ? 'sunucu meşgul (kilit zaman aşımı)' : 'sunucu hata döndürdü';
       }
     }catch(e){
       chunkStatus[i] = 'error';
+      chunkErrorReason[i] = (e && e.name==='AbortError') ? 'zaman aşımı (parça çok uzun sürdü)' : 'ağ bağlantısı kesildi';
     }
     doneSoFar++;
   }
+  state.depoBulkChunkErrorReason = chunkErrorReason;
   state.depoBulkAllConflicts = allConflicts;
   state.depoBulkTotalMovements = (state.depoBulkTotalMovements||0) + totalMovements;
 
@@ -1481,7 +1487,11 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRe
     state.depoBulkChunks = null; // done — nothing left to retry
     showToast('Toplu içe aktarma tamamlandı');
   } else {
-    state.depoBulkResultText = `${totalProcessed} / ${items.length} kayıt işlendi, ${failedChunks} parça gönderilemedi (bağlantı sorunu olabilir).${noteStr}`;
+    const reasons = Object.values(state.depoBulkChunkErrorReason||{});
+    const reasonCounts = {};
+    reasons.forEach(r=>{ reasonCounts[r]=(reasonCounts[r]||0)+1; });
+    const topReason = Object.keys(reasonCounts).sort((a,b)=>reasonCounts[b]-reasonCounts[a])[0];
+    state.depoBulkResultText = `${totalProcessed} / ${items.length} kayıt işlendi, ${failedChunks} parça gönderilemedi — sebep: ${topReason||'bilinmiyor'}.${noteStr}`;
     state.depoBulkResultIsError = true;
     showToast('Bazı parçalar aktarılamadı — aşağıdaki "Başarısız Parçaları Tekrar Dene" ile devam edin');
   }
@@ -1495,6 +1505,7 @@ async function submitDepoBulkImport(){
   state.depoBulkChunks = null;
   state.depoBulkTotalMovements = 0;
   state.depoBulkAllConflicts = [];
+  state.depoBulkChunkErrorReason = {};
   if(state.depoBulkFile){
     state.depoBulkAllItems = state.depoBulkFile.items;
     await sendDepoBulkImport(state.depoBulkFile.items, state.depoBulkFile.skipped, state.depoBulkFile.batchDupes, state.depoBulkFile.skippedLines);
