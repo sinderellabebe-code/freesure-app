@@ -1214,6 +1214,15 @@ async function submitDepoMove(){
   }
 }
 function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; state.depoBulkChunks = null; state.depoBulkTotalMovements = 0; state.depoBulkAllConflicts = []; state.depoBulkChunkErrorReason = {}; render(); }
+function downloadDepoBulkConflicts(){
+  const conflicts = state.depoBulkAllConflicts || [];
+  if(conflicts.length===0){ showToast('İndirilecek çakışma yok'); return; }
+  const header = ['Barkod','Sistemdeki Referans','Sistemdeki Renk','Sistemdeki Beden','Dosyadaki Referans','Dosyadaki Renk','Dosyadaki Beden'];
+  const rows = conflicts.map(c=>[c.barcode, c.existing.refNo, c.existing.colorName, c.existing.sizeLabel, c.incoming.refNo, c.incoming.colorName, c.incoming.sizeLabel]);
+  const csv = [header, ...rows].map(r=>r.map(csvField).join(',')).join('\n');
+  downloadBlob('toplu-model-yukleme-cakismalar.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  showToast('Çakışma listesi indirildi');
+}
 function downloadDepoBulkTemplate(){
   const header = ['Barkod','Referans No','Renk','Beden'];
   const example = ['1288002000115','2000','RED','1'];
@@ -1478,7 +1487,7 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRe
   if(skippedCount>0) noteParts.push(`${skippedCount} satır atlandı (altta detaylı liste var)`);
   if(dupeCount>0) noteParts.push(`${dupeCount} satır dosya içinde barkodu tekrar ettiği için atlandı`);
   if(pricesUpdated>0) noteParts.push(`${pricesUpdated} model için fiyat güncellendi`);
-  if(allConflicts.length>0) noteParts.push(`⚠ ${allConflicts.length} barkod, sistemde FARKLI bir ürüne kayıtlıydı — stok yine de işlendi ama ürün bilgisi güncellenmedi, kontrol edin: ` + allConflicts.slice(0,10).map(c=>c.barcode).join(', ') + (allConflicts.length>10?'…':''));
+  if(allConflicts.length>0) noteParts.push(`⚠ ${allConflicts.length} barkod, sistemde FARKLI bir ürüne kayıtlıydı — stok yine de işlendi ama ürün bilgisi güncellenmedi, aşağıdan listeyi görüp indirebilirsiniz.`);
   const noteStr = noteParts.length ? (' ' + noteParts.join(' · ') + '.') : '';
 
   if(failedChunks===0){
@@ -3129,6 +3138,19 @@ function renderDepoBulkModal(){
               <div style="font-weight:700;color:var(--ink)">Satır ${s.rowNum}</div>
               <div style="font-family:ui-monospace,Menlo,monospace;color:var(--muted);margin-top:2px">${esc(s.line)}</div>
               <div style="color:var(--danger);margin-top:2px">↳ ${esc(s.reason)}</div>
+            </div>`).join('')}
+          </div>
+        </details>
+      ` : ''}
+      ${(state.depoBulkAllConflicts||[]).length>0 ? `
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--danger);font-weight:600">⚠ ${state.depoBulkAllConflicts.length} barkod farklı bir ürüne kayıtlıydı — listeyi görmek için tıklayın</summary>
+          <button class="btn ghost small" style="margin:8px 0" onclick="downloadDepoBulkConflicts()">📄 Çakışma Listesini İndir (CSV)</button>
+          <div style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:4px">
+            ${state.depoBulkAllConflicts.map(c=>`<div style="padding:6px 10px;border-bottom:1px solid var(--line);font-size:11.5px">
+              <div style="font-weight:700;font-family:ui-monospace,Menlo,monospace;color:var(--ink)">${esc(c.barcode)}</div>
+              <div style="color:var(--muted);margin-top:2px">Sistemde: ${esc(c.existing.refNo)} · ${esc(c.existing.colorName)} · ${esc(c.existing.sizeLabel)}</div>
+              <div style="color:var(--danger);margin-top:2px">Dosyada: ${esc(c.incoming.refNo)} · ${esc(c.incoming.colorName)} · ${esc(c.incoming.sizeLabel)}</div>
             </div>`).join('')}
           </div>
         </details>
