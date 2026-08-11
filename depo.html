@@ -641,6 +641,8 @@ const state = {
   newDepoItemImage: null,
   depoFilterGender: new Set(),
   depoFilterSeason: new Set(),
+  depoVisibleBarcodes: [],
+  depoBulkCatalogRunning: false,
   pendingPackingOrders: [],
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
@@ -1215,8 +1217,9 @@ function toggleDepoSelect(barcode){
   else state.depoSelected.add(barcode);
   render();
 }
-function toggleDepoSelectAll(visibleBarcodes){
-  const allSelected = visibleBarcodes.every(b=>state.depoSelected.has(b));
+function toggleDepoSelectAll(){
+  const visibleBarcodes = state.depoVisibleBarcodes || [];
+  const allSelected = visibleBarcodes.length>0 && visibleBarcodes.every(b=>state.depoSelected.has(b));
   if(allSelected) visibleBarcodes.forEach(b=>state.depoSelected.delete(b));
   else visibleBarcodes.forEach(b=>state.depoSelected.add(b));
   render();
@@ -1262,6 +1265,26 @@ async function deleteSelectedDepoItems(){
   if(barcodes.length===0){ showToast('Önce silmek istediğiniz kayıtları seçin'); return; }
   if(!confirm(`${barcodes.length} depo kaydını silmek istediğinize emin misiniz? (Geçmiş hareket kayıtları korunur.)`)) return;
   await deleteWarehouseItems(barcodes);
+}
+async function bulkAddSelectedToCatalog(){
+  const barcodes = Array.from(state.depoSelected);
+  if(barcodes.length===0){ showToast('Önce kataloğa eklemek istediğiniz kayıtları seçin'); return; }
+  const items = barcodes.map(b=>state.warehouseItems.find(w=>w.barcode===b)).filter(it=>it && !isBarcodeInCatalog(it.barcode));
+  if(items.length===0){ showToast('Seçilenlerin hepsi zaten katalogda'); return; }
+  state.depoBulkCatalogRunning = true;
+  render();
+  let okCount = 0, errCount = 0;
+  for(const it of items){
+    try{
+      await ensureCatalogEntryForExistingBarcode(it.barcode, it.refNo, it.colorName, it.sizeLabel);
+      okCount++;
+    }catch(err){ errCount++; }
+    render();
+  }
+  state.depoBulkCatalogRunning = false;
+  state.depoSelected = new Set();
+  render();
+  showToast(errCount>0 ? `${okCount} ürün kataloğa eklendi, ${errCount} hata` : `${okCount} ürün kataloğa eklendi`);
 }
 async function deleteAllDepoItems(){
   const barcodes = state.warehouseItems.map(w=>w.barcode);
@@ -2650,6 +2673,7 @@ function renderDepoView(){
   if(state.depoPage < 1) state.depoPage = 1;
   const pageItems = items.slice((state.depoPage-1)*DEPO_PAGE_SIZE, state.depoPage*DEPO_PAGE_SIZE);
   const visibleBarcodes = pageItems.map(it=>it.barcode);
+  state.depoVisibleBarcodes = visibleBarcodes;
   const allSelected = canManage && visibleBarcodes.length>0 && visibleBarcodes.every(b=>state.depoSelected.has(b));
   const selectedCount = state.depoSelected.size;
 
@@ -2682,6 +2706,7 @@ function renderDepoView(){
     ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.repairingReservations?'disabled':''} onclick="repairReservations()" title="Rezerve miktarlarını, gerçekte onaylı siparişlerde ne olması gerektiğine göre yeniden hesaplar">${state.repairingReservations?'⏳ Onarılıyor…':'🔧 Rezerveleri Onar'}</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>` : ''}
+    ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}
     <div class="count">${items.length} / ${state.warehouseItems.length} kayıt</div>
@@ -2703,7 +2728,7 @@ function renderDepoView(){
     const cols = canManage ? '26px 56px 44px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 44px 130px 1fr 150px 80px 90px';
     out += `<div class="depo-table-wrap"><table class="depo-table" style="--depo-cols:${cols}">
       <thead><tr>
-        ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll(${JSON.stringify(visibleBarcodes)})" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
+        ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll()" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
         <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}<th>Kataloğa Ekle</th>${canManage?'<th></th>':''}
       </tr></thead>
       <tbody>
