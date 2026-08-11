@@ -670,6 +670,7 @@ async function parseXlsxWithImages(file){
     image: findCol('RESİM','RESIM','IMAGE','GÖRSEL','GORSEL'),
     ref: findCol('GRUP','REF','REFERANS','REFERANS NO','REF NO'),
     color: findCol('RENK','COLOR'),
+    size: findCol('BEDEN','SIZE'),
     gender: findCol('CİNSİYET','CINSIYET','GENDER'),
     season: findCol('SEZON','SEASON'),
   };
@@ -688,6 +689,7 @@ async function parseXlsxWithImages(file){
       imagePath,
       refNo: columns.ref ? cellText(r[columns.ref]) : null,
       colorName: columns.color ? cellText(r[columns.color]) : null,
+      sizeLabel: columns.size ? cellText(r[columns.size]) : null,
       gender: (genderRaw && genderRaw.trim().toUpperCase()!=='CİNSİYET') ? genderRaw.trim() : null,
       season: (seasonRaw && seasonRaw.trim().toUpperCase()!=='SEZON') ? seasonRaw.trim() : null,
     });
@@ -1798,13 +1800,14 @@ function matchCountForRefColor(refNo, colorName){
 function downloadExcelImportTemplate(){
   if(!window.XLSX){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   const aoa = [
-    ['_BARKOD', 'RESİM', 'GRUP', 'RENK', 'CİNSİYET', 'SEZON'],
-    ['1288002000115', '', '2000', 'MAVİ', 'KIZ', 'YAZ'],
-    ['1288002000122', '', '2000', 'MAVİ', 'KIZ', 'YAZ'],
-    ['1288002000214', '', '2000', 'BEYAZ', 'KIZ', 'YAZ'],
+    ['_BARKOD', 'RESİM', 'GRUP', 'RENK', 'BEDEN', 'CİNSİYET', 'SEZON'],
+    ['1288002000114', '', '2000', 'MAVİ', '1', 'KIZ', 'YAZ'],
+    ['1288002000121', '', '2000', 'MAVİ', '2', 'KIZ', 'YAZ'],
+    ['1288002000138', '', '2000', 'MAVİ', '3', 'KIZ', 'YAZ'],
+    ['1288002000213', '', '2000', 'BEYAZ', '1', 'KIZ', 'YAZ'],
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:16},{wch:10},{wch:8},{wch:12},{wch:10},{wch:10}];
+  ws['!cols'] = [{wch:16},{wch:10},{wch:8},{wch:12},{wch:8},{wch:10},{wch:10}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sablon');
   XLSX.writeFile(wb, 'excelden-resim-ve-bilgi-aktar-sablonu.xlsx');
@@ -4183,7 +4186,8 @@ function renderExcelImportModal(){
       ${rows.length===0 ? `
         <button class="btn ghost small" style="margin-bottom:10px" onclick="downloadExcelImportTemplate()">📄 Örnek Şablon İndir</button>
         <div class="bulk-help" style="margin-bottom:14px">
-          Şablonda <b>_BARKOD, RESİM, GRUP, RENK, CİNSİYET, SEZON</b> sütunları hazır gelir. Resimleri kendiniz eklemeniz gerekir: Excel'de <b>RESİM</b> sütunundaki hücreye tıklayın, <b>Ekle → Resimler → Bu Cihaz</b> ile fotoğrafı seçin, sonra resme sağ tıklayıp <b>"Hücreye Yerleştir"</b> seçeneğini kullanın — resim hücrenin içine gömülmüş olmalı, üzerinde durmuyor olmalı.
+          Şablonda <b>_BARKOD, RESİM, GRUP, RENK, BEDEN, CİNSİYET, SEZON</b> sütunları hazır gelir. Resimleri kendiniz eklemeniz gerekir: Excel'de <b>RESİM</b> sütunundaki hücreye tıklayın, <b>Ekle → Resimler → Bu Cihaz</b> ile fotoğrafı seçin, sonra resme sağ tıklayıp <b>"Hücreye Yerleştir"</b> seçeneğini kullanın — resim hücrenin içine gömülmüş olmalı, üzerinde durmuyor olmalı.<br/><br/>
+          <b>Not:</b> Eşleştirme tamamen <b>_BARKOD</b> sütunu üzerinden yapılır — barkod sistemde zaten kayıtlıysa referans/renk/beden bilgisi otomatik oradan alınır. GRUP, RENK, BEDEN sütunları sadece kendi takibiniz içindir; "2000 Kırmızı 1" gibi birleşik bir referans yazmanıza gerek yoktur.
         </div>
         <div class="field">
           <label>Excel Dosyası (.xlsx)</label>
