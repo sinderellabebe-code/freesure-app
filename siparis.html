@@ -1795,6 +1795,21 @@ function parseImageFilename(filename){
 function matchCountForRefColor(refNo, colorName){
   return state.warehouseItems.filter(w=> String(w.refNo||'').trim().toUpperCase()===refNo && (w.colorName||'').trim().toUpperCase()===colorName).length;
 }
+function downloadExcelImportTemplate(){
+  if(!window.XLSX){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
+  const aoa = [
+    ['_BARKOD', 'RESİM', 'GRUP', 'RENK', 'CİNSİYET', 'SEZON'],
+    ['1288002000115', '', '2000', 'MAVİ', 'KIZ', 'YAZ'],
+    ['1288002000122', '', '2000', 'MAVİ', 'KIZ', 'YAZ'],
+    ['1288002000214', '', '2000', 'BEYAZ', 'KIZ', 'YAZ'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:16},{wch:10},{wch:8},{wch:12},{wch:10},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sablon');
+  XLSX.writeFile(wb, 'excelden-resim-ve-bilgi-aktar-sablonu.xlsx');
+  showToast('Şablon indirildi — RESİM sütununa resim eklemeyi unutmayın');
+}
 function openExcelImportModal(){
   state.modalMode = 'excelImport';
   state.excelImportRows = [];
@@ -3579,7 +3594,7 @@ function renderProductsView(){
     ${state.search ? `<button class="btn ghost small" onclick="setSearch('')">✕ Temizle</button>` : ''}
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     <button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>
-    <button class="btn ghost small" onclick="openExcelImportModal()">📊 Excel'den İçe Aktar</button>
+    <button class="btn ghost small" onclick="openExcelImportModal()">📊 Excelden Resim ve Bilgi Aktar</button>
     <button class="btn ghost small" onclick="openPdfOptionsModal()">PDF Katalog / Fiyat Listesi</button>
     <a class="nav-link" href="#" onclick="state.view='productsManage';render();return false;" style="margin-left:auto">⚙ Model Yönetimi (fiyat, birim, yeni model, silme) →</a>
   </div>
@@ -4161,11 +4176,15 @@ function renderExcelImportModal(){
   return `<div class="overlay">
     <div class="modal" style="max-width:920px;width:95vw">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <h2 style="margin:0">Excel'den Resim ve Bilgi İçe Aktar</h2>
+        <h2 style="margin:0">Excelden Resim ve Bilgi Aktar</h2>
         <button class="btn small ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
       </div>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Excel dosyanızda hücrelerin içine yerleştirilmiş (Excel'in "Resmi Hücreye Ekle" özelliği) resimleri, barkoda göre eşleştirip kataloğa aktarır. Cinsiyet ve sezon sütunları varsa onları da modele işler.</p>
       ${rows.length===0 ? `
+        <button class="btn ghost small" style="margin-bottom:10px" onclick="downloadExcelImportTemplate()">📄 Örnek Şablon İndir</button>
+        <div class="bulk-help" style="margin-bottom:14px">
+          Şablonda <b>_BARKOD, RESİM, GRUP, RENK, CİNSİYET, SEZON</b> sütunları hazır gelir. Resimleri kendiniz eklemeniz gerekir: Excel'de <b>RESİM</b> sütunundaki hücreye tıklayın, <b>Ekle → Resimler → Bu Cihaz</b> ile fotoğrafı seçin, sonra resme sağ tıklayıp <b>"Hücreye Yerleştir"</b> seçeneğini kullanın — resim hücrenin içine gömülmüş olmalı, üzerinde durmuyor olmalı.
+        </div>
         <div class="field">
           <label>Excel Dosyası (.xlsx)</label>
           <input type="file" accept=".xlsx" onchange="handleExcelImportFile(event)" ${parsing?'disabled':''} />

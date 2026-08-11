@@ -1206,10 +1206,10 @@ async function submitDepoMove(){
 }
 function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; render(); }
 function downloadDepoBulkTemplate(){
-  const header = ['Barkod','Referans No','Renk','Beden','Mevcut Stok','Fiyat'];
-  const example = ['1288002000115','2000','RED','1','24','$18.50'];
+  const header = ['Barkod','Referans No','Renk','Beden'];
+  const example = ['1288002000115','2000','RED','1'];
   const csv = [header, example].map(r=>r.map(csvField).join(',')).join('\n');
-  downloadBlob('depo-toplu-yukleme-sablonu.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
+  downloadBlob('depo-toplu-model-yukleme-sablonu.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
   showToast('Şablon indirildi');
 }
 function toggleDepoSelect(barcode){
@@ -1257,13 +1257,13 @@ async function deleteWarehouseItems(barcodes){
   }
 }
 async function deleteSelectedSingle(barcode){
-  if(!confirm('Bu depo kaydını silmek istediğinize emin misiniz? (Geçmiş hareket kayıtları korunur.)')) return;
+  if(!confirm('Bu depo kaydını (stok bilgisini) silmek istediğinize emin misiniz?\n\n⚠ Bu işlem SADECE stok kaydını siler — modelin katalog kaydı (resim, isim, fiyat) SİLİNMEZ. Modeli de tamamen kaldırmak isterseniz, bunu Model Yönetimi\'nden ayrıca yapmanız gerekir.\n\n(Geçmiş hareket kayıtları korunur.)')) return;
   await deleteWarehouseItems([barcode]);
 }
 async function deleteSelectedDepoItems(){
   const barcodes = Array.from(state.depoSelected);
   if(barcodes.length===0){ showToast('Önce silmek istediğiniz kayıtları seçin'); return; }
-  if(!confirm(`${barcodes.length} depo kaydını silmek istediğinize emin misiniz? (Geçmiş hareket kayıtları korunur.)`)) return;
+  if(!confirm(`${barcodes.length} depo kaydını (stok bilgisini) silmek istediğinize emin misiniz?\n\n⚠ Bu işlem SADECE stok kayıtlarını siler — modellerin katalog kaydı (resim, isim, fiyat) SİLİNMEZ. Modelleri de tamamen kaldırmak isterseniz, bunu Model Yönetimi'nden ayrıca yapmanız gerekir.\n\n(Geçmiş hareket kayıtları korunur.)`)) return;
   await deleteWarehouseItems(barcodes);
 }
 async function bulkAddSelectedToCatalog(){
@@ -1289,7 +1289,7 @@ async function bulkAddSelectedToCatalog(){
 async function deleteAllDepoItems(){
   const barcodes = state.warehouseItems.map(w=>w.barcode);
   if(barcodes.length===0) return;
-  const typed = prompt(`TÜM depo kayıtlarını (${barcodes.length} ürün) silmek üzeresiniz. Geçmiş hareketleriniz korunur ama ürün listesi sıfırlanır. Onaylamak için "SİL" yazın:`);
+  const typed = prompt(`TÜM depo kayıtlarını (stok bilgilerini) — ${barcodes.length} ürün — silmek üzeresiniz.\n\n⚠ Bu, sadece stok kayıtlarını siler; modellerin katalog kaydı (resim, isim, fiyat) SİLİNMEZ, Model Yönetimi'nde kalmaya devam eder. Geçmiş hareketleriniz de korunur.\n\nOnaylamak için "SİL" yazın:`);
   if(typed !== 'SİL'){ showToast('İşlem iptal edildi'); return; }
   await deleteWarehouseItems(barcodes);
 }
@@ -1329,7 +1329,11 @@ function parseDepoBulkLines(raw){
     let cols = parseBulkLine(line).map(c=>(c||'').trim()).filter((c,i,arr)=> !(c==='' && i===arr.length-1 && arr.length>1));
     if(cols.length === 7) cols = healDecimalCommaSplit(cols, 6); // likely a split decimal price (Excel MS-DOS CSV + comma-decimal locale)
     let barcode, refNo, colorName, sizeLabel, qtyRaw, priceRaw;
-    if(cols.length >= 5){
+    if(cols.length === 4){
+      // Yeni sade format: Barkod, RefNo, Renk, Beden — miktar/fiyat yok, sadece model tanımı
+      [barcode, refNo, colorName, sizeLabel] = cols;
+      qtyRaw = ''; priceRaw = '';
+    } else if(cols.length >= 5){
       // Ayrı sütunlu format: Barkod, RefNo, Renk, Beden, Miktar[, Fiyat]
       [barcode, refNo, colorName, sizeLabel, qtyRaw, priceRaw] = cols;
     } else if(cols.length >= 2){
@@ -2701,7 +2705,7 @@ function renderDepoView(){
     <button class="btn ${state.activeStockCount?'primary':'ghost'} small" onclick="openStockCountModal()">📋 Depo Sayımı${state.activeStockCount?' (Aktif)':''}</button>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openNewDepoItemModal()">+ Yeni Depo Kaydı</button>` : ''}
-    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Stok Yükle (Excel)</button>` : ''}
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Model Yükle (Excel)</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.repairingReservations?'disabled':''} onclick="repairReservations()" title="Rezerve miktarlarını, gerçekte onaylı siparişlerde ne olması gerektiğine göre yeniden hesaplar">${state.repairingReservations?'⏳ Onarılıyor…':'🔧 Rezerveleri Onar'}</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
@@ -2722,7 +2726,7 @@ function renderDepoView(){
   if(items.length===0){
     out += `<div class="empty">
       <h3>${state.warehouseItems.length===0 ? 'Henüz depo kaydı yok' : 'Sonuç bulunamadı'}</h3>
-      <p>${state.warehouseItems.length===0 ? '"Toplu Stok Yükle" ile Excel\'deki mevcut stok listenizi içe aktarabilirsiniz.' : 'Aramayı değiştirmeyi deneyin.'}</p>
+      <p>${state.warehouseItems.length===0 ? '"Toplu Model Yükle" ile Excel\'deki modellerinizi içe aktarabilirsiniz.' : 'Aramayı değiştirmeyi deneyin.'}</p>
     </div>`;
   } else {
     const cols = canManage ? '26px 56px 44px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 44px 130px 1fr 150px 80px 90px';
@@ -2984,7 +2988,7 @@ function renderStockPriceUpdateModal(){
         <button class="btn ghost small" onclick="clearStockPriceUpdateFile()">Farklı dosya seç</button>
       ` : `
         <div class="bulk-help" style="border-color:var(--good);background:#E4F8EC">
-          <b>✓ Bu araç girdiğiniz sayıyı doğrudan geçerli değer olarak AYARLAR</b> (mevcut stoğun üzerine eklemez). Sadece <b>sistemde zaten var olan</b> barkodları etkiler, yeni ürün oluşturmaz. Yeni ürün eklemek için "Toplu Stok Yükle"yi kullanın.
+          <b>✓ Bu araç girdiğiniz sayıyı doğrudan geçerli değer olarak AYARLAR</b> (mevcut stoğun üzerine eklemez). Sadece <b>sistemde zaten var olan</b> barkodları etkiler, yeni ürün oluşturmaz. Yeni ürün eklemek için "Toplu Model Yükle"yi kullanın.
         </div>
         <div class="bulk-help">
           Sütunlar: <code>Barkod, Yeni Stok Miktarı, Yeni Fiyat</code> — Stok veya Fiyat sütunlarından birini boş bırakabilirsiniz (sadece diğeri güncellenir).<br/>
@@ -3026,7 +3030,7 @@ function renderDepoBulkModal(){
   const f = state.depoBulkFile;
   return `<div class="overlay" onmousedown="if(!${running} && event.target===event.currentTarget) closeModal()">
     <div class="modal wide">
-      <h2>Toplu Stok Yükle</h2>
+      <h2>Toplu Model Yükle</h2>
       ${running ? `
         <div class="bulk-help" style="text-align:center;padding:20px">
           <div style="font-weight:700;margin-bottom:4px">⏳ İşleniyor…</div>
@@ -3039,24 +3043,23 @@ function renderDepoBulkModal(){
         </div>
         <button class="btn ghost small" onclick="clearDepoBulkFile()">Farklı dosya seç</button>
       ` : `
-        <div class="bulk-help" style="border-color:var(--warn);background:var(--warn-bg)">
-          <b>⚠ Bu araç, girdiğiniz miktarı mevcut stoğa EKLER — üzerine YAZMAZ.</b> Yeni barkod kaydı da oluşturur. Var olan bir ürünün stoğunu belirli bir sayıya <b>AYARLAMAK</b> (üzerine yazmak) veya sadece fiyatını değiştirmek için bunun yerine <button class="btn ghost small" style="padding:2px 8px;font-size:11px" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button> aracını kullanın.
+        <div class="bulk-help">
+          <b>Bu araç yeni model/barkod tanımlamak içindir</b> — stok adedi veya fiyat girmeyin. Var olan barkodlara dokunmaz, sadece eksik olanları oluşturur. Tanımladıktan sonra gerçek stok ve fiyatı <button class="btn ghost small" style="padding:2px 8px;font-size:11px" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button> ile ayrıca gönderin.
         </div>
         <div class="bulk-help">
-          İki format da kabul edilir, sonuna isteğe bağlı <b>Fiyat (USD)</b> ekleyebilirsiniz:<br/>
-          <code>Barkod, Referans No, Renk, Beden, Mevcut Stok, Fiyat</code> (6 ayrı sütun)<br/>
-          <code>Barkod, "Referans Renk Beden", Mevcut Stok, Fiyat</code> (birleşik referans)<br/>
+          Kabul edilen format:<br/>
+          <code>Barkod, Referans No, Renk, Beden</code><br/>
           Büyük listeler için <b>CSV dosyası seçin</b> — sonra aşağıdaki İçe Aktar düğmesine basın. Küçük eklemeler için kutuya yapıştırabilirsiniz de.<br/>
-          <b>Excel'den kaydederken "CSV UTF-8 (Virgülle Ayrılmış)" seçin, "MS-DOS CSV" değil</b> — ve ondalık ayıracı olarak <b>nokta (.)</b> kullanın, virgül değil (örn. <code>18.50</code>, <code>18,50</code> değil).<br/>
-          Örnek: <code>1288002000115, 261523 BLUE 1, 24, $18.50</code> — fiyata $ eklemek Excelin sayıyı tarihle karıştırmasını önler.
+          <b>Excel'den kaydederken "CSV UTF-8 (Virgülle Ayrılmış)" seçin, "MS-DOS CSV" değil.</b><br/>
+          Örnek: <code>1288002000115, 2000, BLUE, 1</code>
         </div>
         <button class="btn ghost small" style="margin-bottom:12px" onclick="downloadDepoBulkTemplate()">📄 Doğru Formatta Boş Şablon İndir</button>
         <div class="upload-drop" onclick="document.getElementById('depo-bulk-file').click()" style="margin-bottom:14px">
-          CSV dosyası seçmek için tıklayın<br/><span style="font-size:10.5px">Örn. "depo-ice-aktarim.csv" — seçtikten sonra aşağıdan İçe Aktar'a basın</span>
+          CSV dosyası seçmek için tıklayın<br/><span style="font-size:10.5px">Örn. "depo-toplu-model-yukleme-sablonu.csv" — seçtikten sonra aşağıdan İçe Aktar'a basın</span>
         </div>
         <input type="file" id="depo-bulk-file" accept=".csv,.txt" style="display:none" onchange="handleDepoBulkFile(event)" />
         <div style="text-align:center;color:var(--muted);font-size:11px;margin:10px 0">— veya —</div>
-        <textarea id="depo-bulk-textarea" placeholder="1288002000115, 2000, RED, Size 1, 24&#10;1288002000212, 2000, BLUE, Size 2, 15"></textarea>
+        <textarea id="depo-bulk-textarea" placeholder="1288002000115, 2000, RED, Size 1&#10;1288002000212, 2000, BLUE, Size 2"></textarea>
       `}
       <div id="depo-bulk-result" class="bulk-result ${(state.depoBulkError||state.depoBulkResultIsError)?'error':'ok'}" style="${(state.depoBulkError||state.depoBulkResultText)?'display:block':'display:none'}">${state.depoBulkError?esc(state.depoBulkError):(state.depoBulkResultText?esc(state.depoBulkResultText):'')}</div>
       ${state.depoBulkSkippedLines.length>0 ? `
