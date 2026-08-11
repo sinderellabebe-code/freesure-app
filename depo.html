@@ -636,6 +636,14 @@ const state = {
   depoBulkError: null,
   depoBulkSkippedLines: [],
   depoBulkResultText: null,
+  depoBulkChunks: null,
+  depoBulkChunkStatus: null,
+  depoBulkAllItems: [],
+  depoBulkSkipped: 0,
+  depoBulkBatchDupes: 0,
+  depoBulkSkippedLinesData: [],
+  depoBulkTotalMovements: 0,
+  depoBulkAllConflicts: [],
   newDepoItemSaving: false,
   newDepoItemSuccess: null,
   newDepoItemImage: null,
@@ -1204,7 +1212,7 @@ async function submitDepoMove(){
     render();
   }
 }
-function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; render(); }
+function openDepoBulkModal(){ if(session.role==='depocu') return; state.modalMode = 'depoBulk'; state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; state.depoBulkResultText = null; state.depoBulkChunks = null; state.depoBulkTotalMovements = 0; state.depoBulkAllConflicts = []; render(); }
 function downloadDepoBulkTemplate(){
   const header = ['Barkod','Referans No','Renk','Beden'];
   const example = ['1288002000115','2000','RED','1'];
@@ -1374,20 +1382,35 @@ function setDepoBulkProgress(text, isError){
   el.className = 'bulk-result ' + (isError ? 'error' : 'ok');
   el.textContent = text;
 }
-async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines){
+async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRetry){
   skippedLines = skippedLines || [];
   if(items.length===0){ showToast('İçe aktarılacak geçerli satır bulunamadı'); return; }
   if(state.depoBulkRunning) return; // guard against double-submit
   state.depoBulkRunning = true;
   render();
 
-  const chunks = [];
-  for(let i=0;i<items.length;i+=DEPO_BULK_CHUNK_SIZE) chunks.push(items.slice(i, i+DEPO_BULK_CHUNK_SIZE));
+  let chunks, chunkStatus;
+  if(isRetry && state.depoBulkChunks){
+    // Only resend chunks that failed last time — successful ones are not touched again.
+    chunks = state.depoBulkChunks;
+    chunkStatus = state.depoBulkChunkStatus;
+  } else {
+    chunks = [];
+    for(let i=0;i<items.length;i+=DEPO_BULK_CHUNK_SIZE) chunks.push(items.slice(i, i+DEPO_BULK_CHUNK_SIZE));
+    chunkStatus = chunks.map(()=>'pending');
+    state.depoBulkChunks = chunks;
+    state.depoBulkSkipped = skipped;
+    state.depoBulkBatchDupes = batchDupes;
+    state.depoBulkSkippedLinesData = skippedLines;
+  }
+  state.depoBulkChunkStatus = chunkStatus;
 
-  let totalMovements = 0, totalProcessed = 0, failedChunks = 0;
-  const allConflicts = [];
-  for(let i=0;i<chunks.length;i++){
-    setDepoBulkProgress(`İşleniyor… ${totalProcessed} / ${items.length} satır (parça ${i+1}/${chunks.length}) — lütfen bu pencereyi kapatmayın.`);
+  let totalMovements = 0, totalProcessed = 0;
+  const allConflicts = state.depoBulkAllConflicts && isRetry ? state.depoBulkAllConflicts : [];
+  const toSend = chunks.map((c,i)=>i).filter(i=>chunkStatus[i]!=='ok');
+  let doneSoFar = 0;
+  for(const i of toSend){
+    setDepoBulkProgress(`İşleniyor… parça ${doneSoFar+1}/${toSend.length} gönderiliyor — lütfen bu pencereyi kapatmayın.`);
     try{
       const res = await fetchWithTimeout(API_URL, {
         method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1395,22 +1418,31 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines){
       }, 90000);
       const data = await res.json();
       if(data && data.ok){
+        chunkStatus[i] = 'ok';
         totalMovements += data.movementsWritten||0;
-        totalProcessed += chunks[i].length;
         if(data.conflicts && data.conflicts.length) allConflicts.push(...data.conflicts);
       } else {
-        failedChunks++;
+        chunkStatus[i] = 'error';
       }
     }catch(e){
-      failedChunks++;
+      chunkStatus[i] = 'error';
     }
+    doneSoFar++;
   }
+  state.depoBulkAllConflicts = allConflicts;
+  state.depoBulkTotalMovements = (state.depoBulkTotalMovements||0) + totalMovements;
+
+  // Recompute totals across ALL chunks (including ones already ok from a previous attempt)
+  totalProcessed = 0;
+  chunks.forEach((c,i)=>{ if(chunkStatus[i]==='ok') totalProcessed += c.length; });
+  const failedChunks = chunkStatus.filter(s=>s==='error').length;
 
   state.depoBulkRunning = false;
 
   // Apply any Fiyat (USD) values to catalog products — never for depocu (no price access).
+  // Only applied once processing is fully complete (no more failed chunks left to retry).
   let pricesUpdated = 0;
-  if(session.role !== 'depocu'){
+  if(session.role !== 'depocu' && failedChunks===0){
     const priceByRef = {};
     items.forEach(it=>{ if(it.price!=null && it.refNo) priceByRef[it.refNo] = it.price; });
     const refKeys = Object.keys(priceByRef);
@@ -1434,21 +1466,24 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines){
   if(totalProcessed > 0){ await refreshData(); }
   else { render(); }
 
+  const skippedCount = state.depoBulkSkipped||0;
+  const dupeCount = state.depoBulkBatchDupes||0;
   const noteParts = [];
-  if(skipped>0) noteParts.push(`${skipped} satır atlandı (altta detaylı liste var)`);
-  if(batchDupes>0) noteParts.push(`${batchDupes} satır dosya içinde barkodu tekrar ettiği için atlandı`);
+  if(skippedCount>0) noteParts.push(`${skippedCount} satır atlandı (altta detaylı liste var)`);
+  if(dupeCount>0) noteParts.push(`${dupeCount} satır dosya içinde barkodu tekrar ettiği için atlandı`);
   if(pricesUpdated>0) noteParts.push(`${pricesUpdated} model için fiyat güncellendi`);
   if(allConflicts.length>0) noteParts.push(`⚠ ${allConflicts.length} barkod, sistemde FARKLI bir ürüne kayıtlıydı — stok yine de işlendi ama ürün bilgisi güncellenmedi, kontrol edin: ` + allConflicts.slice(0,10).map(c=>c.barcode).join(', ') + (allConflicts.length>10?'…':''));
   const noteStr = noteParts.length ? (' ' + noteParts.join(' · ') + '.') : '';
 
   if(failedChunks===0){
-    state.depoBulkResultText = `✓ Tamamlandı — ${totalProcessed} kayıt işlendi (${totalMovements} tanesi stok hareketi olarak eklendi).${noteStr}`;
+    state.depoBulkResultText = `✓ Tamamlandı — ${totalProcessed} kayıt işlendi (${state.depoBulkTotalMovements} tanesi stok hareketi olarak eklendi).${noteStr}`;
     state.depoBulkResultIsError = allConflicts.length>0;
+    state.depoBulkChunks = null; // done — nothing left to retry
     showToast('Toplu içe aktarma tamamlandı');
   } else {
-    state.depoBulkResultText = `${totalProcessed} kayıt işlendi, ${failedChunks} parça gönderilemedi (bağlantı sorunu olabilir) — tekrar deneyebilirsiniz, zaten işlenmiş barkodlar güvenle tekrar gönderilebilir.${noteStr}`;
+    state.depoBulkResultText = `${totalProcessed} / ${items.length} kayıt işlendi, ${failedChunks} parça gönderilemedi (bağlantı sorunu olabilir).${noteStr}`;
     state.depoBulkResultIsError = true;
-    showToast('Bazı satırlar aktarılamadı');
+    showToast('Bazı parçalar aktarılamadı — aşağıdaki "Başarısız Parçaları Tekrar Dene" ile devam edin');
   }
   state.depoBulkSkippedLines = skippedLines;
   render();
@@ -1457,7 +1492,11 @@ async function submitDepoBulkImport(){
   if(state.depoBulkRunning) return;
   state.depoBulkError = null;
   state.depoBulkResultText = null;
+  state.depoBulkChunks = null;
+  state.depoBulkTotalMovements = 0;
+  state.depoBulkAllConflicts = [];
   if(state.depoBulkFile){
+    state.depoBulkAllItems = state.depoBulkFile.items;
     await sendDepoBulkImport(state.depoBulkFile.items, state.depoBulkFile.skipped, state.depoBulkFile.batchDupes, state.depoBulkFile.skippedLines);
     state.depoBulkFile = null;
     return;
@@ -1475,7 +1514,12 @@ async function submitDepoBulkImport(){
     render();
     return;
   }
+  state.depoBulkAllItems = items;
   await sendDepoBulkImport(items, skipped, batchDupes, skippedLines);
+}
+async function retryDepoBulkImport(){
+  if(state.depoBulkRunning || !state.depoBulkChunks) return;
+  await sendDepoBulkImport(state.depoBulkAllItems, state.depoBulkSkipped, state.depoBulkBatchDupes, state.depoBulkSkippedLinesData, true);
 }
 function handleDepoBulkFile(e){
   const file = e.target.files && e.target.files[0];
@@ -1493,7 +1537,9 @@ function handleDepoBulkFile(e){
         state.depoBulkError = `Dosyadan geçerli bir satır çıkmadı (${skipped} satır atlandı) — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
         state.depoBulkSkippedLines = skippedLines;
       } else {
-        state.depoBulkFile = {name:file.name, items, skipped, batchDupes, skippedLines};
+        const existingBarcodes = new Set(state.warehouseItems.map(w=>w.barcode));
+        const existingCount = items.filter(it=>existingBarcodes.has(it.barcode)).length;
+        state.depoBulkFile = {name:file.name, items, skipped, batchDupes, skippedLines, existingCount, newCount: items.length-existingCount};
         state.depoBulkError = null;
         state.depoBulkSkippedLines = skippedLines; // preview which lines will be skipped, before they even confirm the import
         showToast(`${items.length} satır dosyadan okundu — "İçe Aktar"a basın`);
@@ -3028,6 +3074,7 @@ function renderStockPriceUpdateModal(){
 function renderDepoBulkModal(){
   const running = state.depoBulkRunning;
   const f = state.depoBulkFile;
+  const hasFailedChunks = state.depoBulkChunks && state.depoBulkChunkStatus && state.depoBulkChunkStatus.some(s=>s==='error');
   return `<div class="overlay" onmousedown="if(!${running} && event.target===event.currentTarget) closeModal()">
     <div class="modal wide">
       <h2>Toplu Model Yükle</h2>
@@ -3039,6 +3086,7 @@ function renderDepoBulkModal(){
       ` : f ? `
         <div class="bulk-help">
           <b>📄 ${esc(f.name)}</b> seçildi — <b>${f.items.length} satır</b> okundu${f.skipped>0?`, ${f.skipped} satır atlandı`:''}${f.batchDupes>0?`, ${f.batchDupes} mükerrer barkod atlandı`:''}.<br/>
+          <b style="color:var(--good)">${f.newCount} yeni barkod oluşturulacak</b> · <span style="color:var(--muted)">${f.existingCount} barkod zaten var (dokunulmayacak)</span><br/>
           Aşağıdaki <b>"İçe Aktar"</b> düğmesine basınca yüklenmeye başlayacak.
         </div>
         <button class="btn ghost small" onclick="clearDepoBulkFile()">Farklı dosya seç</button>
@@ -3076,7 +3124,8 @@ function renderDepoBulkModal(){
       ` : ''}
       <div class="modal-actions">
         <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
-        ${!running ? `<button class="btn primary" onclick="submitDepoBulkImport()">İçe Aktar</button>` : ''}
+        ${!running && hasFailedChunks ? `<button class="btn danger-outline" onclick="retryDepoBulkImport()">🔁 Başarısız Parçaları Tekrar Dene</button>` : ''}
+        ${!running && !hasFailedChunks ? `<button class="btn primary" onclick="submitDepoBulkImport()">İçe Aktar</button>` : ''}
       </div>
     </div>
   </div>`;
