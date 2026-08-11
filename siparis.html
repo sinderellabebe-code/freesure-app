@@ -190,6 +190,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 'use strict';
 
@@ -581,6 +582,129 @@ function colorDist(r,g,b,cr,cg,cb){
   const dr=r-cr, dg=g-cg, db=b-cb;
   return Math.sqrt(dr*dr + dg*dg + db*db);
 }
+// ---------- Excel (embedded cell images) katalog içe aktarma ----------
+function xmlDecode(s){
+  return (s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+}
+async function parseXlsxWithImages(file){
+  const zip = await JSZip.loadAsync(file);
+
+  // Shared strings
+  const strings = [];
+  const sharedStringsFile = zip.file('xl/sharedStrings.xml');
+  if(sharedStringsFile){
+    const xml = await sharedStringsFile.async('text');
+    for(const m of xml.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)) strings.push(xmlDecode(m[1]));
+  }
+
+  // Resolve the first sheet's actual file path (robust to non-default sheet naming)
+  const workbookXml = await zip.file('xl/workbook.xml').async('text');
+  const workbookRelsXml = await zip.file('xl/_rels/workbook.xml.rels').async('text');
+  const sheetRidMatch = workbookXml.match(/<sheet[^>]*r:id="(rId\d+)"/);
+  const relId = sheetRidMatch ? sheetRidMatch[1] : 'rId1';
+  const targetMatch = workbookRelsXml.match(new RegExp('Id="'+relId+'"[^>]*Target="([^"]+)"'));
+  const sheetPath = 'xl/' + (targetMatch ? targetMatch[1] : 'worksheets/sheet1.xml');
+  const sheetXml = await zip.file(sheetPath).async('text');
+
+  // Rich Value chain — resolves cell vm="N" attributes to actual media file paths.
+  // Only present when the workbook uses Excel's "image in cell" feature.
+  let vmToImage = {};
+  const metaFile = zip.file('xl/metadata.xml');
+  if(metaFile){
+    const metaXml = await metaFile.async('text');
+    const rvbList = [...metaXml.matchAll(/<xlrd:rvb i="(\d+)"\/>/g)].map(m=>parseInt(m[1]));
+    const rvFile = zip.file('xl/richData/rdrichvalue.xml');
+    const relRelFile = zip.file('xl/richData/richValueRel.xml');
+    const relRelRelsFile = zip.file('xl/richData/_rels/richValueRel.xml.rels');
+    if(rvFile && relRelFile && relRelRelsFile){
+      const rvXml = await rvFile.async('text');
+      const rvBlocks = [...rvXml.matchAll(/<rv[^>]*>([\s\S]*?)<\/rv>/g)];
+      const rvFirstV = rvBlocks.map(b=>{ const m=b[1].match(/<v>(\d+)<\/v>/); return m?parseInt(m[1]):null; });
+      const relRelXml = await relRelFile.async('text');
+      const relIds = [...relRelXml.matchAll(/<rel r:id="(rId\d+)"\/>/g)].map(m=>m[1]);
+      const relRelRelsXml = await relRelRelsFile.async('text');
+      const ridToTarget = {};
+      for(const m of relRelRelsXml.matchAll(/Id="(rId\d+)"[^>]*Target="([^"]+)"/g)) ridToTarget[m[1]] = m[2];
+      rvbList.forEach((rvbI, idx)=>{
+        const vm = idx+1;
+        const rvIdx = rvFirstV[rvbI];
+        if(rvIdx==null) return;
+        const rid = relIds[rvIdx];
+        const target = rid ? ridToTarget[rid] : null;
+        if(target) vmToImage[vm] = 'xl/' + target.replace('../', '');
+      });
+    }
+  }
+
+  // Parse rows via DOMParser
+  const doc = new DOMParser().parseFromString(sheetXml, 'application/xml');
+  const rowEls = [...doc.getElementsByTagName('row')];
+  function cellText(c){
+    if(!c) return null;
+    const t = c.getAttribute('t');
+    const vEl = c.getElementsByTagName('v')[0];
+    if(!vEl) return null;
+    if(t==='s') return strings[parseInt(vEl.textContent)];
+    return vEl.textContent;
+  }
+  const rows = rowEls.map(rowEl=>{
+    const byCol = {};
+    for(const c of [...rowEl.children]){
+      const ref = c.getAttribute('r');
+      const m = ref && ref.match(/^[A-Z]+/);
+      if(m) byCol[m[0]] = c;
+    }
+    return byCol;
+  });
+  if(rows.length===0) return {rows:[], columns:{}};
+
+  const headerRow = rows[0];
+  const headerMap = {};
+  Object.keys(headerRow).forEach(col=>{
+    const txt = (cellText(headerRow[col])||'').trim().toUpperCase();
+    if(txt) headerMap[txt] = col;
+  });
+  function findCol(...candidates){ for(const c of candidates){ if(headerMap[c]) return headerMap[c]; } return null; }
+  const columns = {
+    barcode: findCol('_BARKOD','BARKOD','BARCODE'),
+    image: findCol('RESİM','RESIM','IMAGE','GÖRSEL','GORSEL'),
+    ref: findCol('GRUP','REF','REFERANS','REFERANS NO','REF NO'),
+    color: findCol('RENK','COLOR'),
+    gender: findCol('CİNSİYET','CINSIYET','GENDER'),
+    season: findCol('SEZON','SEASON'),
+  };
+
+  const parsedRows = [];
+  for(const r of rows.slice(1)){
+    const barcode = columns.barcode ? cellText(r[columns.barcode]) : null;
+    if(!barcode) continue;
+    const bcell = columns.image ? r[columns.image] : null;
+    const vm = bcell ? bcell.getAttribute('vm') : null;
+    const imagePath = vm ? vmToImage[vm] : null;
+    const genderRaw = columns.gender ? cellText(r[columns.gender]) : null;
+    const seasonRaw = columns.season ? cellText(r[columns.season]) : null;
+    parsedRows.push({
+      barcode: String(barcode).trim(),
+      imagePath,
+      refNo: columns.ref ? cellText(r[columns.ref]) : null,
+      colorName: columns.color ? cellText(r[columns.color]) : null,
+      gender: (genderRaw && genderRaw.trim().toUpperCase()!=='CİNSİYET') ? genderRaw.trim() : null,
+      season: (seasonRaw && seasonRaw.trim().toUpperCase()!=='SEZON') ? seasonRaw.trim() : null,
+    });
+  }
+
+  // Resolve unique image paths to Blobs once each
+  const uniquePaths = Array.from(new Set(parsedRows.map(r=>r.imagePath).filter(Boolean)));
+  const blobCache = {};
+  for(const p of uniquePaths){
+    const f = zip.file(p);
+    if(f) blobCache[p] = await f.async('blob');
+  }
+  parsedRows.forEach(r=>{ if(r.imagePath) r.imageBlob = blobCache[r.imagePath] || null; });
+
+  return {rows: parsedRows, columns, hasRichImages: uniquePaths.length>0};
+}
+
 async function processImageFile(file, maxWidth, quality){
   maxWidth = maxWidth || 620; quality = quality || 0.8;
 
@@ -645,6 +769,10 @@ const state = {
   galleryLightbox: null,
   pdfTitleDraft: 'Ürün Kataloğu',
   galleryPageSize: 30,
+  excelImportRows: [],
+  excelImportParsing: false,
+  excelImportRunning: false,
+  excelImportUpdateGenderSeason: true,
   products: [],
   variants: [],
   skus: [],
@@ -1161,6 +1289,22 @@ async function updateProductUnit(productId, unit){
   await saveKey('catalogProducts', state.products);
   showToast('Birim güncellendi');
 }
+async function updateProductGender(productId, gender){
+  const p = state.products.find(x=>x.id===productId);
+  if(!p) return;
+  p.gender = gender;
+  render();
+  await saveKey('catalogProducts', state.products);
+  showToast('Cinsiyet güncellendi');
+}
+async function updateProductSeason(productId, season){
+  const p = state.products.find(x=>x.id===productId);
+  if(!p) return;
+  p.season = season;
+  render();
+  await saveKey('catalogProducts', state.products);
+  showToast('Sezon güncellendi');
+}
 async function deleteProduct(productId){
   if(!confirm('Bu modeli, tüm renklerini ve bedenlerini silmek istediğinize emin misiniz?')) return;
   const vs = variantsFor(productId);
@@ -1607,6 +1751,100 @@ function parseImageFilename(filename){
 }
 function matchCountForRefColor(refNo, colorName){
   return state.warehouseItems.filter(w=> String(w.refNo||'').trim().toUpperCase()===refNo && (w.colorName||'').trim().toUpperCase()===colorName).length;
+}
+function openExcelImportModal(){
+  state.modalMode = 'excelImport';
+  state.excelImportRows = [];
+  state.excelImportParsing = false;
+  state.excelImportRunning = false;
+  state.excelImportUpdateGenderSeason = true;
+  render();
+}
+async function handleExcelImportFile(e){
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  state.excelImportParsing = true;
+  state.excelImportRows = [];
+  render();
+  try{
+    const {rows, hasRichImages} = await parseXlsxWithImages(file);
+    if(!hasRichImages){
+      showToast('Bu dosyada hücre-içi resim bulunamadı — dosyanın Excel\'in "resmi hücreye ekle" özelliğiyle hazırlandığından emin olun');
+    }
+    state.excelImportRows = rows.map(r=>{
+      const match = state.warehouseItems.find(w=>w.barcode===r.barcode);
+      return {
+        ...r,
+        matched: !!match,
+        matchRefNo: match ? match.refNo : null,
+        matchColorName: match ? match.colorName : null,
+        matchSizeLabel: match ? match.sizeLabel : null,
+        status: 'pending' // pending | ok | error | skipped
+      };
+    });
+  }catch(err){
+    showToast('Dosya okunamadı — geçerli bir .xlsx dosyası olduğundan emin olun');
+  }
+  state.excelImportParsing = false;
+  render();
+}
+async function commitExcelImport(){
+  const rows = state.excelImportRows.filter(r=>r.matched && r.imageBlob);
+  if(rows.length===0){ showToast('İçe aktarılacak eşleşen satır yok'); return; }
+  state.excelImportRunning = true;
+  render();
+
+  // One resize/compress per UNIQUE image, reused across all rows sharing that image (e.g. same
+  // color in multiple sizes) — avoids redundant work.
+  const processedByPath = {};
+  const genderSeasonByRef = {}; // padded refNo -> {gender, season}
+
+  let okCount = 0, errCount = 0;
+  for(const row of state.excelImportRows){
+    if(!row.matched || !row.imageBlob){ row.status = 'skipped'; continue; }
+    try{
+      if(!processedByPath[row.imagePath]){
+        processedByPath[row.imagePath] = await processImageFile(row.imageBlob);
+      }
+      const processed = processedByPath[row.imagePath];
+      const {variantId} = await ensureCatalogEntryForExistingBarcode(row.barcode, row.matchRefNo, row.matchColorName, row.matchSizeLabel);
+      const variant = state.variants.find(v=>v.id===variantId);
+      variant.image = processed;
+      await saveKey('catalogVariant:'+variantId, variant);
+      row.status = 'ok';
+      okCount++;
+      if(state.excelImportUpdateGenderSeason && (row.gender || row.season)){
+        const key = padRef(row.matchRefNo);
+        if(!genderSeasonByRef[key]) genderSeasonByRef[key] = {};
+        if(row.gender) genderSeasonByRef[key].gender = row.gender;
+        if(row.season) genderSeasonByRef[key].season = row.season;
+      }
+    }catch(err){
+      row.status = 'error';
+      errCount++;
+    }
+    render();
+  }
+
+  // Apply gender/season at the product level
+  if(state.excelImportUpdateGenderSeason){
+    let productsChanged = false;
+    Object.keys(genderSeasonByRef).forEach(key=>{
+      const product = state.products.find(p=>padRef(p.refNo)===key);
+      if(product){
+        const gs = genderSeasonByRef[key];
+        if(gs.gender) product.gender = gs.gender;
+        if(gs.season) product.season = gs.season;
+        productsChanged = true;
+      }
+    });
+    if(productsChanged) await saveKey('catalogProducts', state.products);
+  }
+
+  state.excelImportRunning = false;
+  render();
+  showToast(errCount>0 ? `${okCount} resim kaydedildi, ${errCount} hata` : `${okCount} resim başarıyla kataloğa eklendi`);
 }
 function openBulkImageModal(){ state.modalMode = 'bulkImage'; state.bulkImageRows = []; state.bulkImageRunning = false; render(); }
 function handleBulkImageFiles(e){
@@ -2259,6 +2497,7 @@ function render(){
   else if(state.modalMode === 'returnOrder') html += renderReturnOrderModal();
   else if(state.modalMode === 'galleryLightbox') html += renderGalleryLightboxModal();
   else if(state.modalMode === 'bulkImage') html += renderBulkImageModal();
+  else if(state.modalMode === 'excelImport') html += renderExcelImportModal();
 
   root.innerHTML = html;
 
@@ -3270,6 +3509,7 @@ function renderProductsView(){
     ${state.search ? `<button class="btn ghost small" onclick="setSearch('')">✕ Temizle</button>` : ''}
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     <button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>
+    <button class="btn ghost small" onclick="openExcelImportModal()">📊 Excel'den İçe Aktar</button>
     <button class="btn ghost small" onclick="openPdfOptionsModal()">PDF Katalog / Fiyat Listesi</button>
     <a class="nav-link" href="#" onclick="state.view='productsManage';render();return false;" style="margin-left:auto">⚙ Model Yönetimi (fiyat, birim, yeni model, silme) →</a>
   </div>
@@ -3286,7 +3526,7 @@ function renderProductsView(){
     out += `<div class="field-msg" style="margin-bottom:10px">${visibleKeys.length} / ${refKeys.length} referans gösteriliyor</div>`;
     out += visibleKeys.map(refNo=>`
       <div style="margin-bottom:22px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted)">Ref ${esc(refNo)}</div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted)">Ref ${esc(refNo)}${(()=>{ const p=state.products.find(pr=>padRef(pr.refNo)===padRef(refNo)); if(!p||(!p.gender&&!p.season)) return ''; return ' — ' + [p.gender,p.season].filter(Boolean).join(' · '); })()}</div>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           ${grouped[refNo].map(e=>`
             <div style="width:110px;text-align:center">
@@ -3384,6 +3624,24 @@ function renderProductDetail(p){
             <option value="Kg" ${p.unit==='Kg'?'selected':''}>Kg</option>
             <option value="Metre" ${p.unit==='Metre'?'selected':''}>Metre</option>
             <option value="Diğer" ${p.unit==='Diğer'?'selected':''}>Diğer</option>
+          </select>
+        </div>
+        <div>
+          <label style="text-transform:none;font-weight:400;color:var(--muted);display:block;margin-bottom:3px">Cinsiyet:</label>
+          <select onchange="updateProductGender('${p.id}', this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:3px">
+            <option value="" ${!p.gender?'selected':''}>—</option>
+            <option value="KIZ" ${p.gender==='KIZ'?'selected':''}>Kız</option>
+            <option value="ERKEK" ${p.gender==='ERKEK'?'selected':''}>Erkek</option>
+            <option value="UNISEX" ${p.gender==='UNISEX'?'selected':''}>Unisex</option>
+          </select>
+        </div>
+        <div>
+          <label style="text-transform:none;font-weight:400;color:var(--muted);display:block;margin-bottom:3px">Sezon:</label>
+          <select onchange="updateProductSeason('${p.id}', this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:3px">
+            <option value="" ${!p.season?'selected':''}>—</option>
+            <option value="YAZ" ${p.season==='YAZ'?'selected':''}>Yaz</option>
+            <option value="KIŞ" ${p.season==='KIŞ'?'selected':''}>Kış</option>
+            <option value="TÜM MEVSİM" ${p.season==='TÜM MEVSİM'?'selected':''}>Tüm Mevsim</option>
           </select>
         </div>
       </div>
@@ -3748,6 +4006,58 @@ function renderDepoBulkModal(){
   </div>`;
 }
 
+function renderExcelImportModal(){
+  const rows = state.excelImportRows;
+  const matched = rows.filter(r=>r.matched);
+  const unmatched = rows.filter(r=>!r.matched);
+  const running = state.excelImportRunning;
+  const parsing = state.excelImportParsing;
+  return `<div class="overlay">
+    <div class="modal wide">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h2 style="margin:0">Excel'den Resim ve Bilgi İçe Aktar</h2>
+        <button class="btn small ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Excel dosyanızda hücrelerin içine yerleştirilmiş (Excel'in "Resmi Hücreye Ekle" özelliği) resimleri, barkoda göre eşleştirip kataloğa aktarır. Cinsiyet ve sezon sütunları varsa onları da modele işler.</p>
+      ${rows.length===0 ? `
+        <div class="field">
+          <label>Excel Dosyası (.xlsx)</label>
+          <input type="file" accept=".xlsx" onchange="handleExcelImportFile(event)" ${parsing?'disabled':''} />
+        </div>
+        ${parsing ? `<div class="field-msg">⏳ Dosya okunuyor, resimler çözümleniyor…</div>` : ''}
+      ` : `
+        <div class="extra-info-box" style="margin-bottom:14px">
+          <div class="extra-info-row"><span class="extra-info-label">Toplam Satır</span><span class="extra-info-value">${rows.length}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Depo'da Eşleşen (aktarılacak)</span><span class="extra-info-value" style="color:var(--good)">${matched.length}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Eşleşmeyen (atlanacak)</span><span class="extra-info-value" style="color:${unmatched.length>0?'var(--danger)':'var(--muted)'}">${unmatched.length}</span></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;margin-bottom:14px;cursor:pointer">
+          <input type="checkbox" ${state.excelImportUpdateGenderSeason?'checked':''} ${running?'disabled':''} onchange="state.excelImportUpdateGenderSeason=this.checked;render();" style="width:auto" />
+          Cinsiyet ve sezon bilgilerini de modele işle (varsa)
+        </label>
+        <div style="max-height:360px;overflow-y:auto;margin-bottom:14px">
+          <table class="depo-table" style="min-width:600px">
+            <thead><tr><th>Resim</th><th>Barkod</th><th>Eşleşme</th><th>Cinsiyet</th><th>Sezon</th><th>Durum</th></tr></thead>
+            <tbody>
+              ${rows.map((r,idx)=>`<tr>
+                <td>${r.imageBlob ? `<div style="width:32px;height:32px;background:#fff;border:1px solid var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)">🖼</div>` : `<div style="width:32px;height:32px;border:1px dashed var(--line);border-radius:4px"></div>`}</td>
+                <td class="mini-meta">${esc(r.barcode)}</td>
+                <td>${r.matched ? `<span style="color:var(--good)">✓ ${esc(r.matchRefNo)} · ${esc(r.matchColorName)} · ${esc(r.matchSizeLabel)}</span>` : `<span style="color:var(--danger)">Depo'da yok</span>`}</td>
+                <td class="depo-td-muted">${esc(r.gender||'—')}</td>
+                <td class="depo-td-muted">${esc(r.season||'—')}</td>
+                <td>${r.status==='ok'?'<span style="color:var(--good)">✓</span>':r.status==='error'?'<span style="color:var(--danger)">⚠</span>':r.status==='skipped'?'<span style="color:var(--muted)">—</span>':''}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `}
+      <div class="modal-actions">
+        <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">${rows.length>0 && !running ? 'Bitti' : 'Vazgeç'}</button>
+        ${rows.length>0 ? `<button class="btn primary" ${running||matched.length===0?'disabled':''} onclick="commitExcelImport()">${running?'⏳ İçe Aktarılıyor…':`✓ ${matched.length} Satırı İçe Aktar`}</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
 function renderBulkImageModal(){
   const running = state.bulkImageRunning;
   const rows = state.bulkImageRows;
