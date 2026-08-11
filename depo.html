@@ -638,6 +638,9 @@ const state = {
   depoBulkResultText: null,
   newDepoItemSaving: false,
   newDepoItemSuccess: null,
+  newDepoItemImage: null,
+  depoFilterGender: new Set(),
+  depoFilterSeason: new Set(),
   pendingPackingOrders: [],
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
@@ -1122,6 +1125,16 @@ function stockForBarcode(barcode, fallback){
 function setDepoSearch(v){ state.depoSearch = v; state.depoPage = 1; render(); }
 function clearDepoSearch(){ state.depoSearch = ''; state.depoPage = 1; render(); }
 function setDepoSortBy(v){ state.depoSortBy = v; state.depoPage = 1; render(); }
+function toggleDepoGenderFilter(g){
+  if(state.depoFilterGender.has(g)) state.depoFilterGender.delete(g); else state.depoFilterGender.add(g);
+  state.depoPage = 1;
+  render();
+}
+function toggleDepoSeasonFilter(s){
+  if(state.depoFilterSeason.has(s)) state.depoFilterSeason.delete(s); else state.depoFilterSeason.add(s);
+  state.depoPage = 1;
+  render();
+}
 function setDepoPage(p){ state.depoPage = p; render(); window.scrollTo(0,0); }
 function openDepoMoveModal(barcode, refNo, colorName, sizeLabel, type){
   state.modalMode = 'depoMove';
@@ -1662,43 +1675,86 @@ async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
   }
   return {barcode: sku.barcode};
 }
-function openNewDepoItemModal(){ state.modalMode = 'newDepoItem'; state.newDepoItemSuccess = null; state.newDepoItemSaving = false; render(); }
+function openNewDepoItemModal(){
+  state.modalMode = 'newDepoItem';
+  state.newDepoItemSuccess = null;
+  state.newDepoItemSaving = false;
+  state.newDepoItemImage = null;
+  render();
+}
+async function handleNewDepoItemImage(e){
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if(!file) return;
+  showToast('Resim işleniyor…', true);
+  try{
+    state.newDepoItemImage = await processImageFile(file);
+    showToast('Resim hazır');
+  }catch(err){
+    showToast('Resim işlenemedi — lütfen başka bir dosya deneyin');
+  }
+  render();
+}
 async function submitNewDepoItem(){
   const refNo = document.getElementById('ndi-ref').value.trim();
   const refName = document.getElementById('ndi-refname').value.trim();
   const colorName = document.getElementById('ndi-color').value.trim().toUpperCase();
-  const sizeCode = document.getElementById('ndi-size').value;
-  const startQty = parseInt(document.getElementById('ndi-qty').value, 10) || 0;
+  const unit = document.getElementById('ndi-unit').value;
+  const gender = document.getElementById('ndi-gender').value;
+  const season = document.getElementById('ndi-season').value;
   if(!/^[0-9]{1,6}$/.test(refNo)){ showToast('Referans No 1-6 haneli bir sayı olmalı'); return; }
   if(!colorName){ showToast('Renk adı girin'); return; }
-  const r = await ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode);
-  if(r.error){ showToast(r.error); return; }
-  const sizeLabel = SIZES.find(s=>s.code===sizeCode).short;
-  const existing = state.warehouseItems.find(w=>w.barcode===r.barcode);
-  if(existing && (existing.refNo && existing.refNo!==refNo || existing.colorName && existing.colorName.toUpperCase()!==colorName)){
-    showToast('⚠ Bu barkod zaten "' + existing.refNo + ' ' + existing.colorName + '" ürününe kayıtlı — çakışma var, kontrol edin');
-    return;
-  }
+  const selectedSizes = SIZES.filter(s=>document.getElementById('ndi-size-'+s.code).checked);
+  if(selectedSizes.length===0){ showToast('En az bir beden seçin'); return; }
+
   state.newDepoItemSaving = true;
   render();
-  let ok = true;
-  if(startQty > 0){
-    const res = await postStockMovement(r.barcode, 'in', startQty, 'İlk depo kaydı', refNo, colorName, sizeLabel);
-    ok = !!(res && res.ok);
-  } else if(!state.warehouseItems.find(w=>w.barcode===r.barcode)){
-    state.warehouseItems.push({barcode:r.barcode, refNo, colorName, sizeLabel, stock:0});
+
+  const created = [];
+  let allOk = true;
+  for(const sizeInfo of selectedSizes){
+    const qty = parseInt(document.getElementById('ndi-qty-'+sizeInfo.code).value, 10) || 0;
+    const r = await ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeInfo.code);
+    if(r.error){ showToast(r.error); allOk = false; break; }
+    const existing = state.warehouseItems.find(w=>w.barcode===r.barcode);
+    if(existing && (existing.refNo && existing.refNo!==refNo || existing.colorName && existing.colorName.toUpperCase()!==colorName)){
+      showToast('⚠ Barkod çakışması: ' + sizeInfo.short); allOk = false; break;
+    }
+    if(qty > 0){
+      const res = await postStockMovement(r.barcode, 'in', qty, 'İlk depo kaydı', refNo, colorName, sizeInfo.short);
+      if(!res || !res.ok){ allOk = false; break; }
+    } else if(!state.warehouseItems.find(w=>w.barcode===r.barcode)){
+      state.warehouseItems.push({barcode:r.barcode, refNo, colorName, sizeLabel:sizeInfo.short, stock:0});
+    }
+    created.push({barcode:r.barcode, sizeLabel:sizeInfo.short, qty});
   }
+
+  // Unit/gender/season + image apply once per ref/color, not per size
+  if(allOk){
+    const product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
+    if(product){
+      let productChanged = false;
+      if(unit && product.unit!==unit){ product.unit = unit; productChanged = true; }
+      if(gender && product.gender!==gender){ product.gender = gender; productChanged = true; }
+      if(season && product.season!==season){ product.season = season; productChanged = true; }
+      if(productChanged) await saveKey('catalogProducts', state.products);
+      if(state.newDepoItemImage){
+        const variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+        if(variant){ variant.image = state.newDepoItemImage; await saveKey('catalogVariant:'+variant.id, variant); }
+      }
+    }
+  }
+
   state.newDepoItemSaving = false;
-  if(ok){
-    state.newDepoItemSuccess = { barcode: r.barcode, refNo, colorName, sizeLabel, qty: startQty };
+  if(allOk){
+    state.newDepoItemSuccess = { refNo, colorName, items: created };
     render();
   } else {
-    showToast('⚠ Kaydedilemedi — sunucuya bağlanılamadı, tekrar deneyin');
     render();
   }
 }
 function closeNewDepoItemSuccess(){ state.modalMode = null; state.newDepoItemSuccess = null; render(); }
-function addAnotherDepoItem(){ state.newDepoItemSuccess = null; render(); }
+function addAnotherDepoItem(){ state.newDepoItemSuccess = null; state.newDepoItemImage = null; render(); }
 
 // ---------- Hızlı Tarama (barkod okuyucu ile) ----------
 function openScanModePrompt(){
@@ -2565,9 +2621,17 @@ function renderDepoView(){
   if(!state.fxRate) ensureFxRateLoaded();
   const q = state.depoSearch.trim().toLowerCase();
   let items = [...state.warehouseItems].filter(it=>{
-    if(!q) return true;
-    return (it.barcode||'').toLowerCase().includes(q) || (it.refNo||'').toLowerCase().includes(q) ||
-           (it.colorName||'').toLowerCase().includes(q) || (it.sizeLabel||'').toLowerCase().includes(q);
+    if(q){
+      const matches = (it.barcode||'').toLowerCase().includes(q) || (it.refNo||'').toLowerCase().includes(q) ||
+             (it.colorName||'').toLowerCase().includes(q) || (it.sizeLabel||'').toLowerCase().includes(q);
+      if(!matches) return false;
+    }
+    if(state.depoFilterGender.size>0 || state.depoFilterSeason.size>0){
+      const product = state.products.find(p=>padRef(p.refNo)===padRef(it.refNo));
+      if(state.depoFilterGender.size>0 && (!product || !state.depoFilterGender.has(product.gender||''))) return false;
+      if(state.depoFilterSeason.size>0 && (!product || !state.depoFilterSeason.has(product.season||''))) return false;
+    }
+    return true;
   });
   switch(state.depoSortBy){
     case 'barcode-asc': items.sort((a,b)=>(a.barcode||'').localeCompare(b.barcode||'')); break;
@@ -2621,6 +2685,13 @@ function renderDepoView(){
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}
     <div class="count">${items.length} / ${state.warehouseItems.length} kayıt</div>
+  </div>
+  <div class="toolbar" style="margin-top:-6px">
+    <span style="font-size:11.5px;color:var(--muted);font-weight:700">CİNSİYET:</span>
+    ${['KIZ','ERKEK','UNISEX'].map(g=>`<button class="btn small ${state.depoFilterGender.has(g)?'primary':'ghost'}" onclick="toggleDepoGenderFilter('${g}')">${g==='KIZ'?'Kız':g==='ERKEK'?'Erkek':'Unisex'}</button>`).join('')}
+    <span style="font-size:11.5px;color:var(--muted);font-weight:700;margin-left:10px">SEZON:</span>
+    ${['YAZ','KIŞ','TÜM MEVSİM'].map(s=>`<button class="btn small ${state.depoFilterSeason.has(s)?'primary':'ghost'}" onclick="toggleDepoSeasonFilter('${s}')">${s==='YAZ'?'Yaz':s==='KIŞ'?'Kış':'Tüm Mevsim'}</button>`).join('')}
+    ${(state.depoFilterGender.size>0||state.depoFilterSeason.size>0) ? `<button class="btn small ghost" onclick="state.depoFilterGender=new Set();state.depoFilterSeason=new Set();render();">✕ Filtreleri Temizle</button>` : ''}
   </div>`;
 
   if(items.length===0){
@@ -3046,10 +3117,13 @@ function renderNewDepoItemModal(){
       <div class="modal">
         <div class="bulk-result ok" style="display:block;text-align:center;padding:18px">
           <div style="font-size:26px;margin-bottom:6px">✅</div>
-          <div style="font-weight:700;font-size:15px;margin-bottom:6px">Depo kaydı oluşturuldu</div>
-          <div style="font-size:13px">${esc(detailRefLabel(s.refNo, s.colorName, s.sizeLabel))}</div>
-          <div style="font-family:ui-monospace,Menlo,monospace;font-size:12px;margin-top:4px">Barkod: ${esc(s.barcode)}</div>
-          ${s.qty>0 ? `<div style="font-size:13px;margin-top:4px">Başlangıç stoğu: <b>${s.qty}</b></div>` : ''}
+          <div style="font-weight:700;font-size:15px;margin-bottom:10px">Depo kaydı oluşturuldu — ${esc(s.refNo)} ${esc(s.colorName)}</div>
+          <div style="text-align:left;font-size:12.5px">
+            ${s.items.map(it=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line)">
+              <span>${esc(it.sizeLabel)} — <span style="font-family:ui-monospace,Menlo,monospace">${esc(it.barcode)}</span></span>
+              <span style="font-weight:700">${it.qty>0?it.qty+' adet':'0'}</span>
+            </div>`).join('')}
+          </div>
         </div>
         <div class="modal-actions">
           <button class="btn ghost" onclick="closeNewDepoItemSuccess()">Kapat</button>
@@ -3061,7 +3135,7 @@ function renderNewDepoItemModal(){
   return `<div class="overlay" onmousedown="if(!${saving} && event.target===event.currentTarget) closeModal()">
     <div class="modal">
       <h2>Yeni Depo Kaydı</h2>
-      <p style="color:var(--muted);font-size:12.5px;margin-top:-10px">Barkod, konuştuğumuz formülle (1288 + Ref No + Renk Sırası + Beden Sırası + kontrol hanesi) otomatik oluşturulur. Model/renk zaten kayıtlıysa üzerine yenisi eklenmez, mevcut olan kullanılır.</p>
+      <p style="color:var(--muted);font-size:12.5px;margin-top:-10px">Barkod, konuştuğumuz formülle (1288 + Ref No + Renk Sırası + Beden Sırası + kontrol hanesi) otomatik oluşturulur. Model/renk zaten kayıtlıysa üzerine yenisi eklenmez, mevcut olan kullanılır. Birden fazla beden aynı anda eklenebilir.</p>
       <div class="row2">
         <div class="field">
           <label>Referans No *</label>
@@ -3078,20 +3152,62 @@ function renderNewDepoItemModal(){
           <input id="ndi-color" type="text" placeholder="Örn. BLUE" oninput="this.value=this.value.toUpperCase()" style="text-transform:uppercase" ${saving?'disabled':''} />
         </div>
         <div class="field">
-          <label>Beden *</label>
-          <select id="ndi-size" ${saving?'disabled':''}>
-            ${SIZES.map(s=>`<option value="${s.code}">${esc(s.short)} (EU ${s.eu})</option>`).join('')}
+          <label>Birim</label>
+          <select id="ndi-unit" ${saving?'disabled':''}>
+            <option value="Adet">Adet</option>
+            <option value="Çift">Çift</option>
+            <option value="Kg">Kg</option>
+            <option value="Metre">Metre</option>
+            <option value="Diğer">Diğer</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Cinsiyet</label>
+          <select id="ndi-gender" ${saving?'disabled':''}>
+            <option value="">—</option>
+            <option value="KIZ">Kız</option>
+            <option value="ERKEK">Erkek</option>
+            <option value="UNISEX">Unisex</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Sezon</label>
+          <select id="ndi-season" ${saving?'disabled':''}>
+            <option value="">—</option>
+            <option value="YAZ">Yaz</option>
+            <option value="KIŞ">Kış</option>
+            <option value="TÜM MEVSİM">Tüm Mevsim</option>
           </select>
         </div>
       </div>
       <div class="field">
-        <label>Başlangıç Stoğu (opsiyonel)</label>
-        <input id="ndi-qty" type="number" min="0" placeholder="0" ${saving?'disabled':''} />
+        <label>Resim (opsiyonel)</label>
+        ${state.newDepoItemImage
+          ? `<div style="display:flex;align-items:center;gap:10px"><img src="${state.newDepoItemImage}" style="width:52px;height:52px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px" /><button type="button" class="btn ghost small" ${saving?'disabled':''} onclick="document.getElementById('ndi-image-input').click()">Değiştir</button></div>`
+          : `<button type="button" class="btn ghost small" ${saving?'disabled':''} onclick="document.getElementById('ndi-image-input').click()">+ Resim Seç</button>`
+        }
+        <input type="file" id="ndi-image-input" accept="image/*" style="display:none" onchange="handleNewDepoItemImage(event)" />
+      </div>
+      <div class="field">
+        <label>Bedenler ve Başlangıç Stokları *</label>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${SIZES.map(sz=>`
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border:1px solid var(--line);border-radius:5px">
+              <label style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;font-weight:600;font-size:13px">
+                <input type="checkbox" id="ndi-size-${sz.code}" ${saving?'disabled':''} style="width:auto" />
+                ${esc(sz.short)} (EU ${sz.eu})
+              </label>
+              <input id="ndi-qty-${sz.code}" type="number" min="0" placeholder="Stok" ${saving?'disabled':''} style="width:90px" />
+            </div>
+          `).join('')}
+        </div>
       </div>
       ${saving ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Kaydediliyor…</div>` : ''}
       <div class="modal-actions">
         <button class="btn ghost" ${saving?'disabled':''} onclick="closeModal()">Vazgeç</button>
-        <button class="btn primary" ${saving?'disabled':''} onclick="submitNewDepoItem()">Kaydet ve Barkod Üret</button>
+        <button class="btn primary" ${saving?'disabled':''} onclick="submitNewDepoItem()">Kaydet ve Barkodları Üret</button>
       </div>
     </div>
   </div>`;

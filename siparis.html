@@ -773,6 +773,12 @@ const state = {
   excelImportParsing: false,
   excelImportRunning: false,
   excelImportUpdateGenderSeason: true,
+  excelImportDone: false,
+  excelImportProgress: 0,
+  excelImportResultText: '',
+  productsManageSelected: new Set(),
+  filterGender: new Set(),
+  filterSeason: new Set(),
   products: [],
   variants: [],
   skus: [],
@@ -1305,6 +1311,43 @@ async function updateProductSeason(productId, season){
   await saveKey('catalogProducts', state.products);
   showToast('Sezon güncellendi');
 }
+function toggleGenderFilter(g){
+  if(state.filterGender.has(g)) state.filterGender.delete(g); else state.filterGender.add(g);
+  render();
+}
+function toggleSeasonFilter(s){
+  if(state.filterSeason.has(s)) state.filterSeason.delete(s); else state.filterSeason.add(s);
+  render();
+}
+function toggleProductSelect(productId){
+  if(state.productsManageSelected.has(productId)) state.productsManageSelected.delete(productId);
+  else state.productsManageSelected.add(productId);
+  render();
+}
+function openBulkProductEditModal(){
+  state.modalMode = 'bulkProductEdit';
+  render();
+}
+async function commitBulkProductEdit(){
+  const unit = document.getElementById('bpe-unit').value;
+  const gender = document.getElementById('bpe-gender').value;
+  const season = document.getElementById('bpe-season').value;
+  if(!unit && !gender && !season){ showToast('Değiştirmek için en az bir alan seçin'); return; }
+  const ids = Array.from(state.productsManageSelected);
+  ids.forEach(id=>{
+    const p = state.products.find(x=>x.id===id);
+    if(!p) return;
+    if(unit) p.unit = unit;
+    if(gender) p.gender = gender;
+    if(season) p.season = season;
+  });
+  state.modalMode = null;
+  render();
+  await saveKey('catalogProducts', state.products);
+  showToast(`${ids.length} model güncellendi`);
+  state.productsManageSelected = new Set();
+  render();
+}
 async function deleteProduct(productId){
   if(!confirm('Bu modeli, tüm renklerini ve bedenlerini silmek istediğinize emin misiniz?')) return;
   const vs = variantsFor(productId);
@@ -1758,6 +1801,9 @@ function openExcelImportModal(){
   state.excelImportParsing = false;
   state.excelImportRunning = false;
   state.excelImportUpdateGenderSeason = true;
+  state.excelImportDone = false;
+  state.excelImportProgress = 0;
+  state.excelImportResultText = '';
   render();
 }
 async function handleExcelImportFile(e){
@@ -1766,6 +1812,7 @@ async function handleExcelImportFile(e){
   if(!file) return;
   state.excelImportParsing = true;
   state.excelImportRows = [];
+  state.excelImportDone = false;
   render();
   try{
     const {rows, hasRichImages} = await parseXlsxWithImages(file);
@@ -1774,13 +1821,21 @@ async function handleExcelImportFile(e){
     }
     state.excelImportRows = rows.map(r=>{
       const match = state.warehouseItems.find(w=>w.barcode===r.barcode);
+      // If this variant already has an image saved, skip it on import — much faster re-runs
+      // when the same list is imported again after only a few new rows were added.
+      let alreadyHasImage = false;
+      if(match){
+        const product = state.products.find(p=>padRef(p.refNo)===padRef(match.refNo));
+        const variant = product ? state.variants.find(v=>v.productId===product.id && v.colorName===match.colorName) : null;
+        alreadyHasImage = !!(variant && variant.image);
+      }
       return {
         ...r,
         matched: !!match,
         matchRefNo: match ? match.refNo : null,
         matchColorName: match ? match.colorName : null,
         matchSizeLabel: match ? match.sizeLabel : null,
-        status: 'pending' // pending | ok | error | skipped
+        status: alreadyHasImage ? 'already' : 'pending' // pending | ok | error | skipped | already
       };
     });
   }catch(err){
@@ -1790,9 +1845,10 @@ async function handleExcelImportFile(e){
   render();
 }
 async function commitExcelImport(){
-  const rows = state.excelImportRows.filter(r=>r.matched && r.imageBlob);
-  if(rows.length===0){ showToast('İçe aktarılacak eşleşen satır yok'); return; }
+  const rows = state.excelImportRows.filter(r=>r.matched && r.imageBlob && r.status!=='already');
+  if(rows.length===0){ showToast('İçe aktarılacak yeni satır yok'); return; }
   state.excelImportRunning = true;
+  state.excelImportProgress = 0;
   render();
 
   // One resize/compress per UNIQUE image, reused across all rows sharing that image (e.g. same
@@ -1801,8 +1857,9 @@ async function commitExcelImport(){
   const genderSeasonByRef = {}; // padded refNo -> {gender, season}
 
   let okCount = 0, errCount = 0;
-  for(const row of state.excelImportRows){
-    if(!row.matched || !row.imageBlob){ row.status = 'skipped'; continue; }
+  for(const row of rows){
+    row.status = 'processing';
+    render();
     try{
       if(!processedByPath[row.imagePath]){
         processedByPath[row.imagePath] = await processImageFile(row.imageBlob);
@@ -1824,6 +1881,7 @@ async function commitExcelImport(){
       row.status = 'error';
       errCount++;
     }
+    state.excelImportProgress++;
     render();
   }
 
@@ -1843,8 +1901,10 @@ async function commitExcelImport(){
   }
 
   state.excelImportRunning = false;
+  state.excelImportDone = true;
+  state.excelImportResultText = errCount>0 ? `${okCount} resim kaydedildi, ${errCount} hata` : `${okCount} resim başarıyla kataloğa eklendi`;
   render();
-  showToast(errCount>0 ? `${okCount} resim kaydedildi, ${errCount} hata` : `${okCount} resim başarıyla kataloğa eklendi`);
+  showToast(state.excelImportResultText);
 }
 function openBulkImageModal(){ state.modalMode = 'bulkImage'; state.bulkImageRows = []; state.bulkImageRunning = false; render(); }
 function handleBulkImageFiles(e){
@@ -2498,6 +2558,7 @@ function render(){
   else if(state.modalMode === 'galleryLightbox') html += renderGalleryLightboxModal();
   else if(state.modalMode === 'bulkImage') html += renderBulkImageModal();
   else if(state.modalMode === 'excelImport') html += renderExcelImportModal();
+  else if(state.modalMode === 'bulkProductEdit') html += renderBulkProductEditModal();
 
   root.innerHTML = html;
 
@@ -3494,10 +3555,19 @@ function catalogGalleryEntries(){
 }
 function renderProductsView(){
   if(session.role === 'depocu') return renderDepoView();
+  const genderOptions = ['KIZ','ERKEK','UNISEX'];
+  const seasonOptions = ['YAZ','KIŞ','TÜM MEVSİM'];
   const entries = catalogGalleryEntries().filter(e=>{
-    if(!state.search) return true;
-    const q = state.search.toLowerCase();
-    return e.refNo.toLowerCase().includes(q) || e.colorName.toLowerCase().includes(q);
+    if(state.search){
+      const q = state.search.toLowerCase();
+      if(!(e.refNo.toLowerCase().includes(q) || e.colorName.toLowerCase().includes(q))) return false;
+    }
+    if(state.filterGender.size>0 || state.filterSeason.size>0){
+      const product = state.products.find(p=>padRef(p.refNo)===padRef(e.refNo));
+      if(state.filterGender.size>0 && (!product || !state.filterGender.has(product.gender||''))) return false;
+      if(state.filterSeason.size>0 && (!product || !state.filterSeason.has(product.season||''))) return false;
+    }
+    return true;
   });
   const grouped = {};
   entries.forEach(e=>{ (grouped[e.refNo] = grouped[e.refNo]||[]).push(e); });
@@ -3513,12 +3583,20 @@ function renderProductsView(){
     <button class="btn ghost small" onclick="openPdfOptionsModal()">PDF Katalog / Fiyat Listesi</button>
     <a class="nav-link" href="#" onclick="state.view='productsManage';render();return false;" style="margin-left:auto">⚙ Model Yönetimi (fiyat, birim, yeni model, silme) →</a>
   </div>
-  <div class="field-msg" style="margin:-6px 0 14px">📐 Görsel yükleme önerisi: kare kadraj, en az 800×800px, düz/beyaz arka plan (sistem otomatik olarak kırpıp beyazlatır). Baskıda net görünmesi için düşük çözünürlüklü resimlerden kaçının.</div>`;
+  <div class="toolbar" style="margin-top:-6px">
+    <span style="font-size:11.5px;color:var(--muted);font-weight:700">CİNSİYET:</span>
+    ${genderOptions.map(g=>`<button class="btn small ${state.filterGender.has(g)?'primary':'ghost'}" onclick="toggleGenderFilter('${g}')">${g==='KIZ'?'Kız':g==='ERKEK'?'Erkek':'Unisex'}</button>`).join('')}
+    <span style="font-size:11.5px;color:var(--muted);font-weight:700;margin-left:10px">SEZON:</span>
+    ${seasonOptions.map(s=>`<button class="btn small ${state.filterSeason.has(s)?'primary':'ghost'}" onclick="toggleSeasonFilter('${s}')">${s==='YAZ'?'Yaz':s==='KIŞ'?'Kış':'Tüm Mevsim'}</button>`).join('')}
+    ${(state.filterGender.size>0||state.filterSeason.size>0) ? `<button class="btn small ghost" onclick="state.filterGender=new Set();state.filterSeason=new Set();render();">✕ Filtreleri Temizle</button>` : ''}
+  </div>
+  <div class="field-msg" style="margin:-6px 0 14px">📐 Görsel yükleme önerisi: kare kadraja yakın, en az 800×800px, düz/beyaz arka plan (sistem otomatik olarak boyutlandırır, arka plana dokunmaz — düşük çözünürlüklü resimlerden kaçının).</div>`;
 
   if(refKeys.length===0){
+    const hasFilters = state.filterGender.size>0 || state.filterSeason.size>0 || !!state.search;
     out += `<div class="empty">
-      <h3>${state.warehouseItems.length===0 ? 'Henüz Depo kaydı yok' : 'Sonuç bulunamadı'}</h3>
-      <p>${state.warehouseItems.length===0 ? 'Bu galeri, Depo\'da kayıtlı ürünlere göre oluşur. Önce Depo sayfasından ürün ekleyin.' : 'Aramayı değiştirmeyi deneyin.'}</p>
+      <h3>${state.warehouseItems.length===0 ? 'Henüz Depo kaydı yok' : hasFilters ? 'Bu filtreye uyan sonuç yok' : 'Sonuç bulunamadı'}</h3>
+      <p>${state.warehouseItems.length===0 ? 'Bu galeri, Depo\'da kayıtlı ürünlere göre oluşur. Önce Depo sayfasından ürün ekleyin.' : 'Aramayı veya filtreyi değiştirmeyi deneyin.'}</p>
     </div>`;
   } else {
     const pageSize = state.galleryPageSize || 30;
@@ -3550,11 +3628,18 @@ function renderProductsView(){
 
 function renderProductsManageView(){
   if(session.role === 'depocu') return renderDepoView();
+  const genderOptions = ['KIZ','ERKEK','UNISEX'];
+  const seasonOptions = ['YAZ','KIŞ','TÜM MEVSİM'];
   const filtered = state.products.filter(p=>{
-    if(!state.search) return true;
-    const q = state.search.toLowerCase();
-    return p.refNo.toLowerCase().includes(q) || (p.name||'').toLowerCase().includes(q);
+    if(state.search){
+      const q = state.search.toLowerCase();
+      if(!(p.refNo.toLowerCase().includes(q) || (p.name||'').toLowerCase().includes(q))) return false;
+    }
+    if(state.filterGender.size>0 && !state.filterGender.has(p.gender||'')) return false;
+    if(state.filterSeason.size>0 && !state.filterSeason.has(p.season||'')) return false;
+    return true;
   }).sort((a,b)=>padRef(a.refNo).localeCompare(padRef(b.refNo)));
+  const selectedCount = state.productsManageSelected.size;
 
   let out = `<button class="btn ghost small" onclick="state.view='products';render();" style="margin-bottom:14px">← Model Galerisine Dön</button>
   <div class="toolbar">
@@ -3564,12 +3649,26 @@ function renderProductsManageView(){
     <button class="btn ghost small" onclick="exportBarcodeListCSV()">Barkod Listesi (CSV)</button>
     <button class="btn primary small" onclick="openNewProductModal()">+ Yeni Model</button>
     <div class="count">${filtered.length} / ${state.products.length} model</div>
-  </div>`;
+  </div>
+  <div class="toolbar" style="margin-top:-6px">
+    <span style="font-size:11.5px;color:var(--muted);font-weight:700">CİNSİYET:</span>
+    ${genderOptions.map(g=>`<button class="btn small ${state.filterGender.has(g)?'primary':'ghost'}" onclick="toggleGenderFilter('${g}')">${g==='KIZ'?'Kız':g==='ERKEK'?'Erkek':'Unisex'}</button>`).join('')}
+    <span style="font-size:11.5px;color:var(--muted);font-weight:700;margin-left:10px">SEZON:</span>
+    ${seasonOptions.map(s=>`<button class="btn small ${state.filterSeason.has(s)?'primary':'ghost'}" onclick="toggleSeasonFilter('${s}')">${s==='YAZ'?'Yaz':s==='KIŞ'?'Kış':'Tüm Mevsim'}</button>`).join('')}
+    ${(state.filterGender.size>0||state.filterSeason.size>0) ? `<button class="btn small ghost" onclick="state.filterGender=new Set();state.filterSeason=new Set();render();">✕ Filtreleri Temizle</button>` : ''}
+  </div>
+  ${selectedCount>0 ? `
+    <div class="toolbar" style="background:var(--accent-ink);border-radius:6px;padding:10px 14px">
+      <span style="color:#fff;font-weight:700;font-size:13px">${selectedCount} model seçildi</span>
+      <button class="btn small" style="background:#fff" onclick="openBulkProductEditModal()">Birim/Cinsiyet/Sezon Toplu Düzenle</button>
+      <button class="btn small ghost" style="color:#fff;border-color:#fff" onclick="state.productsManageSelected=new Set();render();">Seçimi Temizle</button>
+    </div>
+  ` : ''}`;
 
   if(filtered.length===0){
     out += `<div class="empty">
       <h3>${state.products.length===0 ? 'Henüz model eklenmedi' : 'Sonuç bulunamadı'}</h3>
-      <p>${state.products.length===0 ? '"+ Yeni Model" ile ilk ürününüzü ekleyin.' : 'Aramayı değiştirmeyi deneyin.'}</p>
+      <p>${state.products.length===0 ? '"+ Yeni Model" ile ilk ürününüzü ekleyin.' : 'Aramayı veya filtreyi değiştirmeyi deneyin.'}</p>
     </div>`;
   } else {
     out += `<div class="product-grid">
@@ -3577,10 +3676,12 @@ function renderProductsManageView(){
         const vs = variantsFor(p.id);
         const cover = (p.coverVariantId && vs.find(v=>v.id===p.coverVariantId)) || vs.find(v=>v.image) || null;
         const stock = totalStockForProduct(p.id);
-        return `<div class="product-card" onclick="openProduct('${p.id}')">
+        const isSelected = state.productsManageSelected.has(p.id);
+        return `<div class="product-card" style="position:relative;${isSelected?'outline:2.5px solid var(--accent-ink)':''}" onclick="openProduct('${p.id}')">
+          <input type="checkbox" ${isSelected?'checked':''} onclick="event.stopPropagation();toggleProductSelect('${p.id}')" style="position:absolute;top:8px;left:8px;width:18px;height:18px;z-index:2" />
           ${cover && cover.image ? `<img class="pc-img" src="${cover.image}" alt="${attrEsc(p.refNo)}" />` : `<div class="pc-img-placeholder">Görsel yok</div>`}
           <div class="pc-body">
-            <div class="pc-ref">Ref: ${esc(p.refNo)}</div>
+            <div class="pc-ref">Ref: ${esc(p.refNo)}${(p.gender||p.season) ? ` <span style="font-weight:400;color:var(--muted)">— ${[p.gender,p.season].filter(Boolean).join(' · ')}</span>` : ''}</div>
             ${p.name ? `<div class="pc-name">${esc(p.name)}</div>` : ''}
             ${vs.length>0 ? `<div class="pc-colors">${vs.map(v=>{
               const vStock = stockForVariant(v.id);
@@ -4006,14 +4107,59 @@ function renderDepoBulkModal(){
   </div>`;
 }
 
+function renderBulkProductEditModal(){
+  const count = state.productsManageSelected.size;
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal">
+      <h2>Toplu Düzenle</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin-top:-10px">${count} model için — sadece doldurduğunuz alanlar güncellenir, boş bırakılanlara dokunulmaz.</p>
+      <div class="field">
+        <label>Birim</label>
+        <select id="bpe-unit">
+          <option value="">— Değiştirme —</option>
+          <option value="Adet">Adet</option>
+          <option value="Çift">Çift</option>
+          <option value="Kg">Kg</option>
+          <option value="Metre">Metre</option>
+          <option value="Diğer">Diğer</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Cinsiyet</label>
+        <select id="bpe-gender">
+          <option value="">— Değiştirme —</option>
+          <option value="KIZ">Kız</option>
+          <option value="ERKEK">Erkek</option>
+          <option value="UNISEX">Unisex</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Sezon</label>
+        <select id="bpe-season">
+          <option value="">— Değiştirme —</option>
+          <option value="YAZ">Yaz</option>
+          <option value="KIŞ">Kış</option>
+          <option value="TÜM MEVSİM">Tüm Mevsim</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Vazgeç</button>
+        <button class="btn primary" onclick="commitBulkProductEdit()">${count} Modeli Güncelle</button>
+      </div>
+    </div>
+  </div>`;
+}
 function renderExcelImportModal(){
   const rows = state.excelImportRows;
   const matched = rows.filter(r=>r.matched);
   const unmatched = rows.filter(r=>!r.matched);
+  const alreadyHasImage = rows.filter(r=>r.status==='already');
+  const toImport = matched.filter(r=>r.status!=='already');
   const running = state.excelImportRunning;
   const parsing = state.excelImportParsing;
+  const isDone = state.excelImportDone;
   return `<div class="overlay">
-    <div class="modal wide">
+    <div class="modal" style="max-width:920px;width:95vw">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <h2 style="margin:0">Excel'den Resim ve Bilgi İçe Aktar</h2>
         <button class="btn small ghost" ${running?'disabled':''} onclick="closeModal()">Kapat</button>
@@ -4026,16 +4172,18 @@ function renderExcelImportModal(){
         </div>
         ${parsing ? `<div class="field-msg">⏳ Dosya okunuyor, resimler çözümleniyor…</div>` : ''}
       ` : `
+        ${isDone ? `<div class="bulk-result ok" style="display:block;margin-bottom:14px">✓ İçe aktarma tamamlandı — ${state.excelImportResultText||''}</div>` : ''}
         <div class="extra-info-box" style="margin-bottom:14px">
           <div class="extra-info-row"><span class="extra-info-label">Toplam Satır</span><span class="extra-info-value">${rows.length}</span></div>
-          <div class="extra-info-row"><span class="extra-info-label">Depo'da Eşleşen (aktarılacak)</span><span class="extra-info-value" style="color:var(--good)">${matched.length}</span></div>
-          <div class="extra-info-row"><span class="extra-info-label">Eşleşmeyen (atlanacak)</span><span class="extra-info-value" style="color:${unmatched.length>0?'var(--danger)':'var(--muted)'}">${unmatched.length}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Yeni Aktarılacak</span><span class="extra-info-value" style="color:var(--good)">${toImport.length}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Zaten Resmi Var (atlanacak)</span><span class="extra-info-value" style="color:var(--muted)">${alreadyHasImage.length}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Depo'da Bulunamayan</span><span class="extra-info-value" style="color:${unmatched.length>0?'var(--danger)':'var(--muted)'}">${unmatched.length}</span></div>
         </div>
         <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;margin-bottom:14px;cursor:pointer">
           <input type="checkbox" ${state.excelImportUpdateGenderSeason?'checked':''} ${running?'disabled':''} onchange="state.excelImportUpdateGenderSeason=this.checked;render();" style="width:auto" />
           Cinsiyet ve sezon bilgilerini de modele işle (varsa)
         </label>
-        <div style="max-height:360px;overflow-y:auto;margin-bottom:14px">
+        <div style="max-height:min(50vh,440px);overflow-y:auto;margin-bottom:14px" id="excel-import-table-wrap">
           <table class="depo-table" style="min-width:600px">
             <thead><tr><th>Resim</th><th>Barkod</th><th>Eşleşme</th><th>Cinsiyet</th><th>Sezon</th><th>Durum</th></tr></thead>
             <tbody>
@@ -4045,15 +4193,15 @@ function renderExcelImportModal(){
                 <td>${r.matched ? `<span style="color:var(--good)">✓ ${esc(r.matchRefNo)} · ${esc(r.matchColorName)} · ${esc(r.matchSizeLabel)}</span>` : `<span style="color:var(--danger)">Depo'da yok</span>`}</td>
                 <td class="depo-td-muted">${esc(r.gender||'—')}</td>
                 <td class="depo-td-muted">${esc(r.season||'—')}</td>
-                <td>${r.status==='ok'?'<span style="color:var(--good)">✓</span>':r.status==='error'?'<span style="color:var(--danger)">⚠</span>':r.status==='skipped'?'<span style="color:var(--muted)">—</span>':''}</td>
+                <td>${r.status==='ok'?'<span style="color:var(--good)">✓ Aktarıldı</span>':r.status==='error'?'<span style="color:var(--danger)">⚠ Hata</span>':r.status==='already'?'<span style="color:var(--muted)">Zaten var</span>':r.status==='skipped'?'<span style="color:var(--muted)">—</span>':r.status==='processing'?'<span style="color:var(--accent-ink)">⏳</span>':''}</td>
               </tr>`).join('')}
             </tbody>
           </table>
         </div>
       `}
       <div class="modal-actions">
-        <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">${rows.length>0 && !running ? 'Bitti' : 'Vazgeç'}</button>
-        ${rows.length>0 ? `<button class="btn primary" ${running||matched.length===0?'disabled':''} onclick="commitExcelImport()">${running?'⏳ İçe Aktarılıyor…':`✓ ${matched.length} Satırı İçe Aktar`}</button>` : ''}
+        <button class="btn ${isDone?'primary':'ghost'}" ${running?'disabled':''} onclick="closeModal()" style="${isDone?'font-weight:800':''}">${rows.length>0 && !running ? (isDone?'✓ Bitti':'Bitti') : 'Vazgeç'}</button>
+        ${rows.length>0 && !isDone ? `<button class="btn primary" ${running||toImport.length===0?'disabled':''} onclick="commitExcelImport()">${running?'⏳ İçe Aktarılıyor… ('+state.excelImportProgress+'/'+toImport.length+')':`✓ ${toImport.length} Satırı İçe Aktar`}</button>` : ''}
       </div>
     </div>
   </div>`;
