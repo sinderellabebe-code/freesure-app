@@ -1135,6 +1135,7 @@ function stockForBarcode(barcode, fallback){
 // ---------- Depo (warehouse) ----------
 function setDepoSearch(v){ state.depoSearch = v; state.depoPage = 1; render(); }
 function clearDepoSearch(){ state.depoSearch = ''; state.depoPage = 1; render(); }
+function clearDepoSelection(){ state.depoSelected = new Set(); render(); }
 function setDepoSortBy(v){ state.depoSortBy = v; state.depoPage = 1; render(); }
 function toggleDepoGenderFilter(g){
   if(state.depoFilterGender.has(g)) state.depoFilterGender.delete(g); else state.depoFilterGender.add(g);
@@ -2787,6 +2788,7 @@ function renderDepoView(){
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>` : ''}
     ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
+    ${canManage && selectedCount>0 ? `<button class="btn ghost small" onclick="clearDepoSelection()">✕ Seçimi Temizle (${selectedCount})</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}
     <div class="count">${items.length} / ${state.warehouseItems.length} kayıt</div>
   </div>
