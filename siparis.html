@@ -797,6 +797,8 @@ const state = {
   excelImportProgress: 0,
   excelImportResultText: '',
   productsManageSelected: new Set(),
+  productsManageShowOrphans: false,
+  productsManageBulkDeleting: false,
   filterGender: new Set(),
   filterSeason: new Set(),
   products: [],
@@ -1343,6 +1345,35 @@ function toggleProductSelect(productId){
   if(state.productsManageSelected.has(productId)) state.productsManageSelected.delete(productId);
   else state.productsManageSelected.add(productId);
   render();
+}
+function toggleProductSelectAllVisible(visibleIds){
+  const allSelected = visibleIds.length>0 && visibleIds.every(id=>state.productsManageSelected.has(id));
+  if(allSelected) visibleIds.forEach(id=>state.productsManageSelected.delete(id));
+  else visibleIds.forEach(id=>state.productsManageSelected.add(id));
+  render();
+}
+async function bulkDeleteSelectedProducts(){
+  const ids = Array.from(state.productsManageSelected);
+  if(ids.length===0) return;
+  if(!confirm(`${ids.length} modeli — tüm renk, beden ve barkod kayıtlarıyla birlikte — silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) return;
+  state.productsManageBulkDeleting = true;
+  render();
+  // Sequential, one product at a time — same proven pattern used for bulk delete in Depo.
+  for(const id of ids){
+    const vs = variantsFor(id);
+    const vids = new Set(vs.map(v=>v.id));
+    for(const v of vs){ await saveKey('catalogVariant:'+v.id, null); }
+    const skuIdsToDelete = state.skus.filter(s=>vids.has(s.variantId)).map(s=>s.id);
+    await deleteSkuRows(skuIdsToDelete);
+    state.variants = state.variants.filter(v=>v.productId!==id);
+    state.skus = state.skus.filter(s=>!vids.has(s.variantId));
+    state.products = state.products.filter(p=>p.id!==id);
+  }
+  await saveKey('catalogProducts', state.products);
+  state.productsManageSelected = new Set();
+  state.productsManageBulkDeleting = false;
+  render();
+  showToast(`${ids.length} model silindi`);
 }
 function openBulkProductEditModal(){
   state.modalMode = 'bulkProductEdit';
@@ -3748,7 +3779,10 @@ function renderProductsManageView(){
   if(session.role === 'depocu') return renderDepoView();
   const genderOptions = ['KIZ','ERKEK','UNISEX'];
   const seasonOptions = ['YAZ','KIŞ','TÜM MEVSİM'];
+  const depoRefs = new Set(state.warehouseItems.map(w=>padRef(w.refNo)));
+  const orphanCount = state.products.filter(p=>!depoRefs.has(padRef(p.refNo))).length;
   const filtered = state.products.filter(p=>{
+    if(!state.productsManageShowOrphans && !depoRefs.has(padRef(p.refNo))) return false;
     if(state.search){
       const q = state.search.toLowerCase();
       if(!(p.refNo.toLowerCase().includes(q) || (p.name||'').toLowerCase().includes(q))) return false;
@@ -3763,11 +3797,23 @@ function renderProductsManageView(){
   <div class="toolbar">
     <input type="text" id="products-search-input" placeholder="Referans no veya model adına göre ara…" value="${attrEsc(state.search)}" onkeydown="if(event.key==='Enter') setSearch(this.value)" />
     <button class="btn ghost small" onclick="setSearch(document.getElementById('products-search-input').value)">Ara</button>
+    ${state.search ? `<button class="btn ghost small" onclick="setSearch('')">✕ Temizle</button>` : ''}
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     <button class="btn ghost small" onclick="exportBarcodeListCSV()">Barkod Listesi (CSV)</button>
     <button class="btn primary small" onclick="openNewProductModal()">+ Yeni Model</button>
-    <div class="count">${filtered.length} / ${state.products.length} model</div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+      <input type="checkbox" ${filtered.length>0 && filtered.every(p=>state.productsManageSelected.has(p.id))?'checked':''} onchange="toggleProductSelectAllVisible(${JSON.stringify(filtered.map(p=>p.id))})" style="width:auto" />
+      Tümünü Seç
+    </label>
+    <div class="count">${filtered.length} / ${depoRefs.size} model (Depo'da kayıtlı)</div>
   </div>
+  ${orphanCount>0 ? `
+    <div class="field-msg" style="margin:-6px 0 10px">
+      ${state.productsManageShowOrphans
+        ? `Depo'da hiç kaydı olmayan ${orphanCount} "yetim" model de gösteriliyor. <a href="#" onclick="state.productsManageShowOrphans=false;render();return false;">Gizle</a>`
+        : `Depo'da kaydı olmayan ${orphanCount} model gizlendi (bu, sistemi daha kararlı tutar — fiyat/isim gibi bilgiler artık Depo'da fiilen var olan modellere göre gösteriliyor). <a href="#" onclick="state.productsManageShowOrphans=true;render();return false;">Yine de göster</a>`}
+    </div>
+  ` : ''}
   <div class="toolbar" style="margin-top:-6px">
     <span style="font-size:11.5px;color:var(--muted);font-weight:700">CİNSİYET:</span>
     ${genderOptions.map(g=>`<button class="btn small ${state.filterGender.has(g)?'primary':'ghost'}" onclick="toggleGenderFilter('${g}')">${g==='KIZ'?'Kız':g==='ERKEK'?'Erkek':'Unisex'}</button>`).join('')}
@@ -3779,6 +3825,7 @@ function renderProductsManageView(){
     <div class="toolbar" style="background:var(--accent-ink);border-radius:6px;padding:10px 14px">
       <span style="color:#fff;font-weight:700;font-size:13px">${selectedCount} model seçildi</span>
       <button class="btn small" style="background:#fff" onclick="openBulkProductEditModal()">Birim/Cinsiyet/Sezon Toplu Düzenle</button>
+      <button class="btn small" style="background:var(--danger);color:#fff" onclick="bulkDeleteSelectedProducts()">Seçilenleri Sil</button>
       <button class="btn small ghost" style="color:#fff;border-color:#fff" onclick="state.productsManageSelected=new Set();render();">Seçimi Temizle</button>
     </div>
   ` : ''}`;
