@@ -295,6 +295,25 @@ async function saveKey(key, value){
 async function saveSkuRow(sku){ return await saveKey('catalogSku:'+sku.id, sku); }
 async function deleteSkuRow(skuId){ return await saveKey('catalogSku:'+skuId, null); }
 async function deleteSkuRows(skuIds){ for(const id of skuIds) await deleteSkuRow(id); }
+// Applies targeted changes to catalogProducts on the server (merged against the CURRENT
+// server-side array, not the client's local copy) — protects against a stale tab/session
+// silently overwriting someone else's more recent edit (e.g. a price just updated elsewhere).
+async function patchProducts(upserts, deleteIds){
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'patchCatalogProducts', auth:{username:session.username, passwordHash:session.passwordHash}, upserts: upserts||[], deleteIds: deleteIds||[]})
+    }, 30000);
+    const data = await res.json();
+    if(data && data.ok){ state.products = data.products; return true; }
+    showToast('Kaydetme hatası — tekrar deneyin');
+    return false;
+  }catch(e){
+    showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    return false;
+  }
+}
 
 // ---------- authentication ----------
 const AUTH_STORAGE_KEY = 'fs_auth_session_v1';
@@ -933,14 +952,16 @@ async function updateDepoPrice(barcode, refNoFallback, newPrice){
     const ok = confirm(`Ref ${product.refNo} fiyatını $${formatMoney(oldPrice)}'den $${formatMoney(price)}'ye güncellemek istediğinize emin misiniz? Bu, tüm renk ve bedenleri etkileyecek.`);
     if(!ok){ render(); return; }
   }
+  let isNewProduct = false;
   if(!product){
     if(!refNoFallback){ showToast('Bu kayıt için referans bilgisi eksik, fiyat girilemiyor'); return; }
     product = {id:uid(), refNo:refNoFallback, name:'', price:0, createdAt:todayISO(), createdBy:session.displayName};
     state.products.push(product);
+    isNewProduct = true;
   }
   product.price = price;
   render();
-  const ok2 = await saveKey('catalogProducts', state.products);
+  const ok2 = await patchProducts([isNewProduct ? product : {id:product.id, price:price}]);
   if(ok2) showToast('Fiyat güncellendi — Ref ' + product.refNo + '\'in tüm renk ve bedenlerini etkiler');
 }
 async function fetchTcmbRate(){
@@ -1292,7 +1313,7 @@ async function addProduct(refNo, name, price, unit){
   const p = {id:uid(), refNo: String(refNo).replace(/[^0-9]/g,''), name: (name||'').trim(), price: Number(price)||0, unit: unit||'Adet', createdAt: todayISO(), createdBy: session.displayName};
   state.products = [...state.products, p];
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([p]);
   return true;
 }
 async function updateProductPrice(productId, price){
@@ -1306,7 +1327,7 @@ async function updateProductPrice(productId, price){
   }
   p.price = newPrice;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([{id:productId, price:newPrice}]);
   showToast('Fiyat güncellendi — Ref ' + p.refNo + '\'in tüm renk ve bedenlerini etkiler');
 }
 async function updateProductUnit(productId, unit){
@@ -1314,7 +1335,7 @@ async function updateProductUnit(productId, unit){
   if(!p) return;
   p.unit = unit;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([{id:productId, unit:unit}]);
   showToast('Birim güncellendi');
 }
 async function updateProductGender(productId, gender){
@@ -1322,7 +1343,7 @@ async function updateProductGender(productId, gender){
   if(!p) return;
   p.gender = gender;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([{id:productId, gender:gender}]);
   showToast('Cinsiyet güncellendi');
 }
 async function updateProductSeason(productId, season){
@@ -1330,7 +1351,7 @@ async function updateProductSeason(productId, season){
   if(!p) return;
   p.season = season;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([{id:productId, season:season}]);
   showToast('Sezon güncellendi');
 }
 function toggleGenderFilter(g){
@@ -1369,7 +1390,7 @@ async function bulkDeleteSelectedProducts(){
     state.skus = state.skus.filter(s=>!vids.has(s.variantId));
     state.products = state.products.filter(p=>p.id!==id);
   }
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([], ids);
   state.productsManageSelected = new Set();
   state.productsManageBulkDeleting = false;
   render();
@@ -1385,16 +1406,22 @@ async function commitBulkProductEdit(){
   const season = document.getElementById('bpe-season').value;
   if(!unit && !gender && !season){ showToast('Değiştirmek için en az bir alan seçin'); return; }
   const ids = Array.from(state.productsManageSelected);
+  const upserts = [];
   ids.forEach(id=>{
     const p = state.products.find(x=>x.id===id);
     if(!p) return;
     if(unit) p.unit = unit;
     if(gender) p.gender = gender;
     if(season) p.season = season;
+    const patch = {id};
+    if(unit) patch.unit = unit;
+    if(gender) patch.gender = gender;
+    if(season) patch.season = season;
+    upserts.push(patch);
   });
   state.modalMode = null;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts(upserts);
   showToast(`${ids.length} model güncellendi`);
   state.productsManageSelected = new Set();
   render();
@@ -1410,7 +1437,7 @@ async function deleteProduct(productId){
   state.products = state.products.filter(p=>p.id!==productId);
   state.view = 'products'; state.selectedProductId = null;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([], [productId]);
   await deleteSkuRows(skuIdsToDelete);
   showToast('Model silindi');
 }
@@ -1442,7 +1469,7 @@ async function setCoverVariant(productId, variantId){
   if(!p) return;
   p.coverVariantId = variantId;
   render();
-  await saveKey('catalogProducts', state.products);
+  await patchProducts([{id:productId, coverVariantId:variantId}]);
   showToast('Ana sayfa görseli güncellendi');
 }
 async function addSku(variantId, sizeCode){
@@ -1707,19 +1734,19 @@ async function sendDepoBulkImport(items, skipped, batchDupes){
     items.forEach(it=>{ if(it.price!=null && it.refNo) priceByRef[it.refNo] = it.price; });
     const refKeys = Object.keys(priceByRef);
     if(refKeys.length>0){
-      let changed = false;
+      const upserts = [];
       refKeys.forEach(refNo=>{
         let product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNo).trim().toUpperCase());
         if(!product){
           product = {id:uid(), refNo, name:'', price:priceByRef[refNo], createdAt:todayISO(), createdBy:session.displayName};
           state.products.push(product);
-          changed = true; pricesUpdated++;
+          upserts.push(product); pricesUpdated++;
         } else if(product.price !== priceByRef[refNo]){
           product.price = priceByRef[refNo];
-          changed = true; pricesUpdated++;
+          upserts.push({id:product.id, price:priceByRef[refNo]}); pricesUpdated++;
         }
       });
-      if(changed) await saveKey('catalogProducts', state.products);
+      if(upserts.length>0) await patchProducts(upserts);
     }
   }
 
@@ -1802,7 +1829,7 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
   if(!product){
     product = {id:uid(), refNo:(refNo||'').trim(), name:'', price:0, createdAt:todayISO(), createdBy:session.displayName};
     state.products = [...state.products, product];
-    await saveKey('catalogProducts', state.products);
+    await patchProducts([product]);
   }
   let variant = state.variants.find(v=>v.productId===product.id && v.colorName===(colorName||'').trim());
   if(!variant){
@@ -2094,7 +2121,8 @@ async function commitBulkImageImport(){
   state.bulkImageRunning = true;
   render();
 
-  let productsChanged=false, totalVariants=0, totalLinked=0;
+  let totalVariants=0, totalLinked=0;
+  const productUpserts = [];
   const variantsToSave = [];
   const newSkusToSave = [];
 
@@ -2108,9 +2136,9 @@ async function commitBulkImageImport(){
     if(!product){
       product = {id:uid(), refNo, name:description, price:0, createdAt:todayISO(), createdBy:session.displayName};
       state.products.push(product);
-      productsChanged = true;
+      productUpserts.push(product);
     } else if(description && !product.name){
-      product.name = description; productsChanged = true;
+      product.name = description; productUpserts.push({id:product.id, name:description});
     }
 
     let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
@@ -2141,7 +2169,7 @@ async function commitBulkImageImport(){
     }
   }
 
-  if(productsChanged) await saveKey('catalogProducts', state.products);
+  if(productUpserts.length>0) await patchProducts(productUpserts);
   for(const v of variantsToSave) await saveKey('catalogVariant:'+v.id, v);
   for(const s of newSkusToSave) await saveSkuRow(s);
 
@@ -2158,7 +2186,7 @@ async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
   if(!product){
     product = {id:uid(), refNo:String(refNo).replace(/[^0-9]/g,''), name:(refName||'').trim(), price:0, createdAt:todayISO(), createdBy:session.displayName};
     state.products = [...state.products, product];
-    await saveKey('catalogProducts', state.products);
+    await patchProducts([product]);
   }
   let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
   if(!variant){
