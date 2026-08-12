@@ -1288,7 +1288,12 @@ async function bulkAddSelectedToCatalog(){
   const barcodes = Array.from(state.depoSelected);
   if(barcodes.length===0){ showToast('Önce kataloğa eklemek istediğiniz kayıtları seçin'); return; }
   const items = barcodes.map(b=>state.warehouseItems.find(w=>w.barcode===b)).filter(it=>it && !isBarcodeInCatalog(it.barcode));
-  if(items.length===0){ showToast('Seçilenlerin hepsi zaten katalogda'); return; }
+  if(items.length===0){
+    showToast('Seçilenlerin hepsi zaten katalogda');
+    state.depoSelected = new Set();
+    render();
+    return;
+  }
   state.depoBulkCatalogRunning = true;
   render();
   let okCount = 0, errCount = 0;
@@ -2712,6 +2717,10 @@ function renderDepoImageLightbox(){
 }
 function renderDepoView(){
   if(!state.fxRate) ensureFxRateLoaded();
+  // Safety net: never let the selection reference a barcode that no longer exists — otherwise
+  // "Seçilenleri Sil"/"Kataloğa Ekle" buttons could appear to stay "stuck" with a stale count.
+  const liveBarcodes = new Set(state.warehouseItems.map(w=>w.barcode));
+  Array.from(state.depoSelected).forEach(b=>{ if(!liveBarcodes.has(b)) state.depoSelected.delete(b); });
   const q = state.depoSearch.trim().toLowerCase();
   let items = [...state.warehouseItems].filter(it=>{
     if(q){
