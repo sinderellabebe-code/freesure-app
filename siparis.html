@@ -818,6 +818,7 @@ const state = {
   productsManageSelected: new Set(),
   productsManageShowOrphans: false,
   productsManageBulkDeleting: false,
+  productsManageVisibleIds: [],
   filterGender: new Set(),
   filterSeason: new Set(),
   products: [],
@@ -1367,7 +1368,8 @@ function toggleProductSelect(productId){
   else state.productsManageSelected.add(productId);
   render();
 }
-function toggleProductSelectAllVisible(visibleIds){
+function toggleProductSelectAllVisible(){
+  const visibleIds = state.productsManageVisibleIds || [];
   const allSelected = visibleIds.length>0 && visibleIds.every(id=>state.productsManageSelected.has(id));
   if(allSelected) visibleIds.forEach(id=>state.productsManageSelected.delete(id));
   else visibleIds.forEach(id=>state.productsManageSelected.add(id));
@@ -3819,6 +3821,7 @@ function renderProductsManageView(){
     if(state.filterSeason.size>0 && !state.filterSeason.has(p.season||'')) return false;
     return true;
   }).sort((a,b)=>padRef(a.refNo).localeCompare(padRef(b.refNo)));
+  state.productsManageVisibleIds = filtered.map(p=>p.id);
   const selectedCount = state.productsManageSelected.size;
 
   let out = `<button class="btn ghost small" onclick="state.view='products';render();" style="margin-bottom:14px">← Model Galerisine Dön</button>
@@ -3830,7 +3833,7 @@ function renderProductsManageView(){
     <button class="btn ghost small" onclick="exportBarcodeListCSV()">Barkod Listesi (CSV)</button>
     <button class="btn primary small" onclick="openNewProductModal()">+ Yeni Model</button>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-      <input type="checkbox" ${filtered.length>0 && filtered.every(p=>state.productsManageSelected.has(p.id))?'checked':''} onchange="toggleProductSelectAllVisible(${JSON.stringify(filtered.map(p=>p.id))})" style="width:auto" />
+      <input type="checkbox" ${filtered.length>0 && filtered.every(p=>state.productsManageSelected.has(p.id))?'checked':''} onchange="toggleProductSelectAllVisible()" style="width:auto" />
       Tümünü Seç
     </label>
     <div class="count">${filtered.length} / ${depoRefs.size} model (Depo'da kayıtlı)</div>
@@ -3854,7 +3857,7 @@ function renderProductsManageView(){
       <span style="color:#fff;font-weight:700;font-size:13px">${selectedCount} model seçildi</span>
       <button class="btn small" style="background:#fff" onclick="openBulkProductEditModal()">Birim/Cinsiyet/Sezon Toplu Düzenle</button>
       <button class="btn small" style="background:var(--danger);color:#fff" onclick="bulkDeleteSelectedProducts()">Seçilenleri Sil</button>
-      <button class="btn small ghost" style="color:#fff;border-color:#fff" onclick="state.productsManageSelected=new Set();render();">Seçimi Temizle</button>
+      <button class="btn small ghost" style="color:#fff;border-color:#fff;background:transparent" onclick="state.productsManageSelected=new Set();render();">Seçimi Temizle</button>
     </div>
   ` : ''}`;
 
