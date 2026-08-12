@@ -290,6 +290,11 @@ async function saveKey(key, value){
     return false;
   }
 }
+// SKUs are stored as individual catalogSku:<id> rows (like colors/variants) rather than one
+// big array in a single cell, which has a hard 50,000-character ceiling in Google Sheets.
+async function saveSkuRow(sku){ return await saveKey('catalogSku:'+sku.id, sku); }
+async function deleteSkuRow(skuId){ return await saveKey('catalogSku:'+skuId, null); }
+async function deleteSkuRows(skuIds){ for(const id of skuIds) await deleteSkuRow(id); }
 
 // ---------- authentication ----------
 const AUTH_STORAGE_KEY = 'fs_auth_session_v1';
@@ -1368,13 +1373,14 @@ async function deleteProduct(productId){
   const vs = variantsFor(productId);
   const vids = new Set(vs.map(v=>v.id));
   for(const v of vs){ await saveKey('catalogVariant:'+v.id, null); }
+  const skuIdsToDelete = state.skus.filter(s=>vids.has(s.variantId)).map(s=>s.id);
   state.variants = state.variants.filter(v=>v.productId!==productId);
   state.skus = state.skus.filter(s=>!vids.has(s.variantId));
   state.products = state.products.filter(p=>p.id!==productId);
   state.view = 'products'; state.selectedProductId = null;
   render();
   await saveKey('catalogProducts', state.products);
-  await saveKey('catalogSkus', state.skus);
+  await deleteSkuRows(skuIdsToDelete);
   showToast('Model silindi');
 }
 async function addVariant(productId, colorName, image){
@@ -1392,11 +1398,12 @@ async function deleteVariant(variantId){
   const v = state.variants.find(x=>x.id===variantId);
   const label = v ? v.colorName : 'bu renk';
   if(!confirm('"' + label + '" rengini ve tüm bedenlerini silmek istediğinize emin misiniz?')) return;
+  const skuIdsToDelete = state.skus.filter(s=>s.variantId===variantId).map(s=>s.id);
   state.variants = state.variants.filter(x=>x.id!==variantId);
   state.skus = state.skus.filter(s=>s.variantId!==variantId);
   render();
   await saveKey('catalogVariant:'+variantId, null);
-  await saveKey('catalogSkus', state.skus);
+  await deleteSkuRows(skuIdsToDelete);
   showToast('"' + label + '" silindi');
 }
 async function setCoverVariant(productId, variantId){
@@ -1419,13 +1426,13 @@ async function addSku(variantId, sizeCode){
   const sku = {id:uid(), variantId, sizeCode, sizeOrder, euSize: sizeInfo.eu, barcode, stock:0, createdAt: todayISO()};
   state.skus = [...state.skus, sku];
   render();
-  await saveKey('catalogSkus', state.skus);
+  await saveSkuRow(sku);
   showToast('Beden ve barkod eklendi: ' + barcode);
 }
 async function deleteSku(skuId){
   state.skus = state.skus.filter(s=>s.id!==skuId);
   render();
-  await saveKey('catalogSkus', state.skus);
+  await deleteSkuRow(skuId);
 }
 // ---------- UI actions ----------
 // ---------- Depo (warehouse) ----------
@@ -1529,9 +1536,9 @@ async function deleteWarehouseItems(barcodes){
     await saveKey('warehouseItem:'+barcode, null);
   }
   // Also drop any catalog SKU that was linked to a now-deleted depo barcode, to avoid orphaned entries.
-  const beforeCount = state.skus.length;
+  const skuIdsToDelete = state.skus.filter(s=>barcodes.includes(s.barcode)).map(s=>s.id);
   state.skus = state.skus.filter(s=>!barcodes.includes(s.barcode));
-  if(state.skus.length !== beforeCount){ await saveKey('catalogSkus', state.skus); }
+  if(skuIdsToDelete.length>0) await deleteSkuRows(skuIdsToDelete);
   state.warehouseItems = state.warehouseItems.filter(w=>!barcodes.includes(w.barcode));
   barcodes.forEach(b=>state.depoSelected.delete(b));
   render();
@@ -1782,7 +1789,7 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     const matchedSize = SIZES.find(s=>s.code===num);
     sku = {id:uid(), variantId:variant.id, sizeCode: matchedSize?matchedSize.code:null, sizeOrder, euSize: matchedSize?matchedSize.eu:null, customSizeLabel: matchedSize?'':(sizeLabel||''), barcode, createdAt:todayISO()};
     state.skus = [...state.skus, sku];
-    await saveKey('catalogSkus', state.skus);
+    await saveSkuRow(sku);
   }
   return {productId:product.id, variantId:variant.id, skuId:sku.id};
 }
@@ -2056,8 +2063,9 @@ async function commitBulkImageImport(){
   state.bulkImageRunning = true;
   render();
 
-  let productsChanged=false, skusChanged=false, totalVariants=0, totalLinked=0;
+  let productsChanged=false, totalVariants=0, totalLinked=0;
   const variantsToSave = [];
+  const newSkusToSave = [];
 
   for(let i=0;i<rows.length;i++){
     const row = rows[i];
@@ -2096,7 +2104,7 @@ async function commitBulkImageImport(){
         const matchedSize = SIZES.find(s=>s.code===num);
         sku = {id:uid(), variantId:variant.id, sizeCode: matchedSize?matchedSize.code:null, sizeOrder, euSize: matchedSize?matchedSize.eu:null, customSizeLabel: matchedSize?'':(w.sizeLabel||''), barcode:w.barcode, createdAt:todayISO()};
         state.skus.push(sku);
-        skusChanged = true;
+        newSkusToSave.push(sku);
         totalLinked++;
       }
     }
@@ -2104,7 +2112,7 @@ async function commitBulkImageImport(){
 
   if(productsChanged) await saveKey('catalogProducts', state.products);
   for(const v of variantsToSave) await saveKey('catalogVariant:'+v.id, v);
-  if(skusChanged) await saveKey('catalogSkus', state.skus);
+  for(const s of newSkusToSave) await saveSkuRow(s);
 
   state.bulkImageRunning = false;
   state.modalMode = null;
@@ -2139,7 +2147,7 @@ async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
     const barcode = computeBarcode(product.refNo, variant.colorOrder, sizeOrder);
     sku = {id:uid(), variantId:variant.id, sizeCode, sizeOrder, euSize:sizeInfo.eu, barcode, createdAt:todayISO()};
     state.skus = [...state.skus, sku];
-    await saveKey('catalogSkus', state.skus);
+    await saveSkuRow(sku);
   }
   return {barcode: sku.barcode};
 }
