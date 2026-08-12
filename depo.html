@@ -1577,11 +1577,26 @@ function handleDepoBulkFile(e){
   const file = e.target.files && e.target.files[0];
   if(!file) return;
   if(state.depoBulkRunning){ e.target.value=''; return; }
+  const nameLower = (file.name||'').toLowerCase();
+  if(nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls')){
+    state.depoBulkFile = null;
+    state.depoBulkError = `Bu araç .xlsx/.xls dosyası kabul etmiyor, sadece CSV. Excel'de dosyanızı açıp "Farklı Kaydet" → "CSV UTF-8 (Virgülle Ayrılmış) (.csv)" seçip öyle yükleyin.`;
+    render();
+    e.target.value = '';
+    return;
+  }
   const reader = new FileReader();
   reader.onload = function(ev){
     try{
       let text = ev.target.result;
       if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip UTF-8 BOM if present
+      const roughLineCount = (text.match(/\n/g)||[]).length;
+      if(roughLineCount > 50000){
+        state.depoBulkFile = null;
+        state.depoBulkError = `Bu dosya beklenenden çok daha fazla satır içeriyor gibi görünüyor (${roughLineCount.toLocaleString('tr-TR')}) — muhtemelen yanlış bir dosya türü seçildi (örn. .xlsx bir dosya CSV yerine yanlışlıkla seçilmiş olabilir). Lütfen düz bir CSV dosyası seçtiğinizden emin olun.`;
+        render();
+        return;
+      }
       const {items, skipped, batchDupes, skippedLines} = parseDepoBulkLines(text);
       state.depoBulkResultText = null;
       if(items.length===0){
@@ -3044,11 +3059,29 @@ function handleStockPriceUpdateFile(e){
   const file = e.target.files && e.target.files[0];
   if(!file) return;
   if(state.stockPriceUpdateRunning){ e.target.value=''; return; }
+  const nameLower = (file.name||'').toLowerCase();
+  if(nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls')){
+    state.stockPriceUpdateFile = null;
+    state.stockPriceUpdateError = `Bu araç .xlsx/.xls dosyası kabul etmiyor, sadece CSV. Excel'de dosyanızı açıp "Farklı Kaydet" → "CSV UTF-8 (Virgülle Ayrılmış) (.csv)" seçip öyle yükleyin.`;
+    render();
+    e.target.value = '';
+    return;
+  }
   const reader = new FileReader();
   reader.onload = function(ev){
     try{
       let text = ev.target.result;
       if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      // Sanity check: this tool is meant for at most a few thousand rows. A wildly larger line
+      // count almost always means a non-text file (e.g. a binary .xlsx) was read as if it were
+      // plain text, producing garbage — parsing it further would just freeze the browser.
+      const roughLineCount = (text.match(/\n/g)||[]).length;
+      if(roughLineCount > 50000){
+        state.stockPriceUpdateFile = null;
+        state.stockPriceUpdateError = `Bu dosya beklenenden çok daha fazla satır içeriyor gibi görünüyor (${roughLineCount.toLocaleString('tr-TR')}) — muhtemelen yanlış bir dosya türü seçildi (örn. .xlsx bir dosya CSV yerine yanlışlıkla seçilmiş olabilir). Lütfen düz bir CSV dosyası seçtiğinizden emin olun.`;
+        render();
+        return;
+      }
       const {updates, skippedLines} = parseStockPriceUpdateLines(text);
       state.stockPriceUpdateResultText = null;
       if(updates.length===0){
