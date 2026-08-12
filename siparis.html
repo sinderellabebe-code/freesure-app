@@ -1828,6 +1828,7 @@ function downloadExcelImportTemplate(){
 }
 function openExcelImportModal(){
   state.modalMode = 'excelImport';
+  (state.excelImportRows||[]).forEach(r=>{ if(r.thumbUrl) URL.revokeObjectURL(r.thumbUrl); });
   state.excelImportRows = [];
   state.excelImportParsing = false;
   state.excelImportRunning = false;
@@ -1866,6 +1867,7 @@ async function handleExcelImportFile(e){
         matchRefNo: match ? match.refNo : null,
         matchColorName: match ? match.colorName : null,
         matchSizeLabel: match ? match.sizeLabel : null,
+        thumbUrl: r.imageBlob ? URL.createObjectURL(r.imageBlob) : null,
         status: alreadyHasImage ? 'already' : 'pending' // pending | ok | error | skipped | already
       };
     });
@@ -4289,7 +4291,7 @@ function renderExcelImportModal(){
             <thead><tr><th>Resim</th><th>Barkod</th><th>Eşleşme</th><th>Cinsiyet</th><th>Sezon</th><th>Durum</th></tr></thead>
             <tbody>
               ${rows.map((r,idx)=>`<tr>
-                <td>${r.imageBlob ? `<div style="width:32px;height:32px;background:#fff;border:1px solid var(--line);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted)">🖼</div>` : `<div style="width:32px;height:32px;border:1px dashed var(--line);border-radius:4px"></div>`}</td>
+                <td>${r.thumbUrl ? `<img src="${r.thumbUrl}" onclick="window.open('${r.thumbUrl}','_blank')" style="width:36px;height:36px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;cursor:zoom-in" />` : `<div style="width:32px;height:32px;border:1px dashed var(--line);border-radius:4px"></div>`}</td>
                 <td class="mini-meta">${esc(r.barcode)}</td>
                 <td>${r.matched ? `<span style="color:var(--good)">✓ ${esc(r.matchRefNo)} · ${esc(r.matchColorName)} · ${esc(r.matchSizeLabel)}</span>` : `<span style="color:var(--danger)">Depo'da yok</span>`}</td>
                 <td class="depo-td-muted">${esc(r.gender||'—')}</td>
