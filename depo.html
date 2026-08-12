@@ -645,6 +645,7 @@ const state = {
   depoBulkTotalMovements: 0,
   depoBulkAllConflicts: [],
   depoBulkChunkErrorReason: {},
+  depoBulkNoOpSkipped: 0,
   newDepoItemSaving: false,
   newDepoItemSuccess: null,
   newDepoItemImage: null,
@@ -1489,7 +1490,9 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRe
 
   const skippedCount = state.depoBulkSkipped||0;
   const dupeCount = state.depoBulkBatchDupes||0;
+  const noOpCount = state.depoBulkNoOpSkipped||0;
   const noteParts = [];
+  if(noOpCount>0) noteParts.push(`${noOpCount} kayıt sistemdekiyle birebir aynı olduğu için hiç gönderilmedi`);
   if(skippedCount>0) noteParts.push(`${skippedCount} satır atlandı (altta detaylı liste var)`);
   if(dupeCount>0) noteParts.push(`${dupeCount} satır dosya içinde barkodu tekrar ettiği için atlandı`);
   if(pricesUpdated>0) noteParts.push(`${pricesUpdated} model için fiyat güncellendi`);
@@ -1513,6 +1516,16 @@ async function sendDepoBulkImport(items, skipped, batchDupes, skippedLines, isRe
   state.depoBulkSkippedLines = skippedLines;
   render();
 }
+function depoBulkItemIsNoOp(item){
+  if(item.openingStock) return false; // has a quantity to apply — must send
+  if(item.price != null) return false; // has a price to apply — must send
+  const existing = state.warehouseItems.find(w=>w.barcode===item.barcode);
+  if(!existing) return false; // genuinely new — must send
+  const sameRef = padRef(existing.refNo||'') === padRef(item.refNo||'');
+  const sameColor = (existing.colorName||'').trim().toUpperCase() === (item.colorName||'').trim().toUpperCase();
+  const sameSize = (existing.sizeLabel||'').trim().toUpperCase() === (item.sizeLabel||'').trim().toUpperCase();
+  return sameRef && sameColor && sameSize; // identical in every way — nothing to update
+}
 async function submitDepoBulkImport(){
   if(state.depoBulkRunning) return;
   state.depoBulkError = null;
@@ -1521,27 +1534,35 @@ async function submitDepoBulkImport(){
   state.depoBulkTotalMovements = 0;
   state.depoBulkAllConflicts = [];
   state.depoBulkChunkErrorReason = {};
+  let items, skipped, batchDupes, skippedLines;
   if(state.depoBulkFile){
-    state.depoBulkAllItems = state.depoBulkFile.items;
-    await sendDepoBulkImport(state.depoBulkFile.items, state.depoBulkFile.skipped, state.depoBulkFile.batchDupes, state.depoBulkFile.skippedLines);
+    ({items, skipped, batchDupes, skippedLines} = state.depoBulkFile);
     state.depoBulkFile = null;
-    return;
+  } else {
+    const raw = document.getElementById('depo-bulk-textarea').value;
+    if(!raw || !raw.trim()){
+      state.depoBulkError = 'Önce bir CSV dosyası seçin ya da kutuya veri yapıştırın.';
+      render();
+      return;
+    }
+    ({items, skipped, batchDupes, skippedLines} = parseDepoBulkLines(raw));
+    if(items.length===0){
+      state.depoBulkError = `Girdiğiniz veriden geçerli bir satır çıkmadı (${skipped} satır atlandı) — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
+      state.depoBulkSkippedLines = skippedLines;
+      render();
+      return;
+    }
   }
-  const raw = document.getElementById('depo-bulk-textarea').value;
-  if(!raw || !raw.trim()){
-    state.depoBulkError = 'Önce bir CSV dosyası seçin ya da kutuya veri yapıştırın.';
+  const itemsToSend = items.filter(it=>!depoBulkItemIsNoOp(it));
+  state.depoBulkNoOpSkipped = items.length - itemsToSend.length;
+  state.depoBulkAllItems = itemsToSend;
+  if(itemsToSend.length===0){
+    state.depoBulkResultText = `✓ Gönderilecek bir şey yok — ${items.length} satırın hepsi zaten sistemdeki bilgiyle birebir aynı.`;
+    state.depoBulkResultIsError = false;
     render();
     return;
   }
-  const {items, skipped, batchDupes, skippedLines} = parseDepoBulkLines(raw);
-  if(items.length===0){
-    state.depoBulkError = `Girdiğiniz veriden geçerli bir satır çıkmadı (${skipped} satır atlandı) — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
-    state.depoBulkSkippedLines = skippedLines;
-    render();
-    return;
-  }
-  state.depoBulkAllItems = items;
-  await sendDepoBulkImport(items, skipped, batchDupes, skippedLines);
+  await sendDepoBulkImport(itemsToSend, skipped, batchDupes, skippedLines);
 }
 async function retryDepoBulkImport(){
   if(state.depoBulkRunning || !state.depoBulkChunks) return;
@@ -1563,9 +1584,8 @@ function handleDepoBulkFile(e){
         state.depoBulkError = `Dosyadan geçerli bir satır çıkmadı (${skipped} satır atlandı) — aşağıda hangi satırların neden atlandığını görebilirsiniz.`;
         state.depoBulkSkippedLines = skippedLines;
       } else {
-        const existingBarcodes = new Set(state.warehouseItems.map(w=>w.barcode));
-        const existingCount = items.filter(it=>existingBarcodes.has(it.barcode)).length;
-        state.depoBulkFile = {name:file.name, items, skipped, batchDupes, skippedLines, existingCount, newCount: items.length-existingCount};
+        const willSkipCount = items.filter(it=>depoBulkItemIsNoOp(it)).length;
+        state.depoBulkFile = {name:file.name, items, skipped, batchDupes, skippedLines, willSkipCount, willSendCount: items.length-willSkipCount};
         state.depoBulkError = null;
         state.depoBulkSkippedLines = skippedLines; // preview which lines will be skipped, before they even confirm the import
         showToast(`${items.length} satır dosyadan okundu — "İçe Aktar"a basın`);
@@ -3117,7 +3137,7 @@ function renderDepoBulkModal(){
       ` : f ? `
         <div class="bulk-help">
           <b>📄 ${esc(f.name)}</b> seçildi — <b>${f.items.length} satır</b> okundu${f.skipped>0?`, ${f.skipped} satır atlandı`:''}${f.batchDupes>0?`, ${f.batchDupes} mükerrer barkod atlandı`:''}.<br/>
-          <b style="color:var(--good)">${f.newCount} yeni barkod oluşturulacak</b> · <span style="color:var(--muted)">${f.existingCount} barkod zaten var (dokunulmayacak)</span><br/>
+          <b style="color:var(--good)">${f.willSendCount} kayıt gönderilecek</b> · <span style="color:var(--muted)">${f.willSkipCount} kayıt sistemdekiyle birebir aynı olduğu için gönderilmeyecek</span><br/>
           Aşağıdaki <b>"İçe Aktar"</b> düğmesine basınca yüklenmeye başlayacak.
         </div>
         <button class="btn ghost small" onclick="clearDepoBulkFile()">Farklı dosya seç</button>
