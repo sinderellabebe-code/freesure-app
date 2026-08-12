@@ -787,6 +787,7 @@ const state = {
   excelImportParsing: false,
   excelImportRunning: false,
   excelImportUpdateGenderSeason: true,
+  excelImportPhaseText: null,
   excelImportDone: false,
   excelImportProgress: 0,
   excelImportResultText: '',
@@ -1881,62 +1882,94 @@ async function commitExcelImport(){
   state.excelImportProgress = 0;
   render();
 
-  // One resize/compress per UNIQUE image, reused across all rows sharing that image (e.g. same
-  // color in multiple sizes) — avoids redundant work.
-  const processedByPath = {};
-  const savedVariantIds = new Set(); // avoid re-saving the same variant's image once per size row
-  const genderSeasonByRef = {}; // padded refNo -> {gender, season}
+  const ENSURE_CHUNK_SIZE = 300; // text-only payload — cheap, can go large
+  const IMAGE_CHUNK_SIZE = 15;   // base64 images — keep payload size reasonable
 
-  let okCount = 0, errCount = 0;
+  // Phase 0 — resize/compress each UNIQUE image once, client-side (no network calls).
+  const processedByPath = {};
   for(const row of rows){
-    row.status = 'processing';
+    if(!processedByPath[row.imagePath]){
+      try{ processedByPath[row.imagePath] = await processImageFile(row.imageBlob); }
+      catch(err){ processedByPath[row.imagePath] = null; }
+    }
+  }
+
+  // Phase 1 — ensure a product/variant/SKU exists for every row, in large text-only chunks.
+  const variantByBarcode = {};
+  const rowErrors = new Set();
+  const genderSeasonByRow = {};
+  rows.forEach(row=>{
+    if(state.excelImportUpdateGenderSeason && (row.gender || row.season)){
+      genderSeasonByRow[row.barcode] = {gender: row.gender, season: row.season};
+    }
+  });
+  for(let i=0;i<rows.length;i+=ENSURE_CHUNK_SIZE){
+    const chunk = rows.slice(i, i+ENSURE_CHUNK_SIZE);
+    state.excelImportPhaseText = `1/2: Model kayıtları oluşturuluyor… (${Math.min(i+chunk.length, rows.length)}/${rows.length})`;
     render();
     try{
-      if(!processedByPath[row.imagePath]){
-        processedByPath[row.imagePath] = await processImageFile(row.imageBlob);
+      const res = await fetchWithTimeout(API_URL, {
+        method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({
+          action:'bulkEnsureCatalogEntries',
+          auth:{username:session.username, passwordHash:session.passwordHash},
+          createdBy: session.displayName,
+          entries: chunk.map(r=>({
+            barcode:r.barcode, refNo:r.matchRefNo, colorName:r.matchColorName, sizeLabel:r.matchSizeLabel,
+            gender: genderSeasonByRow[r.barcode]?genderSeasonByRow[r.barcode].gender:null,
+            season: genderSeasonByRow[r.barcode]?genderSeasonByRow[r.barcode].season:null,
+          }))
+        })
+      }, 90000);
+      const data = await res.json();
+      if(data && data.ok){
+        Object.assign(variantByBarcode, data.variantByBarcode);
+      } else {
+        chunk.forEach(r=>rowErrors.add(r.barcode));
       }
-      const processed = processedByPath[row.imagePath];
-      const {variantId} = await ensureCatalogEntryForExistingBarcode(row.barcode, row.matchRefNo, row.matchColorName, row.matchSizeLabel);
-      if(!savedVariantIds.has(variantId)){
-        const variant = state.variants.find(v=>v.id===variantId);
-        variant.image = processed;
-        await saveKey('catalogVariant:'+variantId, variant);
-        savedVariantIds.add(variantId);
-      }
-      row.status = 'ok';
-      okCount++;
-      if(state.excelImportUpdateGenderSeason && (row.gender || row.season)){
-        const key = padRef(row.matchRefNo);
-        if(!genderSeasonByRef[key]) genderSeasonByRef[key] = {};
-        if(row.gender) genderSeasonByRef[key].gender = row.gender;
-        if(row.season) genderSeasonByRef[key].season = row.season;
-      }
-    }catch(err){
-      row.status = 'error';
-      errCount++;
+    }catch(e){
+      chunk.forEach(r=>rowErrors.add(r.barcode));
     }
-    state.excelImportProgress++;
-    render();
   }
 
-  // Apply gender/season at the product level
-  if(state.excelImportUpdateGenderSeason){
-    let productsChanged = false;
-    Object.keys(genderSeasonByRef).forEach(key=>{
-      const product = state.products.find(p=>padRef(p.refNo)===key);
-      if(product){
-        const gs = genderSeasonByRef[key];
-        if(gs.gender) product.gender = gs.gender;
-        if(gs.season) product.season = gs.season;
-        productsChanged = true;
-      }
-    });
-    if(productsChanged) await saveKey('catalogProducts', state.products);
+  // Phase 2 — set each unique variant's image, in smaller image-payload chunks.
+  const uniqueImages = []; // [{variantId, image}]
+  const seenVariants = new Set();
+  rows.forEach(row=>{
+    const variantId = variantByBarcode[row.barcode];
+    if(!variantId || seenVariants.has(variantId)) return;
+    seenVariants.add(variantId);
+    const image = processedByPath[row.imagePath];
+    if(image) uniqueImages.push({variantId, image});
+  });
+  let imagesUpdated = 0;
+  for(let i=0;i<uniqueImages.length;i+=IMAGE_CHUNK_SIZE){
+    const chunk = uniqueImages.slice(i, i+IMAGE_CHUNK_SIZE);
+    state.excelImportPhaseText = `2/2: Resimler kaydediliyor… (${Math.min(i+chunk.length, uniqueImages.length)}/${uniqueImages.length})`;
+    render();
+    try{
+      const res = await fetchWithTimeout(API_URL, {
+        method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({action:'bulkSetVariantImages', auth:{username:session.username, passwordHash:session.passwordHash}, images:chunk})
+      }, 90000);
+      const data = await res.json();
+      if(data && data.ok) imagesUpdated += data.updated||0;
+    }catch(e){ /* individual image failures aren't attributed back to specific rows here */ }
   }
+
+  // Mark each row's final status and tally
+  let okCount = 0, errCount = 0;
+  rows.forEach(row=>{
+    if(rowErrors.has(row.barcode) || !variantByBarcode[row.barcode]){ row.status='error'; errCount++; }
+    else { row.status='ok'; okCount++; }
+  });
+  state.excelImportProgress = rows.length;
 
   state.excelImportRunning = false;
   state.excelImportDone = true;
+  state.excelImportPhaseText = null;
   state.excelImportResultText = errCount>0 ? `${okCount} resim kaydedildi, ${errCount} hata` : `${okCount} resim başarıyla kataloğa eklendi`;
+  await refreshData(); // resync products/variants/skus from the server
   render();
   showToast(state.excelImportResultText);
 }
@@ -4240,7 +4273,7 @@ function renderExcelImportModal(){
       `}
       <div class="modal-actions">
         <button class="btn ${isDone?'primary':'ghost'}" ${running?'disabled':''} onclick="closeModal()" style="${isDone?'font-weight:800':''}">${rows.length>0 && !running ? (isDone?'✓ Bitti':'Bitti') : 'Vazgeç'}</button>
-        ${rows.length>0 && !isDone ? `<button class="btn primary" ${running||toImport.length===0?'disabled':''} onclick="commitExcelImport()">${running?'⏳ İçe Aktarılıyor… ('+state.excelImportProgress+'/'+toImport.length+')':`✓ ${toImport.length} Satırı İçe Aktar`}</button>` : ''}
+        ${rows.length>0 && !isDone ? `<button class="btn primary" ${running||toImport.length===0?'disabled':''} onclick="commitExcelImport()">${running?'⏳ '+(state.excelImportPhaseText||'İçe Aktarılıyor…'):`✓ ${toImport.length} Satırı İçe Aktar`}</button>` : ''}
       </div>
     </div>
   </div>`;
