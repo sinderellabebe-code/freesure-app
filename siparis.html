@@ -1884,6 +1884,7 @@ async function commitExcelImport(){
   // One resize/compress per UNIQUE image, reused across all rows sharing that image (e.g. same
   // color in multiple sizes) — avoids redundant work.
   const processedByPath = {};
+  const savedVariantIds = new Set(); // avoid re-saving the same variant's image once per size row
   const genderSeasonByRef = {}; // padded refNo -> {gender, season}
 
   let okCount = 0, errCount = 0;
@@ -1896,9 +1897,12 @@ async function commitExcelImport(){
       }
       const processed = processedByPath[row.imagePath];
       const {variantId} = await ensureCatalogEntryForExistingBarcode(row.barcode, row.matchRefNo, row.matchColorName, row.matchSizeLabel);
-      const variant = state.variants.find(v=>v.id===variantId);
-      variant.image = processed;
-      await saveKey('catalogVariant:'+variantId, variant);
+      if(!savedVariantIds.has(variantId)){
+        const variant = state.variants.find(v=>v.id===variantId);
+        variant.image = processed;
+        await saveKey('catalogVariant:'+variantId, variant);
+        savedVariantIds.add(variantId);
+      }
       row.status = 'ok';
       okCount++;
       if(state.excelImportUpdateGenderSeason && (row.gender || row.season)){
