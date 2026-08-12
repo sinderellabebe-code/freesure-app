@@ -1890,6 +1890,7 @@ async function commitExcelImport(){
   function describeFailure(data, e){
     if(e) return (e.name==='AbortError') ? 'zaman aşımı' : 'ağ bağlantısı kesildi';
     if(data && data.error==='lock_timeout') return 'sunucu meşgul (kilit zaman aşımı)';
+    if(data && data.error==='exception' && data.message) return 'sunucu hatası: ' + data.message;
     return 'sunucu hata döndürdü';
   }
 
