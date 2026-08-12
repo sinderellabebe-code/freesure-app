@@ -1905,6 +1905,27 @@ async function commitExcelImport(){
   // Phase 1 — ensure a product/variant/SKU exists for every row, in small chunks.
   const variantByBarcode = {};
   const rowErrorReason = {};
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+  async function postWithRetry(body, timeoutMs){
+    let lastData = null, lastErr = null;
+    for(let attempt=0; attempt<3; attempt++){
+      if(attempt>0) await sleep(800 * attempt); // back off a bit longer each retry
+      try{
+        const res = await fetchWithTimeout(API_URL, {
+          method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body: JSON.stringify(body)
+        }, timeoutMs);
+        lastData = await res.json();
+        if(lastData && lastData.ok) return {data: lastData, err: null};
+        lastErr = null;
+      }catch(e){
+        lastErr = e;
+        lastData = null;
+      }
+    }
+    return {data: lastData, err: lastErr};
+  }
+
   const genderSeasonByRow = {};
   rows.forEach(row=>{
     if(state.excelImportUpdateGenderSeason && (row.gender || row.season)){
@@ -1917,23 +1938,17 @@ async function commitExcelImport(){
     const chunk = ensureChunks[ci];
     state.excelImportPhaseText = `1/2: Model kayıtları — parça ${ci+1}/${ensureChunks.length}`;
     render();
-    let data = null, err = null;
-    try{
-      const res = await fetchWithTimeout(API_URL, {
-        method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({
-          action:'bulkEnsureCatalogEntries',
-          auth:{username:session.username, passwordHash:session.passwordHash},
-          createdBy: session.displayName,
-          entries: chunk.map(r=>({
-            barcode:r.barcode, refNo:r.matchRefNo, colorName:r.matchColorName, sizeLabel:r.matchSizeLabel,
-            gender: genderSeasonByRow[r.barcode]?genderSeasonByRow[r.barcode].gender:null,
-            season: genderSeasonByRow[r.barcode]?genderSeasonByRow[r.barcode].season:null,
-          }))
-        })
-      }, 90000);
-      data = await res.json();
-    }catch(e){ err = e; }
+    if(ci>0) await sleep(150); // small pacing gap between requests
+    const {data, err} = await postWithRetry({
+      action:'bulkEnsureCatalogEntries',
+      auth:{username:session.username, passwordHash:session.passwordHash},
+      createdBy: session.displayName,
+      entries: chunk.map(r=>({
+        barcode:r.barcode, refNo:r.matchRefNo, colorName:r.matchColorName, sizeLabel:r.matchSizeLabel,
+        gender: genderSeasonByRow[r.barcode]?genderSeasonByRow[r.barcode].gender:null,
+        season: genderSeasonByRow[r.barcode]?genderSeasonByRow[r.barcode].season:null,
+      }))
+    }, 90000);
     if(data && data.ok){
       Object.assign(variantByBarcode, data.variantByBarcode);
     } else {
@@ -1959,14 +1974,10 @@ async function commitExcelImport(){
     const chunk = imageChunks[ci];
     state.excelImportPhaseText = `2/2: Resimler — parça ${ci+1}/${imageChunks.length}`;
     render();
-    let data = null, err = null;
-    try{
-      const res = await fetchWithTimeout(API_URL, {
-        method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({action:'bulkSetVariantImages', auth:{username:session.username, passwordHash:session.passwordHash}, images:chunk})
-      }, 90000);
-      data = await res.json();
-    }catch(e){ err = e; }
+    if(ci>0) await sleep(150); // small pacing gap between requests
+    const {data, err} = await postWithRetry({
+      action:'bulkSetVariantImages', auth:{username:session.username, passwordHash:session.passwordHash}, images:chunk
+    }, 90000);
     if(data && data.ok){
       chunk.forEach(im=>succeededVariants.add(im.variantId));
     } else {
