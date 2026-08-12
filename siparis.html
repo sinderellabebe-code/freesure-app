@@ -586,6 +586,18 @@ function colorDist(r,g,b,cr,cg,cb){
 function xmlDecode(s){
   return (s||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
 }
+function normalizeBarcodeDigits(s){
+  if(!s) return s;
+  s = String(s).trim();
+  // Excel sometimes stores a long number in scientific notation (e.g. if the column was
+  // formatted as "General"/"Number" instead of "Text") — convert back to a plain digit string.
+  if(/^\d+(\.\d+)?E\+?\d+$/i.test(s)){
+    const num = Number(s);
+    if(Number.isFinite(num)) return String(Math.round(num));
+  }
+  s = s.replace(/\.0+$/, ''); // spurious trailing ".0" from a Number-formatted cell
+  return s.replace(/[^0-9]/g, ''); // strip whitespace/hidden characters — barcodes are digits-only
+}
 async function parseXlsxWithImages(file){
   const zip = await JSZip.loadAsync(file);
 
@@ -685,7 +697,7 @@ async function parseXlsxWithImages(file){
     const genderRaw = columns.gender ? cellText(r[columns.gender]) : null;
     const seasonRaw = columns.season ? cellText(r[columns.season]) : null;
     parsedRows.push({
-      barcode: String(barcode).trim(),
+      barcode: normalizeBarcodeDigits(barcode),
       imagePath,
       refNo: columns.ref ? cellText(r[columns.ref]) : null,
       colorName: columns.color ? cellText(r[columns.color]) : null,
@@ -1838,7 +1850,7 @@ async function handleExcelImportFile(e){
       showToast('Bu dosyada hücre-içi resim bulunamadı — dosyanın Excel\'in "resmi hücreye ekle" özelliğiyle hazırlandığından emin olun');
     }
     state.excelImportRows = rows.map(r=>{
-      const match = state.warehouseItems.find(w=>w.barcode===r.barcode);
+      const match = state.warehouseItems.find(w=>normalizeBarcodeDigits(w.barcode)===r.barcode);
       // If this variant already has an image saved, skip it on import — much faster re-runs
       // when the same list is imported again after only a few new rows were added.
       let alreadyHasImage = false;
