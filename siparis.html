@@ -1882,8 +1882,14 @@ async function commitExcelImport(){
   state.excelImportProgress = 0;
   render();
 
-  const ENSURE_CHUNK_SIZE = 300; // text-only payload — cheap, can go large
-  const IMAGE_CHUNK_SIZE = 15;   // base64 images — keep payload size reasonable
+  const ENSURE_CHUNK_SIZE = 40; // kept small deliberately — larger chunks were timing out server-side
+  const IMAGE_CHUNK_SIZE = 8;   // base64 images — even smaller, payload is heavier per entry
+
+  function describeFailure(data, e){
+    if(e) return (e.name==='AbortError') ? 'zaman aşımı' : 'ağ bağlantısı kesildi';
+    if(data && data.error==='lock_timeout') return 'sunucu meşgul (kilit zaman aşımı)';
+    return 'sunucu hata döndürdü';
+  }
 
   // Phase 0 — resize/compress each UNIQUE image once, client-side (no network calls).
   const processedByPath = {};
@@ -1894,19 +1900,22 @@ async function commitExcelImport(){
     }
   }
 
-  // Phase 1 — ensure a product/variant/SKU exists for every row, in large text-only chunks.
+  // Phase 1 — ensure a product/variant/SKU exists for every row, in small chunks.
   const variantByBarcode = {};
-  const rowErrors = new Set();
+  const rowErrorReason = {};
   const genderSeasonByRow = {};
   rows.forEach(row=>{
     if(state.excelImportUpdateGenderSeason && (row.gender || row.season)){
       genderSeasonByRow[row.barcode] = {gender: row.gender, season: row.season};
     }
   });
-  for(let i=0;i<rows.length;i+=ENSURE_CHUNK_SIZE){
-    const chunk = rows.slice(i, i+ENSURE_CHUNK_SIZE);
-    state.excelImportPhaseText = `1/2: Model kayıtları oluşturuluyor… (${Math.min(i+chunk.length, rows.length)}/${rows.length})`;
+  const ensureChunks = [];
+  for(let i=0;i<rows.length;i+=ENSURE_CHUNK_SIZE) ensureChunks.push(rows.slice(i, i+ENSURE_CHUNK_SIZE));
+  for(let ci=0; ci<ensureChunks.length; ci++){
+    const chunk = ensureChunks[ci];
+    state.excelImportPhaseText = `1/2: Model kayıtları — parça ${ci+1}/${ensureChunks.length}`;
     render();
+    let data = null, err = null;
     try{
       const res = await fetchWithTimeout(API_URL, {
         method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1921,14 +1930,13 @@ async function commitExcelImport(){
           }))
         })
       }, 90000);
-      const data = await res.json();
-      if(data && data.ok){
-        Object.assign(variantByBarcode, data.variantByBarcode);
-      } else {
-        chunk.forEach(r=>rowErrors.add(r.barcode));
-      }
-    }catch(e){
-      chunk.forEach(r=>rowErrors.add(r.barcode));
+      data = await res.json();
+    }catch(e){ err = e; }
+    if(data && data.ok){
+      Object.assign(variantByBarcode, data.variantByBarcode);
+    } else {
+      const reason = describeFailure(data, err);
+      chunk.forEach(r=>rowErrorReason[r.barcode]=reason);
     }
   }
 
@@ -1942,33 +1950,54 @@ async function commitExcelImport(){
     const image = processedByPath[row.imagePath];
     if(image) uniqueImages.push({variantId, image});
   });
-  let imagesUpdated = 0;
-  for(let i=0;i<uniqueImages.length;i+=IMAGE_CHUNK_SIZE){
-    const chunk = uniqueImages.slice(i, i+IMAGE_CHUNK_SIZE);
-    state.excelImportPhaseText = `2/2: Resimler kaydediliyor… (${Math.min(i+chunk.length, uniqueImages.length)}/${uniqueImages.length})`;
+  const succeededVariants = new Set();
+  const imageChunks = [];
+  for(let i=0;i<uniqueImages.length;i+=IMAGE_CHUNK_SIZE) imageChunks.push(uniqueImages.slice(i, i+IMAGE_CHUNK_SIZE));
+  for(let ci=0; ci<imageChunks.length; ci++){
+    const chunk = imageChunks[ci];
+    state.excelImportPhaseText = `2/2: Resimler — parça ${ci+1}/${imageChunks.length}`;
     render();
+    let data = null, err = null;
     try{
       const res = await fetchWithTimeout(API_URL, {
         method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
         body: JSON.stringify({action:'bulkSetVariantImages', auth:{username:session.username, passwordHash:session.passwordHash}, images:chunk})
       }, 90000);
-      const data = await res.json();
-      if(data && data.ok) imagesUpdated += data.updated||0;
-    }catch(e){ /* individual image failures aren't attributed back to specific rows here */ }
+      data = await res.json();
+    }catch(e){ err = e; }
+    if(data && data.ok){
+      chunk.forEach(im=>succeededVariants.add(im.variantId));
+    } else {
+      const reason = describeFailure(data, err);
+      chunk.forEach(im=>{
+        rows.forEach(row=>{ if(variantByBarcode[row.barcode]===im.variantId && !rowErrorReason[row.barcode]) rowErrorReason[row.barcode]=reason; });
+      });
+    }
   }
 
   // Mark each row's final status and tally
   let okCount = 0, errCount = 0;
+  const reasonCounts = {};
   rows.forEach(row=>{
-    if(rowErrors.has(row.barcode) || !variantByBarcode[row.barcode]){ row.status='error'; errCount++; }
-    else { row.status='ok'; okCount++; }
+    const variantId = variantByBarcode[row.barcode];
+    const failed = !variantId || rowErrorReason[row.barcode] || !succeededVariants.has(variantId);
+    if(failed){
+      row.status='error';
+      errCount++;
+      const reason = rowErrorReason[row.barcode] || 'bilinmeyen hata';
+      reasonCounts[reason] = (reasonCounts[reason]||0)+1;
+    } else {
+      row.status='ok';
+      okCount++;
+    }
   });
   state.excelImportProgress = rows.length;
 
   state.excelImportRunning = false;
   state.excelImportDone = true;
   state.excelImportPhaseText = null;
-  state.excelImportResultText = errCount>0 ? `${okCount} resim kaydedildi, ${errCount} hata` : `${okCount} resim başarıyla kataloğa eklendi`;
+  const topReason = Object.keys(reasonCounts).sort((a,b)=>reasonCounts[b]-reasonCounts[a])[0];
+  state.excelImportResultText = errCount>0 ? `${okCount} resim kaydedildi, ${errCount} hata — sebep: ${topReason}` : `${okCount} resim başarıyla kataloğa eklendi`;
   await refreshData(); // resync products/variants/skus from the server
   render();
   showToast(state.excelImportResultText);
