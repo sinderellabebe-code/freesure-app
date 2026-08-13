@@ -1375,28 +1375,26 @@ function toggleProductSelectAllVisible(){
   else visibleIds.forEach(id=>state.productsManageSelected.add(id));
   render();
 }
+async function reactivateProduct(productId){
+  const p = state.products.find(x=>x.id===productId);
+  if(!p) return;
+  p.active = true;
+  render();
+  await patchProducts([{id:productId, active:true}]);
+  showToast('Ref ' + p.refNo + ' kataloğa geri eklendi');
+}
 async function bulkDeleteSelectedProducts(){
   const ids = Array.from(state.productsManageSelected);
   if(ids.length===0) return;
-  if(!confirm(`${ids.length} modeli — tüm renk, beden ve barkod kayıtlarıyla birlikte — silmek istediğinize emin misiniz? Bu işlem geri alınamaz.`)) return;
+  if(!confirm(`${ids.length} modeli kataloğdan kaldırmak istediğinize emin misiniz?\n\nBu işlem resim, fiyat ve Depo stok bilgisini SİLMEZ — sadece Modeller galerisinden ve kataloğdan gizler. İstediğiniz zaman geri ekleyebilirsiniz.`)) return;
   state.productsManageBulkDeleting = true;
   render();
-  // Sequential, one product at a time — same proven pattern used for bulk delete in Depo.
-  for(const id of ids){
-    const vs = variantsFor(id);
-    const vids = new Set(vs.map(v=>v.id));
-    for(const v of vs){ await saveKey('catalogVariant:'+v.id, null); }
-    const skuIdsToDelete = state.skus.filter(s=>vids.has(s.variantId)).map(s=>s.id);
-    await deleteSkuRows(skuIdsToDelete);
-    state.variants = state.variants.filter(v=>v.productId!==id);
-    state.skus = state.skus.filter(s=>!vids.has(s.variantId));
-    state.products = state.products.filter(p=>p.id!==id);
-  }
-  await patchProducts([], ids);
+  ids.forEach(id=>{ const p = state.products.find(x=>x.id===id); if(p) p.active = false; });
+  await patchProducts(ids.map(id=>({id, active:false})));
   state.productsManageSelected = new Set();
   state.productsManageBulkDeleting = false;
   render();
-  showToast(`${ids.length} model silindi`);
+  showToast(`${ids.length} model kataloğdan kaldırıldı — Depo/resim/fiyat bilgisi korunuyor`);
 }
 function openBulkProductEditModal(){
   state.modalMode = 'bulkProductEdit';
@@ -1429,19 +1427,14 @@ async function commitBulkProductEdit(){
   render();
 }
 async function deleteProduct(productId){
-  if(!confirm('Bu modeli, tüm renklerini ve bedenlerini silmek istediğinize emin misiniz?')) return;
-  const vs = variantsFor(productId);
-  const vids = new Set(vs.map(v=>v.id));
-  for(const v of vs){ await saveKey('catalogVariant:'+v.id, null); }
-  const skuIdsToDelete = state.skus.filter(s=>vids.has(s.variantId)).map(s=>s.id);
-  state.variants = state.variants.filter(v=>v.productId!==productId);
-  state.skus = state.skus.filter(s=>!vids.has(s.variantId));
-  state.products = state.products.filter(p=>p.id!==productId);
+  const p = state.products.find(x=>x.id===productId);
+  if(!p) return;
+  if(!confirm(`Ref ${p.refNo}'i kataloğdan kaldırmak istediğinize emin misiniz?\n\nBu işlem resim, fiyat ve Depo stok bilgisini SİLMEZ — sadece Modeller galerisinden ve kataloğdan gizler. Depo sayfasından "Kataloğa Ekle" ile istediğiniz zaman geri ekleyebilirsiniz.`)) return;
+  p.active = false;
   state.view = 'products'; state.selectedProductId = null;
   render();
-  await patchProducts([], [productId]);
-  await deleteSkuRows(skuIdsToDelete);
-  showToast('Model silindi');
+  await patchProducts([{id:productId, active:false}]);
+  showToast('Ref ' + p.refNo + ' kataloğdan kaldırıldı — Depo/resim/fiyat bilgisi korunuyor');
 }
 async function addVariant(productId, colorName, image){
   const existing = variantsFor(productId);
@@ -1829,9 +1822,12 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
   // as-is instead of computing a new one, and allows non-numeric reference codes.
   let product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNo||'').trim().toUpperCase());
   if(!product){
-    product = {id:uid(), refNo:(refNo||'').trim(), name:'', price:0, createdAt:todayISO(), createdBy:session.displayName};
+    product = {id:uid(), refNo:(refNo||'').trim(), name:'', price:0, active:true, createdAt:todayISO(), createdBy:session.displayName};
     state.products = [...state.products, product];
     await patchProducts([product]);
+  } else if(product.active === false){
+    product.active = true;
+    await patchProducts([{id:product.id, active:true}]);
   }
   let variant = state.variants.find(v=>v.productId===product.id && v.colorName===(colorName||'').trim());
   if(!variant){
@@ -1853,14 +1849,23 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
   }
   return {productId:product.id, variantId:variant.id, skuId:sku.id};
 }
-async function addWarehouseItemToCatalog(barcode){
+async function toggleCatalogMembership(barcode){
   const item = state.warehouseItems.find(w=>w.barcode===barcode);
   if(!item) return;
-  if(!item.refNo && !item.colorName){ showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
-  showToast('Kataloğa ekleniyor…');
-  await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
-  render();
-  showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+  const product = item.refNo ? state.products.find(p=>padRef(p.refNo)===padRef(item.refNo)) : null;
+  const isActive = !!(product && product.active !== false);
+  if(isActive){
+    product.active = false;
+    render();
+    await patchProducts([{id:product.id, active:false}]);
+    showToast('Kataloğdan kaldırıldı — resim, fiyat ve depo stoğu korunuyor, istediğiniz zaman geri ekleyebilirsiniz');
+  } else {
+    if(!item.refNo && !item.colorName){ showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
+    showToast('Kataloğa ekleniyor…');
+    await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
+    render();
+    showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+  }
 }
 
 // ---------- Toplu Görsel Yükle: dosya adından Ref+Renk çözüp tüm bedenleri tek görsele bağlar ----------
@@ -2181,7 +2186,10 @@ async function commitBulkImageImport(){
   showToast(`${rows.length} görsel işlendi — ${totalVariants} yeni renk, ${totalLinked} beden kataloğa bağlandı`);
 }
 function isBarcodeInCatalog(barcode){
-  return state.skus.some(s=>s.barcode===barcode);
+  const item = state.warehouseItems.find(w=>w.barcode===barcode);
+  if(!item || !item.refNo) return state.skus.some(s=>s.barcode===barcode); // no ref to check — fall back to raw SKU existence
+  const product = state.products.find(p=>padRef(p.refNo)===padRef(item.refNo));
+  return !!(product && product.active !== false);
 }
 async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
   let product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
@@ -3714,11 +3722,15 @@ function renderGalleryLightboxModal(){
   </div>`;
 }
 function catalogGalleryEntries(){
-  // One entry per Ref+Renk that actually has a Depo stock record — this is deliberately driven
-  // by Depo, not the catalog structure, so the gallery only ever shows real, stocked items.
+  // One entry per Ref+Renk that (a) has a Depo stock record AND (b) has been explicitly added to
+  // the catalog (Depo's "Kataloğa Ekle" button) and is still active — this is what makes the
+  // button a real toggle: adding populates this gallery, removing hides it again without
+  // touching the underlying Depo stock, images, or price.
   const map = {};
   state.warehouseItems.forEach(w=>{
     if(!w.refNo || !w.colorName) return;
+    const product = state.products.find(p=>padRef(p.refNo)===padRef(w.refNo));
+    if(!product || product.active === false) return;
     const key = orderGroupKey(w.refNo, w.colorName);
     if(!map[key]) map[key] = {refNo:w.refNo, colorName:w.colorName, image:null};
   });
@@ -3856,7 +3868,7 @@ function renderProductsManageView(){
     <div class="toolbar" style="background:var(--accent-ink);border-radius:6px;padding:10px 14px">
       <span style="color:#fff;font-weight:700;font-size:13px">${selectedCount} model seçildi</span>
       <button class="btn small" style="background:#fff" onclick="openBulkProductEditModal()">Birim/Cinsiyet/Sezon Toplu Düzenle</button>
-      <button class="btn small" style="background:var(--danger);color:#fff" onclick="bulkDeleteSelectedProducts()">Seçilenleri Sil</button>
+      <button class="btn small" style="background:var(--warn);color:#fff" onclick="bulkDeleteSelectedProducts()">Seçilenleri Kataloğdan Kaldır</button>
       <button class="btn small ghost" style="color:#fff;border-color:#fff;background:transparent" onclick="state.productsManageSelected=new Set();render();">Seçimi Temizle</button>
     </div>
   ` : ''}`;
@@ -3873,8 +3885,10 @@ function renderProductsManageView(){
         const cover = (p.coverVariantId && vs.find(v=>v.id===p.coverVariantId)) || vs.find(v=>v.image) || null;
         const stock = totalStockForProduct(p.id);
         const isSelected = state.productsManageSelected.has(p.id);
-        return `<div class="product-card" style="position:relative;${isSelected?'outline:2.5px solid var(--accent-ink)':''}" onclick="openProduct('${p.id}')">
+        const isRemoved = p.active === false;
+        return `<div class="product-card" style="position:relative;${isSelected?'outline:2.5px solid var(--accent-ink)':''}${isRemoved?';opacity:0.55':''}" onclick="openProduct('${p.id}')">
           <input type="checkbox" ${isSelected?'checked':''} onclick="event.stopPropagation();toggleProductSelect('${p.id}')" style="position:absolute;top:8px;left:8px;width:18px;height:18px;z-index:2" />
+          ${isRemoved ? `<span style="position:absolute;top:8px;right:8px;z-index:2;background:var(--danger);color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:3px">KATALOGDAN KALDIRILDI</span>` : ''}
           ${cover && cover.image ? `<img class="pc-img" src="${cover.image}" alt="${attrEsc(p.refNo)}" />` : `<div class="pc-img-placeholder">Görsel yok</div>`}
           <div class="pc-body">
             <div class="pc-ref">Ref: ${esc(p.refNo)}${(p.gender||p.season) ? ` <span style="font-weight:400;color:var(--muted)">— ${[p.gender,p.season].filter(Boolean).join(' · ')}</span>` : ''}</div>
@@ -3892,6 +3906,7 @@ function renderProductsManageView(){
               <label>Fiyat ($) — tüm seri</label>
               <input type="number" min="0" step="0.01" value="${p.price||0}" onchange="updateProductPrice('${p.id}', this.value)" />
             </div>
+            ${isRemoved ? `<button class="btn small primary" style="width:100%;margin-top:8px" onclick="event.stopPropagation();reactivateProduct('${p.id}')">↩ Kataloğa Geri Ekle</button>` : ''}
           </div>
         </div>`;
       }).join('')}
@@ -3946,7 +3961,7 @@ function renderProductDetail(p){
     <div style="display:flex;gap:8px">
       <button class="btn small ghost" onclick="openPdfOptionsModal()">PDF Oluştur</button>
       <button class="btn small primary" onclick="openNewVariantModal()">+ Renk Ekle</button>
-      <button class="btn small danger-outline" onclick="deleteProduct('${p.id}')">Modeli Sil</button>
+      <button class="btn small danger-outline" onclick="deleteProduct('${p.id}')">Kataloğdan Kaldır</button>
     </div>
   </div>`;
 
@@ -4220,7 +4235,7 @@ function renderDepoView(){
           </td>
           ${canManage ? `<td><input type="number" min="0" step="0.01" value="${price!=null?price:''}" placeholder="0.00" class="depo-price-input" onchange="updateDepoPrice('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}', this.value)" /></td>
           <td class="depo-td-muted">${tryPrice!=null ? formatMoney(tryPrice)+' ₺' : (state.fxRateLoading ? 'kur…' : '—')}</td>` : ''}
-          <td>${session.role!=='depocu' ? (inCatalog ? `<span class="chip wa">Kataloğda ✓</span>` : `<button class="btn small ghost" onclick="addWarehouseItemToCatalog('${attrEsc(it.barcode)}')">Kataloğa Ekle</button>`) : '<span class="depo-td-muted">—</span>'}</td>
+          <td>${session.role!=='depocu' ? (inCatalog ? `<button class="btn small ghost" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')" title="Kataloğdan kaldır — resim/fiyat/stok silinmez">✓ Kataloğda — Kaldır</button>` : `<button class="btn small primary" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')">+ Kataloğa Ekle</button>`) : '<span class="depo-td-muted">—</span>'}</td>
           ${canManage ? `<td><button class="sku-del" onclick="deleteSelectedSingle('${attrEsc(it.barcode)}')" title="Bu kaydı sil">✕</button></td>` : ''}
         </tr>`;
       }).join('')}
