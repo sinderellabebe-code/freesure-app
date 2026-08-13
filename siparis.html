@@ -1138,18 +1138,47 @@ function removeOrderColorLine(groupKey){
   state.orderDraft.lines = state.orderDraft.lines.filter(l=>l.groupKey!==groupKey);
   render();
 }
+function renderOrderTotalsBoxInner(d, subtotal, discountAmt, total, balance){
+  return `<span>Total Quantity</span><span>${orderDraftQtyByUnit(d)}</span>
+    <span>Subtotal</span><span>$${formatMoney(subtotal)}</span>
+    ${discountAmt>0 ? `<span>Discount</span><span>−$${formatMoney(discountAmt)}</span>` : ''}
+    <span class="tot-label">Total</span><span class="tot-value">$${formatMoney(total)}</span>
+    ${(Number(d.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−$${formatMoney(d.deposit)}</span>` : ''}
+    <span class="bal-label" style="color:${balance>0?'var(--danger)':'var(--good)'}">Balance Due</span><span class="bal-value" style="color:${balance>0?'var(--danger)':'var(--good)'}">$${formatMoney(balance)}</span>`;
+}
+function refreshOrderTotalsBox(changedGroupKey){
+  // Updates only the totals summary (and, if given, one line's subtotal) in the DOM, without a
+  // full render() — keeps focus/caret position intact in whichever input the person is still
+  // typing in.
+  const box = document.getElementById('order-totals-box');
+  const d = state.orderDraft;
+  if(!box || !d) return;
+  const subtotal = orderLineSubtotal(d);
+  const discountAmt = orderDiscountAmount(d);
+  const total = Math.max(0, subtotal - discountAmt);
+  const balance = Math.max(0, total - (Number(d.deposit)||0));
+  box.innerHTML = renderOrderTotalsBoxInner(d, subtotal, discountAmt, total, balance);
+  if(changedGroupKey){
+    const line = d.lines.find(l=>l.groupKey===changedGroupKey);
+    const span = document.getElementById('order-line-subtotal-'+changedGroupKey);
+    if(line && span){
+      const qty = line.sizes.reduce((s,x)=>s+x.qty,0);
+      span.innerHTML = `${qty} ${esc(unitForRefNo(line.refNo))} — Satır toplamı: <b>$${formatMoney(qty*line.unitPrice)}</b>`;
+    }
+  }
+}
 function setOrderLineQty(groupKey, barcode, value){
   const line = state.orderDraft.lines.find(l=>l.groupKey===groupKey);
   if(!line) return;
   const qty = Math.max(0, parseInt(value,10)||0);
   line.sizes.forEach(s=>{ s.qty = qty; }); // same qty across all sizes by default; edit any box afterward to override just that one
-  render();
+  refreshOrderTotalsBox(groupKey);
 }
 function setOrderLinePrice(groupKey, value){
   const line = state.orderDraft.lines.find(l=>l.groupKey===groupKey);
   if(!line) return;
   line.unitPrice = Math.max(0, parseFlexibleNumberOrder(value));
-  render();
+  refreshOrderTotalsBox(groupKey);
 }
 function parseFlexibleNumberOrder(str){
   if(str==null) return 0;
@@ -1159,8 +1188,8 @@ function parseFlexibleNumberOrder(str){
   return isNaN(n) ? 0 : n;
 }
 function setOrderDiscountType(v){ state.orderDraft.discountType = v || null; if(!v) state.orderDraft.discountValue = 0; render(); }
-function setOrderDiscountValue(v){ state.orderDraft.discountValue = parseFlexibleNumberOrder(v); render(); }
-function setOrderDeposit(v){ state.orderDraft.deposit = parseFlexibleNumberOrder(v); render(); }
+function setOrderDiscountValue(v){ state.orderDraft.discountValue = parseFlexibleNumberOrder(v); refreshOrderTotalsBox(); }
+function setOrderDeposit(v){ state.orderDraft.deposit = parseFlexibleNumberOrder(v); refreshOrderTotalsBox(); }
 function setOrderNotes(v){ state.orderDraft.notes = v; }
 function flattenOrderLines(draft){
   // Converts the per-color/per-size UI structure into a flat line list for storage — one entry
@@ -3107,7 +3136,7 @@ function renderOrderNewView(){
             <div style="display:flex;align-items:center;gap:8px">
               <label style="font-size:11px;color:var(--muted)">Birim Fiyat ($)</label>
               <input type="text" value="${l.unitPrice}" style="width:80px;border:1.5px solid var(--line);border-radius:3px;padding:5px 7px" oninput="setOrderLinePrice('${attrEsc(l.groupKey)}',this.value)" />
-              <span style="margin-left:auto;font-size:12px;color:var(--muted)">${l.sizes.reduce((s,x)=>s+x.qty,0)} ${esc(unitForRefNo(l.refNo))} — Satır toplamı: <b>$${formatMoney(l.sizes.reduce((s,x)=>s+x.qty,0)*l.unitPrice)}</b></span>
+              <span id="order-line-subtotal-${attrEsc(l.groupKey)}" style="margin-left:auto;font-size:12px;color:var(--muted)">${l.sizes.reduce((s,x)=>s+x.qty,0)} ${esc(unitForRefNo(l.refNo))} — Satır toplamı: <b>$${formatMoney(l.sizes.reduce((s,x)=>s+x.qty,0)*l.unitPrice)}</b></span>
             </div>
           </div>
         </div>
@@ -3137,13 +3166,8 @@ function renderOrderNewView(){
     <textarea onchange="setOrderNotes(this.value)">${esc(d.notes||'')}</textarea>
   </div>
 
-  <div class="order-totals-box">
-    <span>Total Quantity</span><span>${orderDraftQtyByUnit(d)}</span>
-    <span>Subtotal</span><span>$${formatMoney(subtotal)}</span>
-    ${discountAmt>0 ? `<span>Discount</span><span>−$${formatMoney(discountAmt)}</span>` : ''}
-    <span class="tot-label">Total</span><span class="tot-value">$${formatMoney(total)}</span>
-    ${(Number(d.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−$${formatMoney(d.deposit)}</span>` : ''}
-    <span class="bal-label" style="color:${balance>0?'var(--danger)':'var(--good)'}">Balance Due</span><span class="bal-value" style="color:${balance>0?'var(--danger)':'var(--good)'}">$${formatMoney(balance)}</span>
+  <div class="order-totals-box" id="order-totals-box">
+    ${renderOrderTotalsBoxInner(d, subtotal, discountAmt, total, balance)}
   </div>
 
   <div class="modal-actions" style="justify-content:flex-start">

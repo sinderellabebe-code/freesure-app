@@ -1217,13 +1217,23 @@ window.addEventListener('beforeunload', function(e){
 });
 async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel){
   beginCriticalWrite();
+  const clientRequestId = uid() + '-' + Date.now();
+  const body = JSON.stringify({action:'addStockMovement', auth:{username:session.username, passwordHash:session.passwordHash}, clientRequestId,
+    movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName}});
+  async function attempt(){
+    const res = await fetchWithTimeout(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body }, 20000);
+    return await res.json();
+  }
   try{
-    const res = await fetch(API_URL, {
-      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'addStockMovement', auth:{username:session.username, passwordHash:session.passwordHash},
-        movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName}})
-    });
-    const data = await res.json();
+    let data;
+    try{
+      data = await attempt();
+    }catch(e){
+      // Timed out or the connection dropped — the write may well have gone through server-side.
+      // Retry ONCE with the same clientRequestId: if the first attempt did succeed, the server
+      // returns the same cached result instead of applying the change again, so this is safe.
+      data = await attempt();
+    }
     if(data && data.ok){
       let item = state.warehouseItems.find(w=>w.barcode===barcode);
       if(!item){ item = {barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', stock:0}; state.warehouseItems.push(item); }
@@ -1997,7 +2007,15 @@ function openScanMode(mode){
   render();
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
-function closeScanMode(){ state.modalMode = null; render(); }
+function closeScanMode(){
+  const s = state.scan;
+  const pendingCount = s.sessionLog.filter(l=>l.status==='pending').length;
+  if(s.stage==='pending' || pendingCount>0){
+    if(!confirm(`${pendingCount>0?pendingCount+' tarama':'Bir kayıt'} hâlâ sunucuya kaydediliyor. Şimdi kapatırsanız bu kayıtların durumunu göremezsiniz (kaydedilmiş de olabilirler, edilmemiş de olabilirler). Yine de kapatmak istediğinize emin misiniz?`)) return;
+  }
+  state.modalMode = null;
+  render();
+}
 function renderScanModePromptModal(){
   return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
     <div class="modal" style="max-width:380px;text-align:center">
@@ -3796,7 +3814,7 @@ function renderScanModal(){
     <div class="modal wide">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <h2 style="margin:0">Hızlı Tarama</h2>
-        <button class="btn small ghost" ${s.stage==='pending'?'disabled':''} onclick="closeScanMode()">Kapat</button>
+        <button class="btn small ghost" onclick="closeScanMode()">Kapat</button>
       </div>
       <div style="text-align:center;padding:14px;border-radius:6px;margin-bottom:14px;font-size:17px;font-weight:800;letter-spacing:.02em;${s.mode==='in'?'background:var(--good);color:#fff':'background:var(--danger);color:#fff'}">
         ${s.mode==='in' ? '+ DEPOYA GİRİŞ' : '− DEPODAN ÇIKIŞ'}
