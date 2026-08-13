@@ -1337,6 +1337,32 @@ async function bulkAddSelectedToCatalog(){
   render();
   showToast(errCount>0 ? `${okCount} ürün kataloğa eklendi, ${errCount} hata` : `${okCount} ürün kataloğa eklendi`);
 }
+async function bulkRemoveSelectedFromCatalog(){
+  const barcodes = Array.from(state.depoSelected);
+  if(barcodes.length===0){ showToast('Önce kataloğdan kaldırmak istediğiniz kayıtları seçin'); return; }
+  const productIds = new Set();
+  barcodes.forEach(b=>{
+    const it = state.warehouseItems.find(w=>w.barcode===b);
+    if(!it || !it.refNo) return;
+    const product = state.products.find(p=>padRef(p.refNo)===padRef(it.refNo));
+    if(product && product.active!==false) productIds.add(product.id);
+  });
+  if(productIds.size===0){
+    showToast('Seçilenlerin hiçbiri şu an katalogda değil');
+    state.depoSelected = new Set();
+    render();
+    return;
+  }
+  if(!confirm(`${productIds.size} modeli kataloğdan kaldırmak istediğinize emin misiniz?\n\nResim, fiyat ve Depo stoğu korunur — sadece kataloğdan/Modeller galerisinden gizlenir.`)) return;
+  state.depoBulkCatalogRunning = true;
+  render();
+  productIds.forEach(id=>{ const p = state.products.find(x=>x.id===id); if(p) p.active = false; });
+  await patchProducts(Array.from(productIds).map(id=>({id, active:false})));
+  state.depoBulkCatalogRunning = false;
+  state.depoSelected = new Set();
+  render();
+  showToast(`${productIds.size} model kataloğdan kaldırıldı`);
+}
 async function deleteAllDepoItems(){
   const barcodes = state.warehouseItems.map(w=>w.barcode);
   if(barcodes.length===0) return;
@@ -2866,6 +2892,7 @@ function renderDepoView(){
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>` : ''}
     ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
+    ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkRemoveSelectedFromCatalog()">${state.depoBulkCatalogRunning?'⏳ İşleniyor…':'Seçilenleri Kataloğdan Kaldır ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
     ${canManage && selectedCount>0 ? `<button class="btn ghost small" onclick="clearDepoSelection()">✕ Seçimi Temizle (${selectedCount})</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}

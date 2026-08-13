@@ -817,6 +817,7 @@ const state = {
   excelImportResultText: '',
   productsManageSelected: new Set(),
   productsManageShowOrphans: false,
+  productsManageSortBy: 'ref',
   productsManageBulkDeleting: false,
   productsManageVisibleIds: [],
   filterGender: new Set(),
@@ -1375,14 +1376,6 @@ function toggleProductSelectAllVisible(){
   else visibleIds.forEach(id=>state.productsManageSelected.add(id));
   render();
 }
-async function reactivateProduct(productId){
-  const p = state.products.find(x=>x.id===productId);
-  if(!p) return;
-  p.active = true;
-  render();
-  await patchProducts([{id:productId, active:true}]);
-  showToast('Ref ' + p.refNo + ' kataloğa geri eklendi');
-}
 async function bulkDeleteSelectedProducts(){
   const ids = Array.from(state.productsManageSelected);
   if(ids.length===0) return;
@@ -1576,11 +1569,64 @@ function toggleDepoSelect(barcode){
   else state.depoSelected.add(barcode);
   render();
 }
-function toggleDepoSelectAll(visibleBarcodes){
-  const allSelected = visibleBarcodes.every(b=>state.depoSelected.has(b));
+function toggleDepoSelectAll(){
+  const visibleBarcodes = state.depoVisibleBarcodes || [];
+  const allSelected = visibleBarcodes.length>0 && visibleBarcodes.every(b=>state.depoSelected.has(b));
   if(allSelected) visibleBarcodes.forEach(b=>state.depoSelected.delete(b));
   else visibleBarcodes.forEach(b=>state.depoSelected.add(b));
   render();
+}
+function clearDepoSelection(){ state.depoSelected = new Set(); render(); }
+async function bulkAddSelectedToCatalog(){
+  const barcodes = Array.from(state.depoSelected);
+  if(barcodes.length===0){ showToast('Önce kataloğa eklemek istediğiniz kayıtları seçin'); return; }
+  const items = barcodes.map(b=>state.warehouseItems.find(w=>w.barcode===b)).filter(it=>it && !isBarcodeInCatalog(it.barcode));
+  if(items.length===0){
+    showToast('Seçilenlerin hepsi zaten katalogda');
+    state.depoSelected = new Set();
+    render();
+    return;
+  }
+  state.depoBulkCatalogRunning = true;
+  render();
+  let okCount = 0, errCount = 0;
+  for(const it of items){
+    try{
+      await ensureCatalogEntryForExistingBarcode(it.barcode, it.refNo, it.colorName, it.sizeLabel);
+      okCount++;
+    }catch(err){ errCount++; }
+    render();
+  }
+  state.depoBulkCatalogRunning = false;
+  state.depoSelected = new Set();
+  render();
+  showToast(errCount>0 ? `${okCount} ürün kataloğa eklendi, ${errCount} hata` : `${okCount} ürün kataloğa eklendi`);
+}
+async function bulkRemoveSelectedFromCatalog(){
+  const barcodes = Array.from(state.depoSelected);
+  if(barcodes.length===0){ showToast('Önce kataloğdan kaldırmak istediğiniz kayıtları seçin'); return; }
+  const productIds = new Set();
+  barcodes.forEach(b=>{
+    const it = state.warehouseItems.find(w=>w.barcode===b);
+    if(!it || !it.refNo) return;
+    const product = state.products.find(p=>padRef(p.refNo)===padRef(it.refNo));
+    if(product && product.active!==false) productIds.add(product.id);
+  });
+  if(productIds.size===0){
+    showToast('Seçilenlerin hiçbiri şu an katalogda değil');
+    state.depoSelected = new Set();
+    render();
+    return;
+  }
+  if(!confirm(`${productIds.size} modeli kataloğdan kaldırmak istediğinize emin misiniz?\n\nResim, fiyat ve Depo stoğu korunur — sadece kataloğdan/Modeller galerisinden gizlenir.`)) return;
+  state.depoBulkCatalogRunning = true;
+  render();
+  productIds.forEach(id=>{ const p = state.products.find(x=>x.id===id); if(p) p.active = false; });
+  await patchProducts(Array.from(productIds).map(id=>({id, active:false})));
+  state.depoBulkCatalogRunning = false;
+  state.depoSelected = new Set();
+  render();
+  showToast(`${productIds.size} model kataloğdan kaldırıldı`);
 }
 async function deleteWarehouseItems(barcodes){
   if(barcodes.length===0) return;
@@ -3822,8 +3868,9 @@ function renderProductsManageView(){
   const genderOptions = ['KIZ','ERKEK','UNISEX'];
   const seasonOptions = ['YAZ','KIŞ','TÜM MEVSİM'];
   const depoRefs = new Set(state.warehouseItems.map(w=>padRef(w.refNo)));
-  const orphanCount = state.products.filter(p=>!depoRefs.has(padRef(p.refNo))).length;
+  const orphanCount = state.products.filter(p=>p.active!==false && !depoRefs.has(padRef(p.refNo))).length;
   const filtered = state.products.filter(p=>{
+    if(p.active===false) return false; // removed models never appear here
     if(!state.productsManageShowOrphans && !depoRefs.has(padRef(p.refNo))) return false;
     if(state.search){
       const q = state.search.toLowerCase();
@@ -3832,7 +3879,11 @@ function renderProductsManageView(){
     if(state.filterGender.size>0 && !state.filterGender.has(p.gender||'')) return false;
     if(state.filterSeason.size>0 && !state.filterSeason.has(p.season||'')) return false;
     return true;
-  }).sort((a,b)=>padRef(a.refNo).localeCompare(padRef(b.refNo)));
+  }).sort((a,b)=>{
+    if(state.productsManageSortBy==='stock') return totalStockForProduct(b.id)-totalStockForProduct(a.id);
+    if(state.productsManageSortBy==='price') return (Number(b.price)||0)-(Number(a.price)||0);
+    return padRef(a.refNo).localeCompare(padRef(b.refNo), undefined, {numeric:true});
+  });
   state.productsManageVisibleIds = filtered.map(p=>p.id);
   const selectedCount = state.productsManageSelected.size;
 
@@ -3841,6 +3892,11 @@ function renderProductsManageView(){
     <input type="text" id="products-search-input" placeholder="Referans no veya model adına göre ara…" value="${attrEsc(state.search)}" onkeydown="if(event.key==='Enter') setSearch(this.value)" />
     <button class="btn ghost small" onclick="setSearch(document.getElementById('products-search-input').value)">Ara</button>
     ${state.search ? `<button class="btn ghost small" onclick="setSearch('')">✕ Temizle</button>` : ''}
+    <select onchange="state.productsManageSortBy=this.value;render();" style="padding:8px 10px;border:1.5px solid var(--ink);border-radius:3px;font-size:13px;font-family:inherit">
+      <option value="ref" ${state.productsManageSortBy==='ref'?'selected':''}>Referansa Göre Sırala</option>
+      <option value="stock" ${state.productsManageSortBy==='stock'?'selected':''}>Stoğa Göre Sırala (çoktan aza)</option>
+      <option value="price" ${state.productsManageSortBy==='price'?'selected':''}>Fiyata Göre Sırala (çoktan aza)</option>
+    </select>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     <button class="btn ghost small" onclick="exportBarcodeListCSV()">Barkod Listesi (CSV)</button>
     <button class="btn primary small" onclick="openNewProductModal()">+ Yeni Model</button>
@@ -3885,10 +3941,8 @@ function renderProductsManageView(){
         const cover = (p.coverVariantId && vs.find(v=>v.id===p.coverVariantId)) || vs.find(v=>v.image) || null;
         const stock = totalStockForProduct(p.id);
         const isSelected = state.productsManageSelected.has(p.id);
-        const isRemoved = p.active === false;
-        return `<div class="product-card" style="position:relative;${isSelected?'outline:2.5px solid var(--accent-ink)':''}${isRemoved?';opacity:0.55':''}" onclick="openProduct('${p.id}')">
+        return `<div class="product-card" style="position:relative;${isSelected?'outline:2.5px solid var(--accent-ink)':''}" onclick="openProduct('${p.id}')">
           <input type="checkbox" ${isSelected?'checked':''} onclick="event.stopPropagation();toggleProductSelect('${p.id}')" style="position:absolute;top:8px;left:8px;width:18px;height:18px;z-index:2" />
-          ${isRemoved ? `<span style="position:absolute;top:8px;right:8px;z-index:2;background:var(--danger);color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:3px">KATALOGDAN KALDIRILDI</span>` : ''}
           ${cover && cover.image ? `<img class="pc-img" src="${cover.image}" alt="${attrEsc(p.refNo)}" />` : `<div class="pc-img-placeholder">Görsel yok</div>`}
           <div class="pc-body">
             <div class="pc-ref">Ref: ${esc(p.refNo)}${(p.gender||p.season) ? ` <span style="font-weight:400;color:var(--muted)">— ${[p.gender,p.season].filter(Boolean).join(' · ')}</span>` : ''}</div>
@@ -3906,7 +3960,6 @@ function renderProductsManageView(){
               <label>Fiyat ($) — tüm seri</label>
               <input type="number" min="0" step="0.01" value="${p.price||0}" onchange="updateProductPrice('${p.id}', this.value)" />
             </div>
-            ${isRemoved ? `<button class="btn small primary" style="width:100%;margin-top:8px" onclick="event.stopPropagation();reactivateProduct('${p.id}')">↩ Kataloğa Geri Ekle</button>` : ''}
           </div>
         </div>`;
       }).join('')}
@@ -4170,6 +4223,7 @@ function renderDepoView(){
   if(state.depoPage < 1) state.depoPage = 1;
   const pageItems = items.slice((state.depoPage-1)*DEPO_PAGE_SIZE, state.depoPage*DEPO_PAGE_SIZE);
   const visibleBarcodes = pageItems.map(it=>it.barcode);
+  state.depoVisibleBarcodes = visibleBarcodes;
   const allSelected = canManage && visibleBarcodes.length>0 && visibleBarcodes.every(b=>state.depoSelected.has(b));
   const selectedCount = state.depoSelected.size;
 
@@ -4195,11 +4249,14 @@ function renderDepoView(){
     <button class="btn primary small" onclick="openScanMode('out')">📷 Hızlı Tarama</button>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openNewDepoItemModal()">+ Yeni Depo Kaydı</button>` : ''}
-    <button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Stok Yükle (Excel)</button>
+    <button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Model Yükle (Excel)</button>
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
     <button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>
+    ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
+    ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkRemoveSelectedFromCatalog()">${state.depoBulkCatalogRunning?'⏳ İşleniyor…':'Seçilenleri Kataloğdan Kaldır ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${selectedCount===0?'disabled':''} onclick="deleteSelectedDepoItems()">Seçilenleri Sil (${selectedCount})</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" onclick="deleteAllDepoItems()">Tümünü Sil</button>` : ''}
+    ${canManage && selectedCount>0 ? `<button class="btn ghost small" onclick="clearDepoSelection()">✕ Seçimi Temizle (${selectedCount})</button>` : ''}
     <div class="count">${items.length} / ${state.warehouseItems.length} kayıt</div>
   </div>`;
 
@@ -4212,7 +4269,7 @@ function renderDepoView(){
     const cols = canManage ? '26px 56px 130px 1fr 150px 100px 100px 130px 44px' : '56px 130px 1fr 150px 90px';
     out += `<div class="depo-table-wrap"><table class="depo-table" style="--depo-cols:${cols}">
       <thead><tr>
-        ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll(${JSON.stringify(visibleBarcodes)})" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
+        ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll()" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
         <th>Sıra No</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}<th>Kataloğa Ekle</th>${canManage?'<th></th>':''}
       </tr></thead>
       <tbody>
