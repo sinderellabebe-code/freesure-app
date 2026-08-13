@@ -818,6 +818,7 @@ const state = {
   productsManageSelected: new Set(),
   productsManageShowOrphans: false,
   productsManageSortBy: 'ref',
+  depoTogglingBarcodes: new Set(),
   productsManageBulkDeleting: false,
   productsManageVisibleIds: [],
   filterGender: new Set(),
@@ -1440,17 +1441,15 @@ async function addVariant(productId, colorName, image){
   await saveKey('catalogVariant:'+v.id, v);
   showToast('Renk eklendi');
 }
-async function deleteVariant(variantId){
+async function clearVariantImage(variantId){
   const v = state.variants.find(x=>x.id===variantId);
-  const label = v ? v.colorName : 'bu renk';
-  if(!confirm('"' + label + '" rengini ve tüm bedenlerini silmek istediğinize emin misiniz?')) return;
-  const skuIdsToDelete = state.skus.filter(s=>s.variantId===variantId).map(s=>s.id);
-  state.variants = state.variants.filter(x=>x.id!==variantId);
-  state.skus = state.skus.filter(s=>s.variantId!==variantId);
+  if(!v) return;
+  const label = v.colorName;
+  if(!confirm(`"${label}" renginin kataloğdaki resmini kaldırmak istediğinize emin misiniz?\n\nDepo'daki stok ve barkod kayıtları etkilenmez — resmi istediğiniz zaman tekrar yükleyebilirsiniz.`)) return;
+  v.image = null;
   render();
-  await saveKey('catalogVariant:'+variantId, null);
-  await deleteSkuRows(skuIdsToDelete);
-  showToast('"' + label + '" silindi');
+  await saveKey('catalogVariant:'+variantId, v);
+  showToast(`"${label}" resmi kaldırıldı`);
 }
 async function setCoverVariant(productId, variantId){
   const p = state.products.find(x=>x.id===productId);
@@ -1898,17 +1897,24 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
 async function toggleCatalogMembership(barcode){
   const item = state.warehouseItems.find(w=>w.barcode===barcode);
   if(!item) return;
+  if(state.depoTogglingBarcodes.has(barcode)) return; // already in flight — ignore repeat clicks
   const product = item.refNo ? state.products.find(p=>padRef(p.refNo)===padRef(item.refNo)) : null;
   const isActive = !!(product && product.active !== false);
+  state.depoTogglingBarcodes.add(barcode);
   if(isActive){
-    product.active = false;
     render();
+    showToast('Kataloğdan kaldırılıyor…', true);
+    product.active = false;
     await patchProducts([{id:product.id, active:false}]);
+    state.depoTogglingBarcodes.delete(barcode);
+    render();
     showToast('Kataloğdan kaldırıldı — resim, fiyat ve depo stoğu korunuyor, istediğiniz zaman geri ekleyebilirsiniz');
   } else {
-    if(!item.refNo && !item.colorName){ showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
-    showToast('Kataloğa ekleniyor…');
+    if(!item.refNo && !item.colorName){ state.depoTogglingBarcodes.delete(barcode); showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
+    render();
+    showToast('Kataloğa ekleniyor…', true);
     await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
+    state.depoTogglingBarcodes.delete(barcode);
     render();
     showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
   }
@@ -3768,15 +3774,13 @@ function renderGalleryLightboxModal(){
   </div>`;
 }
 function catalogGalleryEntries(){
-  // One entry per Ref+Renk that (a) has a Depo stock record AND (b) has been explicitly added to
-  // the catalog (Depo's "Kataloğa Ekle" button) and is still active — this is what makes the
-  // button a real toggle: adding populates this gallery, removing hides it again without
-  // touching the underlying Depo stock, images, or price.
+  // One entry per Ref+Renk that has a Depo stock record — ALL of them, regardless of catalog
+  // active/inactive status, since this list drives the Modeller home page which is meant to
+  // mirror Depo directly. Each entry also carries whether its product is currently active in
+  // the catalog, so the page can show/toggle that state per model.
   const map = {};
   state.warehouseItems.forEach(w=>{
     if(!w.refNo || !w.colorName) return;
-    const product = state.products.find(p=>padRef(p.refNo)===padRef(w.refNo));
-    if(!product || product.active === false) return;
     const key = orderGroupKey(w.refNo, w.colorName);
     if(!map[key]) map[key] = {refNo:w.refNo, colorName:w.colorName, image:null};
   });
@@ -3787,6 +3791,7 @@ function catalogGalleryEntries(){
     entry.image = variant ? variant.image : null;
     entry.variantId = variant ? variant.id : null;
     entry.productId = product ? product.id : null;
+    entry.inCatalog = !!(product && product.active !== false);
   });
   return Object.values(map).sort((a,b)=> padRef(a.refNo).localeCompare(padRef(b.refNo)) || a.colorName.localeCompare(b.colorName));
 }
@@ -3839,23 +3844,37 @@ function renderProductsView(){
     const pageSize = state.galleryPageSize || 30;
     const visibleKeys = refKeys.slice(0, pageSize);
     out += `<div class="field-msg" style="margin-bottom:10px">${visibleKeys.length} / ${refKeys.length} referans gösteriliyor</div>`;
-    out += visibleKeys.map(refNo=>`
+    out += visibleKeys.map(refNo=>{
+      const groupInCatalog = grouped[refNo][0] ? grouped[refNo][0].inCatalog : false;
+      const repItem = state.warehouseItems.find(w=>padRef(w.refNo)===padRef(refNo));
+      const repBarcode = repItem ? repItem.barcode : null;
+      const toggling = repBarcode && state.depoTogglingBarcodes.has(repBarcode);
+      return `
       <div style="margin-bottom:22px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted)">Ref ${esc(refNo)}${(()=>{ const p=state.products.find(pr=>padRef(pr.refNo)===padRef(refNo)); if(!p||(!p.gender&&!p.season)) return ''; return ' — ' + [p.gender,p.season].filter(Boolean).join(' · '); })()}</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="font-weight:700;font-size:13px;color:var(--muted)">Ref ${esc(refNo)}${(()=>{ const p=state.products.find(pr=>padRef(pr.refNo)===padRef(refNo)); if(!p||(!p.gender&&!p.season)) return ''; return ' — ' + [p.gender,p.season].filter(Boolean).join(' · '); })()}</div>
+          ${repBarcode ? (toggling
+            ? `<button class="btn small ghost" disabled>⏳ İşleniyor…</button>`
+            : (groupInCatalog
+              ? `<button class="btn small ghost" onclick="toggleCatalogMembership('${attrEsc(repBarcode)}')" title="Kataloğdan kaldır — resim/fiyat/stok silinmez">✓ Kataloğda — Kaldır</button>`
+              : `<button class="btn small primary" onclick="toggleCatalogMembership('${attrEsc(repBarcode)}')">+ Kataloğa Ekle</button>`))
+            : ''}
+        </div>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           ${grouped[refNo].map(e=>`
-            <div style="width:110px;text-align:center">
+            <div style="width:110px;text-align:center${e.inCatalog?'':';opacity:0.5'}">
               ${e.image
                 ? `<img src="${e.image}" onclick="openGalleryLightbox('${attrEsc(e.refNo)}','${attrEsc(e.colorName)}')" style="width:110px;height:110px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:6px;cursor:pointer" />`
                 : `<div onclick="document.getElementById('single-img-${attrEsc(e.refNo)}-${attrEsc(e.colorName).replace(/[^a-zA-Z0-9]/g,'')}').click()" style="width:110px;height:110px;display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--line);border-radius:6px;cursor:pointer;color:var(--muted);font-size:11px;text-align:center;padding:6px">+ Resim Yükle</div>`
               }
               <input type="file" id="single-img-${attrEsc(e.refNo)}-${attrEsc(e.colorName).replace(/[^a-zA-Z0-9]/g,'')}" accept="image/*" style="display:none" onchange="handleSingleVariantImage(event,'${attrEsc(e.refNo)}','${attrEsc(e.colorName)}')" />
-              <div style="font-size:11px;margin-top:4px;color:var(--muted)">${esc(e.colorName)}</div>
+              <div style="font-size:11px;margin-top:4px;color:var(--muted)">${esc(e.colorName)}${e.inCatalog?'':' (kataloğda değil)'}</div>
             </div>
           `).join('')}
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     if(refKeys.length > visibleKeys.length){
       out += `<button class="btn ghost" style="width:100%;margin-top:6px" onclick="state.galleryPageSize=(state.galleryPageSize||30)+30;render();">+ Daha Fazla Göster (${refKeys.length-visibleKeys.length} kaldı)</button>`;
     }
@@ -4033,7 +4052,7 @@ function renderProductDetail(p){
           <div class="vc-body">
             <div class="vc-top">
               <div class="vc-color">${esc(v.colorName)} <span style="color:var(--muted);font-weight:400;font-size:11px">(#${v.colorOrder})</span></div>
-              <button class="btn small danger-outline" onclick="event.stopPropagation();deleteVariant('${v.id}')" style="padding:2px 7px;font-size:11px">Sil</button>
+              <button class="btn small danger-outline" onclick="event.stopPropagation();clearVariantImage('${v.id}')" style="padding:2px 7px;font-size:11px">Resmi Kaldır</button>
             </div>
             <div style="margin-top:4px">
               <span class="pc-stock-badge ${vLow?'low':''}">${vLow?'⚠ ':''}Stok: ${vStock}</span>
@@ -4292,7 +4311,7 @@ function renderDepoView(){
           </td>
           ${canManage ? `<td><input type="number" min="0" step="0.01" value="${price!=null?price:''}" placeholder="0.00" class="depo-price-input" onchange="updateDepoPrice('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}', this.value)" /></td>
           <td class="depo-td-muted">${tryPrice!=null ? formatMoney(tryPrice)+' ₺' : (state.fxRateLoading ? 'kur…' : '—')}</td>` : ''}
-          <td>${session.role!=='depocu' ? (inCatalog ? `<button class="btn small ghost" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')" title="Kataloğdan kaldır — resim/fiyat/stok silinmez">✓ Kataloğda — Kaldır</button>` : `<button class="btn small primary" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')">+ Kataloğa Ekle</button>`) : '<span class="depo-td-muted">—</span>'}</td>
+          <td>${session.role!=='depocu' ? (state.depoTogglingBarcodes.has(it.barcode) ? `<button class="btn small ghost" disabled>⏳ İşleniyor…</button>` : (inCatalog ? `<button class="btn small ghost" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')" title="Kataloğdan kaldır — resim/fiyat/stok silinmez">✓ Kataloğda — Kaldır</button>` : `<button class="btn small primary" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')">+ Kataloğa Ekle</button>`)) : '<span class="depo-td-muted">—</span>'}</td>
           ${canManage ? `<td><button class="sku-del" onclick="deleteSelectedSingle('${attrEsc(it.barcode)}')" title="Bu kaydı sil">✕</button></td>` : ''}
         </tr>`;
       }).join('')}
