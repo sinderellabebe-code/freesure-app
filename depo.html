@@ -747,6 +747,7 @@ async function init(){
   state.loaded = true;
   render();
   startAutoRefresh();
+  startDepoLiveClock();
 }
 async function fetchActiveStockCount(){
   try{
@@ -772,6 +773,18 @@ let autoRefreshTimer = null;
 function startAutoRefresh(){
   if(autoRefreshTimer) clearInterval(autoRefreshTimer);
   autoRefreshTimer = setInterval(silentAutoRefresh, 45000); // every 45s
+}
+let depoLiveClockTimer = null;
+function startDepoLiveClock(){
+  if(depoLiveClockTimer) clearInterval(depoLiveClockTimer);
+  function tick(){
+    const el = document.getElementById('depo-live-clock');
+    if(!el) return; // not on the Depo view right now — nothing to update
+    const now = new Date();
+    el.textContent = now.toLocaleDateString('tr-TR') + ' ' + now.toLocaleTimeString('tr-TR');
+  }
+  tick();
+  depoLiveClockTimer = setInterval(tick, 1000);
 }
 async function silentAutoRefresh(){
   // Never interrupt active work: skip while a modal is open, a background op is running, or the tab isn't visible.
@@ -2871,6 +2884,11 @@ function renderDepoView(){
   const selectedCount = state.depoSelected.size;
 
   let out = '';
+  const negativeStockCount = state.warehouseItems.filter(w=>(Number(w.stock)||0)<0).length;
+  out += `<div class="fx-banner" id="depo-live-summary" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <span>📦 <b>Toplam Depo Stoğu: <span id="depo-live-total">${state.warehouseItems.reduce((sum,w)=>sum+Math.max(0,Number(w.stock)||0),0).toLocaleString('tr-TR')}</span> çift</b> <span style="color:var(--muted)">(${state.warehouseItems.length.toLocaleString('tr-TR')} barkod)</span>${negativeStockCount>0 ? ` <span style="color:var(--danger)">⚠ ${negativeStockCount} barkodda eksi stok var, toplama katılmadı</span>` : ''}</span>
+    <span id="depo-live-clock" style="color:var(--muted);font-size:12.5px"></span>
+  </div>`;
   if(canManage){
     out += `<div class="fx-banner">
       ${state.fxRate ? `💱 <b>1 USD = ${formatMoney(state.fxRate)} ₺</b> ${state.fxRateSource==='TCMB' ? `(TCMB Alış Kuru${state.fxRateDate?', '+esc(state.fxRateDate):''})` : '(Piyasa kuru — TCMB alınamadı)'}` : (state.fxRateLoading ? 'Kur bilgisi alınıyor…' : 'Kur bilgisi henüz yok')}
