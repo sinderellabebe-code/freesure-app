@@ -501,6 +501,19 @@ async function openUsersModal(){
   }catch(e){ usersList = []; }
   render();
 }
+async function openSheetHealthModal(){
+  state.modalMode = 'sheetHealth';
+  state.sheetHealthReports = null;
+  state.sheetHealthLoading = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL + '?action=sheetHealthReport&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash), {}, 30000);
+    const data = await res.json();
+    state.sheetHealthReports = (data && data.ok) ? data.reports : [];
+  }catch(e){ state.sheetHealthReports = []; }
+  state.sheetHealthLoading = false;
+  render();
+}
 async function submitAddUser(){
   const username = document.getElementById('au-username').value.trim();
   const displayName = document.getElementById('au-displayname').value.trim();
@@ -567,6 +580,59 @@ function renderUsersModal(){
       <div class="modal-actions">
         <button class="btn ghost" onclick="closeModal()">Kapat</button>
         <button class="btn primary" onclick="submitAddUser()">Kullanıcı Ekle</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+const SHEET_HEALTH_PREFIX_LABELS = {
+  'stockMovement:': 'Stok Hareketi Kaydı (geçmiş giriş/çıkış kayıtları)',
+  'warehouseItem:': 'Depo Kaydı (barkod başına stok)',
+  'catalogSku:': 'Katalog Beden/Barkod Kaydı',
+  'catalogVariant:': 'Katalog Renk Kaydı (resim dahil)',
+  'catalogProducts': 'Katalog Model Listesi (tek kayıt)',
+  'catalogSkus': 'Eski Katalog Beden Listesi (artık kullanılmıyor — boş olmalı)',
+  'stockCount:': 'Depo Sayımı Oturumu',
+  'stockCountEntry:': 'Depo Sayımı Satır Kaydı',
+  'order:': 'Sipariş Kaydı',
+  'customer:': 'Müşteri Kaydı',
+  '__users__': 'Kullanıcı Listesi (tek kayıt)',
+  'logo': 'Logo (tek kayıt)',
+};
+function sheetHealthLabel(prefix){ return SHEET_HEALTH_PREFIX_LABELS[prefix] || prefix; }
+function renderSheetHealthModal(){
+  const reports = state.sheetHealthReports;
+  const loading = state.sheetHealthLoading;
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal wide">
+      <h2>Sistem Sağlığı</h2>
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Sistemin hangi verilerden oluştuğunu ve ne kadar yer kapladığını gösterir. Bu, "neden yavaş?" sorusuna somut bir cevap vermek içindir.</p>
+      ${loading ? `<div class="log-empty">Hesaplanıyor…</div>` : (!reports || reports.length===0) ? `<div class="log-empty">Rapor alınamadı — tekrar deneyin.</div>` : reports.map(r=>{
+        const totalK = Math.round(r.approxTotalChars/1000);
+        return `
+        <div style="margin-bottom:20px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+            <b style="font-size:14px">${esc(r.sheetName)} sekmesi</b>
+            <span style="font-size:12px;color:var(--muted)">${r.totalRows.toLocaleString('tr-TR')} satır · ~${totalK.toLocaleString('tr-TR')} KB</span>
+          </div>
+          <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden">
+            ${r.breakdown.map(b=>{
+              const pct = r.approxTotalChars>0 ? Math.round(100*b.approxChars/r.approxTotalChars) : 0;
+              const isLegacy = b.prefix==='catalogSkus';
+              return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px;${isLegacy&&b.count>0?'background:var(--danger-bg)':''}">
+                <div style="flex:1">
+                  <div>${esc(sheetHealthLabel(b.prefix))}${isLegacy&&b.count>0?' ⚠':''}</div>
+                  <div style="color:var(--muted);font-size:11px">${b.count.toLocaleString('tr-TR')} kayıt · ~${Math.round(b.approxChars/1000).toLocaleString('tr-TR')} KB (%${pct})</div>
+                </div>
+                <div style="width:90px;height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:${pct}%;height:100%;background:var(--accent-ink)"></div></div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Kapat</button>
+        <button class="btn ghost" ${loading?'disabled':''} onclick="openSheetHealthModal()">↻ Yenile</button>
       </div>
     </div>
   </div>`;
@@ -683,6 +749,8 @@ const state = {
   depoVisibleBarcodes: [],
   depoBulkCatalogRunning: false,
   depoTogglingBarcodes: new Set(),
+  sheetHealthReports: null,
+  sheetHealthLoading: false,
   pendingPackingOrders: [],
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
@@ -2802,6 +2870,7 @@ function render(){
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
         ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a>' : ''}
+        ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openSheetHealthModal();return false;">Sistem Sağlığı</a>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
       </div>
     </div>
@@ -2810,6 +2879,7 @@ function render(){
   html += state.view==='stockCountAnalysis' ? renderStockCountAnalysisTab() : renderDepoView();
 
   if(state.modalMode === 'users') html += renderUsersModal();
+  else if(state.modalMode === 'sheetHealth') html += renderSheetHealthModal();
   else if(state.modalMode === 'depoMove') html += renderDepoMoveModal();
   else if(state.modalMode === 'depoBulk') html += renderDepoBulkModal();
   else if(state.modalMode === 'stockPriceUpdate' && !isDepocu) html += renderStockPriceUpdateModal();
