@@ -209,7 +209,12 @@ const SIZES = [
   {code:'0', label:'Size 0 (0-3 Ay)', short:'Size 0', eng:'Size 0 (0-3M)', eu:15},
   {code:'1', label:'Size 1 (3-6 Ay)', short:'Size 1', eng:'Size 1 (3-6M)', eu:16},
   {code:'2', label:'Size 2 (6-9 Ay)', short:'Size 2', eng:'Size 2 (6-9M)', eu:17},
-  {code:'3', label:'Size 3 (9-12 Ay)', short:'Size 3', eng:'Size 3 (9-12M)', eu:18}
+  {code:'3', label:'Size 3 (9-12 Ay)', short:'Size 3', eng:'Size 3 (9-12M)', eu:18},
+  {code:'4', label:'Size 4 (12-15 Ay)', short:'Size 4', eng:'Size 4 (12-15M)', eu:19},
+  {code:'5', label:'Size 5 (15-18 Ay)', short:'Size 5', eng:'Size 5 (15-18M)', eu:20},
+  {code:'6', label:'Size 6 (18-24 Ay)', short:'Size 6', eng:'Size 6 (18-24M)', eu:21},
+  {code:'7', label:'Size 7 (2-3 Yaş)', short:'Size 7', eng:'Size 7 (2-3Y)', eu:22},
+  {code:'8', label:'Size 8 (3-4 Yaş)', short:'Size 8', eng:'Size 8 (3-4Y)', eu:23}
 ];
 const MAX_COLORS_PER_MODEL = 9;
 const MAX_SIZES_PER_COLOR = 9;
@@ -841,7 +846,7 @@ const state = {
   orderProductSearch: '',
   orderListFilter: 'active', // 'active' | 'draft' | 'approved' | 'shipped' | 'cancelled' | 'all'
   search: '',
-  modalMode: null,       // null | 'newProduct' | 'newVariant' | 'pdfOptions' | 'users' | 'shipOrder'
+  modalMode: null,       // null | 'newVariant' | 'pdfOptions' | 'users' | 'shipOrder'
   pendingImage: null,     // processed data URL staged in the "add color" modal
   logo: null,
   fxRate: null,           // cached USD->TRY rate for price list generation
@@ -1307,18 +1312,6 @@ async function deleteOrderAction(orderId, orderStatus){
 }
 
 // ---------- mutations ----------
-async function addProduct(refNo, name, price, unit){
-  const cleanRef = padRef(refNo);
-  if(state.products.some(p=>padRef(p.refNo)===cleanRef)){
-    showToast('Bu referans numarası zaten kayıtlı');
-    return false;
-  }
-  const p = {id:uid(), refNo: String(refNo).replace(/[^0-9]/g,''), name: (name||'').trim(), price: Number(price)||0, unit: unit||'Adet', createdAt: todayISO(), createdBy: session.displayName};
-  state.products = [...state.products, p];
-  render();
-  await patchProducts([p]);
-  return true;
-}
 async function updateProductPrice(productId, price){
   const p = state.products.find(x=>x.id===productId);
   if(!p) return;
@@ -2418,7 +2411,6 @@ async function handleScanQtyKey(e){
   await submitScanMovement(qty);
 }
 
-function openNewProductModal(){ state.modalMode='newProduct'; render(); }
 function handleLogoUpload(e){
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
@@ -2457,25 +2449,6 @@ async function handleVariantImageSelect(e){
   }
 }
 
-function submitNewProduct(){
-  const ref = document.getElementById('np-ref').value.trim();
-  const name = document.getElementById('np-name').value.trim();
-  const price = document.getElementById('np-price').value;
-  const unit = document.getElementById('np-unit').value;
-  if(!/^[0-9]{1,6}$/.test(ref)){ showToast('Referans No 1-6 haneli bir sayı olmalı'); return; }
-  addProduct(ref, name, price, unit).then(ok=>{
-    if(ok){
-      state.modalMode=null;
-      const p = state.products.find(x=>padRef(x.refNo)===padRef(ref));
-      if(p){
-        state.selectedProductId = p.id;
-        state.view = 'productDetail';
-        showToast('Model eklendi — şimdi en az bir renk ekleyin, aksi halde Depo\'da ve Modeller galerisinde görünmez');
-      }
-      render();
-    }
-  });
-}
 function submitNewVariant(){
   const colorName = document.getElementById('nv-color').value.trim().toUpperCase();
   if(!colorName){ showToast('Renk adı zorunludur'); return; }
@@ -2761,7 +2734,6 @@ function render(){
     </div>
     <div style="display:flex;align-items:center;gap:12px">
       ${state.view==='orders' ? '<button class="btn primary" onclick="openNewOrder()">+ Yeni Sipariş</button>' : ''}
-      ${state.view==='productsManage' ? '<button class="btn primary" onclick="openNewProductModal()">+ Yeni Model</button>' : ''}
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
         ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a>' : ''}
@@ -2788,8 +2760,7 @@ function render(){
     html += renderOrdersListView();
   }
 
-  if(state.modalMode === 'newProduct') html += renderNewProductModal();
-  else if(state.modalMode === 'newVariant') html += renderNewVariantModal();
+  if(state.modalMode === 'newVariant') html += renderNewVariantModal();
   else if(state.modalMode === 'pdfOptions') html += renderPdfOptionsModal();
   else if(state.modalMode === 'users') html += renderUsersModal();
   else if(state.modalMode === 'shipOrder') html += renderShipOrderModal();
@@ -3918,7 +3889,6 @@ function renderProductsManageView(){
     </select>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
     <button class="btn ghost small" onclick="exportBarcodeListCSV()">Barkod Listesi (CSV)</button>
-    <button class="btn primary small" onclick="openNewProductModal()">+ Yeni Model</button>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
       <input type="checkbox" ${filtered.length>0 && filtered.every(p=>state.productsManageSelected.has(p.id))?'checked':''} onchange="toggleProductSelectAllVisible()" style="width:auto" />
       Tümünü Seç
@@ -4080,67 +4050,6 @@ function renderProductDetail(p){
     </div>`;
   }
   return out;
-}
-
-function depoOnlyRefNos(){
-  const catalogRefs = new Set(state.products.map(p=>padRef(p.refNo)));
-  const seen = new Set();
-  const out = [];
-  state.warehouseItems.forEach(w=>{
-    if(!w.refNo) return;
-    const key = padRef(w.refNo);
-    if(catalogRefs.has(key) || seen.has(key)) return;
-    seen.add(key);
-    out.push(w.refNo);
-  });
-  return out.sort((a,b)=>padRef(a).localeCompare(padRef(b)));
-}
-function fillNewProductRef(refNo){
-  const el = document.getElementById('np-ref');
-  if(el) el.value = refNo;
-}
-function renderNewProductModal(){
-  const depoOnly = depoOnlyRefNos();
-  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
-    <div class="modal">
-      <h2>Yeni Model</h2>
-      ${depoOnly.length>0 ? `<div class="field">
-        <label>Depo'da Kaydı Olan, Kataloğa Henüz Eklenmemiş Referanslar</label>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
-          ${depoOnly.map(ref=>`<button type="button" class="btn ghost small" onclick="fillNewProductRef('${attrEsc(ref)}')">${esc(ref)}</button>`).join('')}
-        </div>
-        <div class="field-msg">Birine tıklayınca aşağıdaki Referans No otomatik dolar — böylece sadece gerçekten Depo'da olan bir model kataloğa eklenir.</div>
-      </div>` : `<div class="field-msg" style="margin-bottom:10px">Depo'da, henüz kataloğa eklenmemiş bir referans bulunmuyor — önce Depo'ya bir stok kaydı girmeniz önerilir, aksi halde bu model Depo'da hiç görünmeyecek.</div>`}
-      <div class="field">
-        <label>Referans No *</label>
-        <input id="np-ref" type="text" inputmode="numeric" placeholder="Örn. 2000" maxlength="6" oninput="this.value=this.value.replace(/[^0-9]/g,'')" />
-        <div class="field-msg">1-6 haneli sayı — barkod üretiminde kullanılacak</div>
-      </div>
-      <div class="field">
-        <label>Model Adı (opsiyonel)</label>
-        <input id="np-name" type="text" placeholder="Örn. Örgü Patik" />
-      </div>
-      <div class="field">
-        <label>Fiyat ($)</label>
-        <input id="np-price" type="number" step="0.01" min="0" placeholder="0.00" />
-        <div class="field-msg">Tüm renk ve bedenler için tek fiyat</div>
-      </div>
-      <div class="field">
-        <label>Birim</label>
-        <select id="np-unit">
-          <option value="Adet">Adet</option>
-          <option value="Çift">Çift</option>
-          <option value="Kg">Kg</option>
-          <option value="Metre">Metre</option>
-          <option value="Diğer">Diğer</option>
-        </select>
-      </div>
-      <div class="modal-actions">
-        <button class="btn ghost" onclick="closeModal()">Vazgeç</button>
-        <button class="btn primary" onclick="submitNewProduct()">Kaydet</button>
-      </div>
-    </div>
-  </div>`;
 }
 
 function renderNewVariantModal(){
