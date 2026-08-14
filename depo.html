@@ -261,6 +261,11 @@ async function loadAll(){
   const text = await res.text();
   return text ? JSON.parse(text) : {};
 }
+function describeWriteBlock_(data){
+  if(data && data.error==='maintenance_mode') return data.message || 'Sistem şu anda bakımda — lütfen daha sonra tekrar deneyin.';
+  if(data && data.error==='stock_count_locked') return data.message || 'Aktif bir depo sayımı sürüyor — sayım tamamlanana kadar bu işlem yapılamaz.';
+  return null;
+}
 async function saveKey(key, value){
   try{
     const res = await fetch(API_URL, {
@@ -269,7 +274,10 @@ async function saveKey(key, value){
       body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
     });
     const data = await res.json();
-    if(!data || !data.ok){ showToast('Kaydetme hatası — tekrar deneyin'); return false; }
+    if(!data || !data.ok){
+      showToast(describeWriteBlock_(data) || 'Kaydetme hatası — tekrar deneyin');
+      return false;
+    }
     return true;
   }catch(e){
     showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
@@ -514,6 +522,43 @@ async function openSheetHealthModal(){
   state.sheetHealthLoading = false;
   render();
 }
+async function openMaintenanceModal(){
+  state.modalMode = 'maintenance';
+  render();
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetchWithTimeout(API_URL + '?action=getMaintenanceStatus' + authParams, {}, 15000);
+    const data = await res.json();
+    if(data && data.ok){
+      state.maintenanceMode = data.maintenance;
+      state.activeStockCountLockInfo = data.stockCountLock;
+      render();
+    }
+  }catch(e){ /* falls back to whatever state we already had */ }
+}
+async function setMaintenanceMode(active){
+  let message = '';
+  if(active){
+    message = prompt('Kullanıcılara gösterilecek kısa bir not (opsiyonel):', 'Sistem bakımda, kısa süre içinde tekrar aktif olacaktır.') || '';
+  }
+  state.maintenanceToggling = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'setMaintenanceMode', auth:{username:session.username, passwordHash:session.passwordHash}, active, message})
+    }, 20000);
+    const data = await res.json();
+    if(data && data.ok){
+      state.maintenanceMode = data.maintenance;
+      showToast(active ? 'Bakım modu açıldı — diğer kullanıcılar artık sisteme yazamaz' : 'Bakım modu kapatıldı');
+    } else {
+      showToast('İşlem başarısız — tekrar deneyin');
+    }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  state.maintenanceToggling = false;
+  render();
+}
 async function submitAddUser(){
   const username = document.getElementById('au-username').value.trim();
   const displayName = document.getElementById('au-displayname').value.trim();
@@ -637,6 +682,47 @@ function renderSheetHealthModal(){
     </div>
   </div>`;
 }
+function renderMaintenanceModal(){
+  const mm = state.maintenanceMode;
+  const isActive = mm && mm.active;
+  const lockInfo = state.activeStockCountLockInfo;
+  const isLocked = lockInfo && lockInfo.active;
+  const toggling = state.maintenanceToggling;
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal">
+      <h2>Bakım Modu</h2>
+
+      <div style="padding:14px;border-radius:6px;margin-bottom:16px;${isActive?'background:var(--danger-bg);border:1.5px solid var(--danger)':'background:var(--good-bg);border:1.5px solid var(--good)'}">
+        <div style="font-weight:700;margin-bottom:4px;${isActive?'color:var(--danger)':'color:var(--good)'}">${isActive ? '🔴 Bakım Modu AÇIK' : '🟢 Sistem Normal Çalışıyor'}</div>
+        ${isActive ? `
+          <div style="font-size:12.5px;margin-bottom:4px">${esc(mm.message||'')}</div>
+          <div style="font-size:11px;color:var(--muted)">${esc(mm.setBy||'')} tarafından ${fmtDateTimeOrder(mm.setAt)} açıldı</div>
+        ` : `<div style="font-size:12.5px;color:var(--muted)">Yönetici dışındaki tüm kullanıcılar normal şekilde işlem yapabiliyor.</div>`}
+      </div>
+
+      <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Açtığınızda, siz (Yönetici) hariç hiçbir kullanıcı veri kaydedemez — sayfaları görüntüleyebilirler ama Depo, Sipariş, Müşteri kayıtlarında değişiklik yapamazlar. Büyük bir toplu işlem veya bakım yaparken diğer kullanıcıların çakışan işlem yapmasını önlemek için kullanın.</p>
+
+      <button class="btn primary" style="width:100%;padding:12px;${isActive?'background:var(--good);border-color:var(--good)':'background:var(--danger);border-color:var(--danger)'}" ${toggling?'disabled':''} onclick="setMaintenanceMode(${!isActive})">
+        ${toggling ? '⏳ İşleniyor…' : (isActive ? '🟢 Bakım Modunu Kapat' : '🔴 Bakım Modunu Aç')}
+      </button>
+
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line)">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Depo Sayımı Kilidi</div>
+        <div style="padding:12px;border-radius:6px;${isLocked?'background:var(--warn-bg);border:1.5px solid var(--warn)':'background:var(--bg);border:1px solid var(--line)'}">
+          ${isLocked ? `
+            <div style="font-weight:700;color:var(--warn);margin-bottom:4px">⏸ Aktif bir sayım var — normal stok giriş/çıkışı şu an kilitli</div>
+            <div style="font-size:12px;color:var(--muted)">Bu, otomatik çalışır — sayım tamamlanınca veya iptal edilince kendiliğinden açılır. Elle kapatmanız gerekmez.</div>
+          ` : `<div style="font-size:12.5px;color:var(--muted)">Şu an aktif bir sayım yok — stok giriş/çıkışı normal şekilde çalışıyor.</div>`}
+        </div>
+        <div class="field-msg" style="margin-top:8px">Bu kilit, "Depo Sayımı" başlatıp bitirdiğinizde otomatik olarak açılıp kapanır — elle bir işlem yapmanız gerekmez, burada sadece bilgi amaçlı gösteriliyor.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn ghost" onclick="closeModal()">Kapat</button>
+      </div>
+    </div>
+  </div>`;
+}
 
 // ---------- client-side image processing (crop + whiten background) ----------
 function sampleBackgroundColor(data, w, h){
@@ -751,6 +837,9 @@ const state = {
   depoBulkCatalogRunning: false,
   depoTogglingBarcodes: new Set(),
   sheetHealthReports: null,
+  maintenanceMode: null,
+  activeStockCountLockInfo: null,
+  maintenanceToggling: false,
   sheetHealthLoading: false,
   pendingPackingOrders: [],
   packingOrderId: null,      // which order is currently open for packing verification
@@ -763,6 +852,7 @@ const state = {
   stockCountView: 'main', // 'main' | 'history' | 'historyDetail' | 'finalizePreview'
   stockCountSubmittedEntries: [],
   stockCountLocalEntries: {}, // barcode -> {refNo, colorName, sizeLabel, countedQty} — not yet submitted
+  stockCountUnknownBarcode: null,
   stockCountHistory: [],
   stockCountHistoryDetail: null,
   stockCountFinalizePreview: null,
@@ -919,6 +1009,7 @@ function dismissBigScanAlert(){
 function openStockCountModal(){
   state.stockCountView = 'main';
   state.stockCountLocalEntries = {};
+  state.stockCountUnknownBarcode = null;
   state.modalMode = 'stockCount';
   render();
   if(!state.activeStockCount && session.role!=='depocu') loadStockCountHistory();
@@ -969,7 +1060,9 @@ function processStockCountScan(barcode){
   if(!item){
     playAlertSound();
     if(navigator.vibrate) navigator.vibrate([120,60,120,60,120]);
-    showBigScanAlert('BARKOD TANINMIYOR', barcode, 'sc-scan-input');
+    state.stockCountUnknownBarcode = barcode;
+    render();
+    setTimeout(()=>{ const el=document.getElementById('sc-new-ref'); if(el) el.focus(); }, 60);
     return;
   }
   playSuccessBeep();
@@ -979,6 +1072,30 @@ function processStockCountScan(barcode){
   }
   state.stockCountLocalEntries[barcode].countedQty += 1;
   render();
+}
+function cancelStockCountUnknown(){
+  state.stockCountUnknownBarcode = null;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('sc-scan-input'); if(el) el.focus(); }, 60);
+}
+function confirmStockCountUnknown(){
+  const barcode = state.stockCountUnknownBarcode;
+  const refNo = document.getElementById('sc-new-ref').value.trim();
+  const colorName = document.getElementById('sc-new-color').value.trim().toUpperCase();
+  const sizeLabel = document.getElementById('sc-new-size').value.trim();
+  if(!refNo && !colorName){ showToast('En az referans veya renk bilgisi girin'); return; }
+  // Register it locally (in-memory) so it behaves like any other known barcode for the rest of
+  // this session — the actual Depo kaydı (warehouseItem) only gets created server-side once the
+  // count is finalized and applied, exactly like a normal counted item with 0 prior stock.
+  const item = { barcode, refNo, colorName, sizeLabel, stock: 0 };
+  if(!state.warehouseItems.find(w=>w.barcode===barcode)) state.warehouseItems.push(item);
+  state.stockCountUnknownBarcode = null;
+  if(!state.stockCountLocalEntries[barcode]){
+    state.stockCountLocalEntries[barcode] = {barcode, refNo, colorName, sizeLabel, countedQty:0};
+  }
+  state.stockCountLocalEntries[barcode].countedQty += 1;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('sc-scan-input'); if(el) el.focus(); }, 60);
 }
 function handleStockCountScanKey(e){
   if(e.key!=='Enter') return;
@@ -1309,7 +1426,7 @@ async function postStockMovement(barcode, type, qty, note, refNo, colorName, siz
       item.stock = data.stock;
       return {ok:true, stock:data.stock, item};
     }
-    return {ok:false};
+    return {ok:false, blockReason: describeWriteBlock_(data)};
   }catch(e){ return {ok:false, networkError:true}; }
   finally{ endCriticalWrite(); }
 }
@@ -1350,7 +1467,7 @@ async function submitDepoMove(){
       render();
     }
   } else {
-    showToast(r.networkError ? 'Sunucuya bağlanılamadı' : 'Kaydedilemedi — yetkinizi kontrol edin');
+    showToast(r.networkError ? 'Sunucuya bağlanılamadı' : (r.blockReason || 'Kaydedilemedi — yetkinizi kontrol edin'));
     render();
   }
 }
@@ -2860,6 +2977,7 @@ async function processQueuedScan(entry, qty){
     entry.scanCount--; // this particular scan attempt didn't actually count — doesn't inflate the total
     entry.status = entry.pendingCount>0 ? 'pending' : 'error';
     playAlertSound();
+    if(r.blockReason) showBigScanAlert('İŞLEM ENGELLENDİ', r.blockReason, 'scan-barcode');
     if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'error');
   }
   render();
@@ -2992,6 +3110,7 @@ function render(){
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
         ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a>' : ''}
         ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openSheetHealthModal();return false;">Sistem Sağlığı</a>' : ''}
+        ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openMaintenanceModal();return false;">Bakım Modu</a>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
       </div>
     </div>
@@ -3001,6 +3120,7 @@ function render(){
 
   if(state.modalMode === 'users') html += renderUsersModal();
   else if(state.modalMode === 'sheetHealth') html += renderSheetHealthModal();
+  else if(state.modalMode === 'maintenance') html += renderMaintenanceModal();
   else if(state.modalMode === 'depoMove') html += renderDepoMoveModal();
   else if(state.modalMode === 'depoBulk') html += renderDepoBulkModal();
   else if(state.modalMode === 'stockPriceUpdate' && !isDepocu) html += renderStockPriceUpdateModal();
@@ -3854,10 +3974,26 @@ function renderStockCountMainView(){
       </div>
       <div class="field-msg" style="margin-bottom:14px">Başlangıç: ${fmtDateTimeOrder(count.startedAt)} · ${esc(count.startedBy)} ${!isDepocu ? `· <a href="#" onclick="loadStockCountHistory();state.stockCountView='history';render();return false;">Sayım Geçmişi</a>` : ''}</div>
 
-      <div class="field">
-        <label>Barkodu Okutun</label>
-        <input id="sc-scan-input" type="text" autocomplete="off" style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums" onkeydown="handleStockCountScanKey(event)" placeholder="Okuyucuyla tarayın ya da elle yazıp Enter tuşuna basın" />
-      </div>
+      ${state.stockCountUnknownBarcode ? `
+        <div class="bulk-result error" style="display:block;text-align:center;font-size:14px;margin-bottom:12px">
+          ⚠ <b>${esc(state.stockCountUnknownBarcode)}</b> barkodu sistemde kayıtlı değil.
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:0 0 10px">Sayım sırasında ilk kez karşılaşılan bir barkodsa, bilgilerini girip sayıma dahil edebilirsiniz — depo kaydı, sayım onaylandığında otomatik oluşturulur.</p>
+        <div class="row2">
+          <div class="field"><label>Referans No</label><input id="sc-new-ref" type="text" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmStockCountUnknown();}" /></div>
+          <div class="field"><label>Renk</label><input id="sc-new-color" type="text" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmStockCountUnknown();}" /></div>
+        </div>
+        <div class="field"><label>Beden</label><input id="sc-new-size" type="text" placeholder="Örn. 1, Size 1, 19-20" onkeydown="if(event.key==='Enter'){event.preventDefault();confirmStockCountUnknown();}" /></div>
+        <div class="modal-actions" style="margin-bottom:14px">
+          <button class="btn ghost" onclick="cancelStockCountUnknown()">Vazgeç (Muhtemelen Hatalı Okuma)</button>
+          <button class="btn primary" onclick="confirmStockCountUnknown()">+ Tanımla ve Sayıma Ekle</button>
+        </div>
+      ` : `
+        <div class="field">
+          <label>Barkodu Okutun</label>
+          <input id="sc-scan-input" type="text" autocomplete="off" style="font-size:20px;padding:14px;text-align:center;font-variant-numeric:tabular-nums" onkeydown="handleStockCountScanKey(event)" placeholder="Okuyucuyla tarayın ya da elle yazıp Enter tuşuna basın" />
+        </div>
+      `}
 
       ${localItems.length>0 ? `
         <div style="margin:14px 0">
