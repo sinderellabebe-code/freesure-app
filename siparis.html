@@ -1046,7 +1046,7 @@ function orderReturnedAmount(order){
 function orderReturnedQty(order, barcode){
   return (order.returns||[]).reduce((sum,r)=> sum + (r.lines||[]).filter(l=>l.barcode===barcode).reduce((s,l)=>s+l.qty,0), 0);
 }
-function orderBalance(order){ return Math.max(0, orderTotal(order) - orderReturnedAmount(order) - (Number(order.deposit)||0)); }
+function orderBalance(order){ return orderTotal(order) - orderReturnedAmount(order) - (Number(order.deposit)||0); }
 function orderStatusLabel(status){
   return {draft:'Taslak', approved:'Onaylandı', packed:'Hazırlandı', delivered:'Teslim Edildi', returned:'İade Edildi', cancelled:'İptal Edildi'}[status] || status;
 }
@@ -1138,13 +1138,23 @@ function removeOrderColorLine(groupKey){
   state.orderDraft.lines = state.orderDraft.lines.filter(l=>l.groupKey!==groupKey);
   render();
 }
+function balanceLabelValue(balance){
+  // Negative balance means the customer has paid more than they owe — a credit, not a debt.
+  // Surface it explicitly instead of silently clamping to zero, so it can be tracked and
+  // applied to a future order or refunded.
+  if(balance < -0.004){
+    return {label:'Alacaklı Bakiye (Fazla Ödeme)', value:'$'+formatMoney(Math.abs(balance)), color:'var(--good)'};
+  }
+  return {label:'Balance Due', value:'$'+formatMoney(balance), color: balance>0.004 ? 'var(--danger)' : 'var(--good)'};
+}
 function renderOrderTotalsBoxInner(d, subtotal, discountAmt, total, balance){
+  const bal = balanceLabelValue(balance);
   return `<span>Total Quantity</span><span>${orderDraftQtyByUnit(d)}</span>
     <span>Subtotal</span><span>$${formatMoney(subtotal)}</span>
     ${discountAmt>0 ? `<span>Discount</span><span>−$${formatMoney(discountAmt)}</span>` : ''}
     <span class="tot-label">Total</span><span class="tot-value">$${formatMoney(total)}</span>
     ${(Number(d.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−$${formatMoney(d.deposit)}</span>` : ''}
-    <span class="bal-label" style="color:${balance>0?'var(--danger)':'var(--good)'}">Balance Due</span><span class="bal-value" style="color:${balance>0?'var(--danger)':'var(--good)'}">$${formatMoney(balance)}</span>`;
+    <span class="bal-label" style="color:${bal.color}">${bal.label}</span><span class="bal-value" style="color:${bal.color}">${bal.value}</span>`;
 }
 function refreshOrderTotalsBox(changedGroupKey){
   // Updates only the totals summary (and, if given, one line's subtotal) in the DOM, without a
@@ -3280,7 +3290,7 @@ function renderOrderDetailView(order){
     <span class="tot-label">Total</span><span class="tot-value">$${formatMoney(total)}</span>
     ${(Number(order.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−$${formatMoney(order.deposit)}</span>` : ''}
     ${orderReturnedAmount(order)>0 ? `<span>Returned</span><span>−$${formatMoney(orderReturnedAmount(order))}</span>` : ''}
-    <span class="bal-label" style="color:${balance>0?'var(--danger)':'var(--good)'}">Balance Due</span><span class="bal-value" style="color:${balance>0?'var(--danger)':'var(--good)'}">$${formatMoney(balance)}</span>
+    <span class="bal-label" style="color:${balanceLabelValue(balance).color}">${balanceLabelValue(balance).label}</span><span class="bal-value" style="color:${balanceLabelValue(balance).color}">${balanceLabelValue(balance).value}</span>
   </div>
   ${order.notes ? `<div class="extra-info-box"><div class="extra-info-row"><span class="extra-info-label">Note</span><span class="extra-info-value">${esc(order.notes)}</span></div></div>` : ''}`;
   return out;
@@ -3455,7 +3465,8 @@ async function buildOrderProformaPDF(order){
   if(discountAmt>0) totalsRow('Discount', '−$'+formatMoney(discountAmt), false);
   totalsRow('Total', '$'+formatMoney(total), true);
   if((Number(order.deposit)||0)>0) totalsRow('Deposit Paid', '−$'+formatMoney(order.deposit), false);
-  totalsRow('Balance Due', '$'+formatMoney(balance), true);
+  const balPdf = balanceLabelValue(balance);
+  totalsRow(balPdf.label, balPdf.value, true);
 
   if(order.notes){
     y += 5;
@@ -3701,7 +3712,7 @@ function downloadOrderProformaExcel(orderId){
   rows.push(['', '', '', '', 'Total', total]);
   if((Number(order.deposit)||0)>0) rows.push(['', '', '', '', 'Deposit Paid', -order.deposit]);
   if(returned>0) rows.push(['', '', '', '', 'Returned', -returned]);
-  rows.push(['', '', '', '', 'Balance Due', balance]);
+  rows.push(['', '', '', '', balance<-0.004 ? 'Balance Due (Alacaklı — Fazla Ödeme)' : 'Balance Due', balance]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{wch:10},{wch:40},{wch:10},{wch:8},{wch:12},{wch:12}];
