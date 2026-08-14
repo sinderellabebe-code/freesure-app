@@ -725,6 +725,7 @@ const state = {
   modalMode: null,       // null | 'users' | 'depoMove' | 'depoBulk' | 'bulkImage' | 'newDepoItem' | 'depoScan'
   depoMoveTarget: null,   // {barcode, refNo, colorName, sizeLabel, type:'in'|'out'}
   depoMoveRunning: false,
+  depoMovePendingCorrection: null,
   scan: { mode:'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], batchItems:{}, batchCommitting:false },
   depoBulkRunning: false,
   depoBulkFile: null,
@@ -1322,18 +1323,20 @@ async function submitDepoMove(){
     const item = state.warehouseItems.find(w=>w.barcode===t.barcode);
     const currentStock = item ? (Number(item.stock)||0) : 0;
     if(qty > currentStock){
-      const ok = confirm(`⚠ Depoda sadece ${currentStock} adet görünüyor, ${qty} adet çıkış girdiniz.\n\nBu şekilde devam ederseniz stok EKSİYE düşecek — sistemde "depoda yok" görünen bir ürün satılmış gibi olur, bu doğru değildir.\n\n"Tamam" derseniz miktar otomatik olarak mevcut ${currentStock} adede sınırlanır. Yine de ${qty} adet olarak göndermek isterseniz "İptal"e basıp devam edin.`);
-      if(ok){
-        document.getElementById('dm-qty').value = currentStock;
-        if(currentStock <= 0){ showToast('Depoda hiç stok yok, çıkış girilemez'); return; }
-        return submitDepoMove(); // resubmit with the capped quantity
-      }
-      // person explicitly chose to proceed with the over-quantity — fall through and submit as-is
+      const shortfall = qty - currentStock;
+      const ok = confirm(`⚠ Depoda sadece ${currentStock} adet görünüyor, ${qty} adet çıkış girdiniz.\n\nBu genelde şu anlama gelir: ${shortfall} adet daha önce sisteme kaydedilmeden fiziksel olarak depoya girmiş (örn. bir üretim/iade kaydı unutulmuş) ve şimdi çıkışı yapılıyor.\n\n"Tamam" derseniz: gerçek çıkış miktarı olan ${qty} adet OLDUĞU GİBİ kaydedilir, ve eksi kalan ${shortfall} adet için otomatik bir "telafi girişi" eklenip stok 0'a getirilir — hem çıkış hem giriş geçmişi doğru kalır.\n\nBunun yerine sadece mevcut ${currentStock} adedi göndermek isterseniz "İptal"e basın.`);
+      if(!ok){ return; } // person chose to send only the capped/available amount — do nothing further, they'll edit qty themselves
+      state.depoMovePendingCorrection = shortfall; // apply after the real out-movement succeeds
     }
   }
   state.depoMoveRunning = true;
   render();
   const r = await postStockMovement(t.barcode, t.type, qty, note, t.refNo, t.colorName, t.sizeLabel);
+  if(r.ok && state.depoMovePendingCorrection){
+    const shortfall = state.depoMovePendingCorrection;
+    state.depoMovePendingCorrection = null;
+    await postStockMovement(t.barcode, 'in', shortfall, 'Kayıt dışı stok telafisi (sistemde görünmeyen ama fiilen depoda bulunan stok)', t.refNo, t.colorName, t.sizeLabel, true);
+  }
   state.depoMoveRunning = false;
   if(r.ok){
     showToast(t.type==='in' ? 'Stok girişi kaydedildi' : 'Stok çıkışı kaydedildi');
@@ -2822,10 +2825,15 @@ async function fixOneNegativeStock(barcode){
   const flag = state.scan.negativeStockFlags.find(f=>f.barcode===barcode);
   if(!flag) return;
   const qty = Math.abs(flag.stock);
-  const r = await postStockMovement(barcode, 'in', qty, 'Eksi stok düzeltmesi (Hızlı Tarama)', flag.refNo, flag.colorName, flag.sizeLabel, true);
+  // The negative balance means more was scanned OUT than the system had on record — i.e. some
+  // physical stock existed but was never logged as an "in" movement. The correct fix is a
+  // compensating IN for the untracked quantity (bringing the balance to exactly 0), NOT erasing
+  // or reducing the OUT movements that already happened — those really did leave the depo and
+  // must stay in the history exactly as recorded.
+  const r = await postStockMovement(barcode, 'in', qty, 'Kayıt dışı stok telafisi (sistemde görünmeyen ama fiilen depoda bulunan stok)', flag.refNo, flag.colorName, flag.sizeLabel, true);
   if(r.ok){
     state.scan.negativeStockFlags = state.scan.negativeStockFlags.filter(f=>f.barcode!==barcode);
-    showToast(`${flag.barcode} stoğu 0'a düzeltildi`);
+    showToast(`${flag.barcode} stoğu 0'a düzeltildi (${qty} adet telafi girişi eklendi, önceki çıkış kayıtları değişmedi)`);
     render();
   } else {
     showToast('Düzeltme kaydedilemedi — tekrar deneyin');
