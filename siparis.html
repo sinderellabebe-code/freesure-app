@@ -1166,7 +1166,7 @@ function refreshOrderTotalsBox(changedGroupKey){
   const subtotal = orderLineSubtotal(d);
   const discountAmt = orderDiscountAmount(d);
   const total = Math.max(0, subtotal - discountAmt);
-  const balance = Math.max(0, total - (Number(d.deposit)||0));
+  const balance = total - (Number(d.deposit)||0);
   box.innerHTML = renderOrderTotalsBoxInner(d, subtotal, discountAmt, total, balance);
   if(changedGroupKey){
     const line = d.lines.find(l=>l.groupKey===changedGroupKey);
@@ -3083,7 +3083,7 @@ function renderOrderNewView(){
   const subtotal = orderLineSubtotal(d);
   const discountAmt = orderDiscountAmount(d);
   const total = Math.max(0, subtotal - discountAmt);
-  const balance = Math.max(0, total - (Number(d.deposit)||0));
+  const balance = total - (Number(d.deposit)||0);
 
   let out = `<button class="btn ghost small" style="margin-bottom:14px" onclick="if(confirm('Kaydedilmemiş değişiklikler kaybolacak, çıkmak istediğinize emin misiniz?')){state.orderDraft=null;state.view='orders';render();}">← Vazgeç</button>
   <h2 style="font-family:'Fraunces',serif;margin:0 0 16px">Yeni Sipariş</h2>
