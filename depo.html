@@ -530,7 +530,7 @@ async function cleanupMigratedRows(){
     const res = await fetchWithTimeout(API_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({action:'cleanupMigratedRows', auth:{username:session.username, passwordHash:session.passwordHash}})
-    }, 30000);
+    }, 90000);
     const data = await res.json();
     if(data && data.ok){
       const total = (data.deleted.data||0) + (data.deleted.movements||0) + (data.deleted.skus||0);
@@ -539,9 +539,15 @@ async function cleanupMigratedRows(){
       await openSheetHealthModal(); // refresh the report to show the new (clean) numbers
       return;
     } else {
-      showToast('Temizlik başarısız — tekrar deneyin');
+      showToast(describeWriteBlock_(data) || 'Temizlik başarısız — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){
+    if(e && e.name==='AbortError'){
+      showToast('⏱ İşlem uzun sürdü — büyük ihtimalle arka planda tamamlanmıştır. Birkaç saniye sonra "Yenile"ye basıp kontrol edin.');
+    } else {
+      showToast('Sunucuya bağlanılamadı');
+    }
+  }
   state.sheetHealthCleaning = false;
   render();
 }
