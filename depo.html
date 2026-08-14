@@ -522,6 +522,29 @@ async function openSheetHealthModal(){
   state.sheetHealthLoading = false;
   render();
 }
+async function cleanupMigratedRows(){
+  if(!confirm('Kalıntı satırlar kalıcı olarak silinecek. Bu işlem geri alınamaz (ama zaten kullanılmayan boş satırlar olduğu için hiçbir veriyi etkilemez). Devam edilsin mi?')) return;
+  state.sheetHealthCleaning = true;
+  render();
+  try{
+    const res = await fetchWithTimeout(API_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'cleanupMigratedRows', auth:{username:session.username, passwordHash:session.passwordHash}})
+    }, 30000);
+    const data = await res.json();
+    if(data && data.ok){
+      const total = (data.deleted.data||0) + (data.deleted.movements||0) + (data.deleted.skus||0);
+      showToast(`${total.toLocaleString('tr-TR')} kalıntı satır silindi`);
+      state.sheetHealthCleaning = false;
+      await openSheetHealthModal(); // refresh the report to show the new (clean) numbers
+      return;
+    } else {
+      showToast('Temizlik başarısız — tekrar deneyin');
+    }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  state.sheetHealthCleaning = false;
+  render();
+}
 async function openMaintenanceModal(){
   state.modalMode = 'maintenance';
   render();
@@ -643,15 +666,27 @@ const SHEET_HEALTH_PREFIX_LABELS = {
   'customer:': 'Müşteri Kaydı',
   '__users__': 'Kullanıcı Listesi (tek kayıt)',
   'logo': 'Logo (tek kayıt)',
+  '__migrated__': 'Kalıntı Satır (eski veri taşımasından — silinebilir)',
 };
 function sheetHealthLabel(prefix){ return SHEET_HEALTH_PREFIX_LABELS[prefix] || prefix; }
 function renderSheetHealthModal(){
   const reports = state.sheetHealthReports;
   const loading = state.sheetHealthLoading;
+  const cleaning = state.sheetHealthCleaning;
+  const migratedTotal = reports ? reports.reduce((sum,r)=>sum+r.breakdown.filter(b=>b.prefix==='__migrated__').reduce((s,b)=>s+b.count,0), 0) : 0;
   return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
     <div class="modal wide">
       <h2>Sistem Sağlığı</h2>
       <p style="font-size:12.5px;color:var(--muted);margin-bottom:14px">Sistemin hangi verilerden oluştuğunu ve ne kadar yer kapladığını gösterir. Bu, "neden yavaş?" sorusuna somut bir cevap vermek içindir.</p>
+      ${migratedTotal>0 ? `
+        <div style="background:var(--danger-bg);border:1.5px solid var(--danger);border-radius:6px;padding:12px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div>
+            <div style="font-weight:700;color:var(--danger)">⚠ ${migratedTotal.toLocaleString('tr-TR')} kalıntı satır bulundu</div>
+            <div style="font-size:12px;color:var(--muted)">Eski bir veri taşıma işleminden kalan, artık kullanılmayan boş satırlar. Silinmeleri hiçbir veriyi etkilemez, sadece gereksiz yer kaplamalarını önler.</div>
+          </div>
+          <button class="btn small" style="background:var(--danger);color:#fff;white-space:nowrap" ${cleaning?'disabled':''} onclick="cleanupMigratedRows()">${cleaning?'⏳ Temizleniyor…':'Şimdi Temizle'}</button>
+        </div>
+      ` : ''}
       ${loading ? `<div class="log-empty">Hesaplanıyor…</div>` : (!reports || reports.length===0) ? `<div class="log-empty">Rapor alınamadı — tekrar deneyin.</div>` : reports.map(r=>{
         const totalK = Math.round(r.approxTotalChars/1000);
         return `
@@ -663,7 +698,7 @@ function renderSheetHealthModal(){
           <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden">
             ${r.breakdown.map(b=>{
               const pct = r.approxTotalChars>0 ? Math.round(100*b.approxChars/r.approxTotalChars) : 0;
-              const isLegacy = b.prefix==='catalogSkus';
+              const isLegacy = b.prefix==='catalogSkus' || b.prefix==='__migrated__';
               return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px;${isLegacy&&b.count>0?'background:var(--danger-bg)':''}">
                 <div style="flex:1">
                   <div>${esc(sheetHealthLabel(b.prefix))}${isLegacy&&b.count>0?' ⚠':''}</div>
@@ -841,6 +876,7 @@ const state = {
   activeStockCountLockInfo: null,
   maintenanceToggling: false,
   sheetHealthLoading: false,
+  sheetHealthCleaning: false,
   pendingPackingOrders: [],
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
