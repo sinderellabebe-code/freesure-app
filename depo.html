@@ -725,7 +725,7 @@ const state = {
   modalMode: null,       // null | 'users' | 'depoMove' | 'depoBulk' | 'bulkImage' | 'newDepoItem' | 'depoScan'
   depoMoveTarget: null,   // {barcode, refNo, colorName, sizeLabel, type:'in'|'out'}
   depoMoveRunning: false,
-  scan: { mode:'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[] },
+  scan: { mode:'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], batchItems:{}, batchCommitting:false },
   depoBulkRunning: false,
   depoBulkFile: null,
   depoBulkError: null,
@@ -2083,13 +2083,17 @@ function openScanModePrompt(){
   render();
 }
 function openScanMode(mode){
-  state.scan = { mode: mode||'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], rapidMode:true, lastResult:null };
+  state.scan = { mode: mode||'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], batchItems:{}, batchCommitting:false, rapidMode:true, lastResult:null };
   state.modalMode = 'depoScan';
   render();
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
 function closeScanMode(){
   const s = state.scan;
+  const unsentQty = scanBatchTotalQty();
+  if(unsentQty > 0){
+    if(!confirm(`${unsentQty} adet taranmış ama henüz KAYDEDİLMEDİ — listedeki "Kaydet" düğmesine basmadınız. Şimdi kapatırsanız bu taramalar kaybolur. Yine de kapatmak istediğinize emin misiniz?`)) return;
+  }
   const pendingCount = s.sessionLog.reduce((sum,l)=>sum+(l.pendingCount||0),0);
   if(s.stage==='pending' || pendingCount>0){
     if(!confirm(`${pendingCount>0?pendingCount+' tarama':'Bir kayıt'} hâlâ sunucuya kaydediliyor. Şimdi kapatırsanız bu kayıtların durumunu göremezsiniz (kaydedilmiş de olabilirler, edilmemiş de olabilirler). Yine de kapatmak istediğinize emin misiniz?`)) return;
@@ -2198,7 +2202,7 @@ async function openCameraScanner(mode, keepBatch){
   if(mode==='quick' && !keepBatch){
     state.cameraBatchItems = {};
     state.cameraReviewing = false;
-    if(!state.scan || !state.scan.mode) state.scan = { mode: 'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
+    if(!state.scan || !state.scan.mode) state.scan = { mode: 'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], batchItems:{}, batchCommitting:false, rapidMode:true, lastResult:null };
   }
   state.modalMode = 'cameraScanner';
   render();
@@ -2238,7 +2242,7 @@ async function openCameraScanner(mode, keepBatch){
   }, 100);
 }
 function setCameraScanMode(mode){
-  if(!state.scan) state.scan = { mode: 'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
+  if(!state.scan) state.scan = { mode: 'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], batchItems:{}, batchCommitting:false, rapidMode:true, lastResult:null };
   state.scan.mode = mode;
   const inBtn = document.getElementById('camera-mode-in');
   const outBtn = document.getElementById('camera-mode-out');
@@ -2629,6 +2633,13 @@ function setScanMode(mode){
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
 function toggleScanRapidMode(){
+  if(scanBatchTotalQty() > 0){
+    if(!confirm(`${scanBatchTotalQty()} adet henüz kaydedilmedi. Modu değiştirirseniz bu liste kaybolur — önce "Kaydet"e basmanız önerilir. Yine de devam edilsin mi?`)){
+      render(); // re-render to restore the checkbox's checked state (it already toggled visually)
+      return;
+    }
+    state.scan.batchItems = {};
+  }
   state.scan.rapidMode = !state.scan.rapidMode;
   state.scan.stage = 'scan'; state.scan.barcode=''; state.scan.item=null;
   render();
@@ -2688,8 +2699,16 @@ function processQuickScan(barcode){
     return;
   }
   if(state.scan.rapidMode){
+    // Accumulate locally first — nothing is sent to the server until the operator reviews the
+    // list and presses "Kaydet". This gives a chance to fix a misread (wrong qty, duplicate,
+    // wrong barcode) before it's committed, at the cost of not being instantaneous per-scan.
     const el = document.getElementById('scan-barcode'); if(el) el.value = '';
-    queueScan(item, 1);
+    if(!state.scan.batchItems[barcode]){
+      state.scan.batchItems[barcode] = { barcode, refNo:item.refNo, colorName:item.colorName, sizeLabel:item.sizeLabel, qty:0 };
+    }
+    state.scan.batchItems[barcode].qty += 1;
+    playSuccessBeep();
+    render();
   } else {
     if(state.modalMode==='cameraScanner'){ stopCameraStream(); state.modalMode = 'scan'; }
     state.scan.barcode = barcode;
@@ -2698,6 +2717,46 @@ function processQuickScan(barcode){
     render();
     setTimeout(()=>{ const el=document.getElementById('scan-qty'); if(el){ el.focus(); el.select(); } }, 60);
   }
+}
+function adjustScanBatchQty(barcode, delta){
+  const it = state.scan.batchItems[barcode];
+  if(!it) return;
+  it.qty = Math.max(0, it.qty + delta);
+  if(it.qty===0) delete state.scan.batchItems[barcode];
+  render();
+}
+function removeScanBatchItem(barcode){
+  delete state.scan.batchItems[barcode];
+  render();
+}
+function scanBatchTotalQty(){
+  return Object.values(state.scan.batchItems||{}).reduce((s,it)=>s+it.qty, 0);
+}
+async function commitScanBatch(){
+  const items = Object.values(state.scan.batchItems||{}).filter(it=>it.qty>0);
+  if(items.length===0) return;
+  state.scan.batchCommitting = true;
+  render();
+  for(const it of items){
+    let entry = state.scan.sessionLog.find(l=>l.barcode===it.barcode && l.mode===state.scan.mode && l.status!=='unknown');
+    if(!entry){
+      entry = { id: uid(), barcode: it.barcode, refNo: it.refNo, colorName: it.colorName, sizeLabel: it.sizeLabel,
+        mode: state.scan.mode, scanCount: 0, totalQty: 0, pendingCount: 0, errorCount: 0, status: 'pending', stock: null };
+      state.scan.sessionLog.unshift(entry);
+    } else {
+      state.scan.sessionLog = state.scan.sessionLog.filter(l=>l!==entry);
+      state.scan.sessionLog.unshift(entry);
+    }
+    entry.scanCount += it.qty;
+    entry.pendingCount++;
+    entry.status = 'pending';
+    render();
+    await processQueuedScan(entry, it.qty);
+  }
+  state.scan.batchItems = {};
+  state.scan.batchCommitting = false;
+  render();
+  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
 function hasUnresolvedUnknownScan(){
   return (state.scan.sessionLog||[]).some(l=>l.status==='unknown');
@@ -2739,7 +2798,11 @@ function confirmScanUnknown(){
   }
   if(state.scan.rapidMode){
     state.scan.stage = 'scan'; state.scan.barcode='';
-    queueScan(item, 1);
+    if(!state.scan.batchItems[item.barcode]){
+      state.scan.batchItems[item.barcode] = { barcode:item.barcode, refNo:item.refNo, colorName:item.colorName, sizeLabel:item.sizeLabel, qty:0 };
+    }
+    state.scan.batchItems[item.barcode].qty += 1;
+    render();
   } else {
     state.scan.item = item;
     state.scan.stage = 'qty';
@@ -2774,25 +2837,6 @@ async function fixAllNegativeStock(){
   if(!confirm(`${flags.length} barkodun eksi stoğu 0'a düzeltilecek. Onaylıyor musunuz?`)) return;
   for(const f of flags){ await fixOneNegativeStock(f.barcode); }
   showToast('Tüm eksi stoklar düzeltildi');
-}
-function queueScan(item, qty){
-  const mode = state.scan.mode;
-  let entry = state.scan.sessionLog.find(l=>l.barcode===item.barcode && l.mode===mode && l.status!=='unknown');
-  if(!entry){
-    entry = { id: uid(), barcode: item.barcode, refNo: item.refNo, colorName: item.colorName, sizeLabel: item.sizeLabel,
-      mode, scanCount: 0, totalQty: 0, pendingCount: 0, errorCount: 0, status: 'pending', stock: null };
-    state.scan.sessionLog.unshift(entry);
-  } else {
-    // Bring an existing row back to the top so the operator sees it update as they keep scanning.
-    state.scan.sessionLog = state.scan.sessionLog.filter(l=>l!==entry);
-    state.scan.sessionLog.unshift(entry);
-  }
-  entry.scanCount++;
-  entry.pendingCount++;
-  entry.status = 'pending';
-  render();
-  setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 0);
-  processQueuedScan(entry, qty);
 }
 async function processQueuedScan(entry, qty){
   const r = await postStockMovement(entry.barcode, entry.mode, qty, 'Hızlı tarama', entry.refNo, entry.colorName, entry.sizeLabel);
@@ -3961,8 +4005,25 @@ function renderScanModal(){
       <div class="field-msg" style="text-align:center;margin:-8px 0 14px">Yönü değiştirmek için bu ekranı kapatıp "Hızlı Tarama"yı tekrar açın.</div>
       <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink);margin-bottom:16px;cursor:pointer">
         <input type="checkbox" ${s.rapidMode?'checked':''} ${s.stage==='pending'?'disabled':''} onchange="toggleScanRapidMode()" style="width:auto" />
-        <b>Hızlı Sayım Modu</b> — her taramada miktar sormadan otomatik 1 adet kaydet
+        <b>Hızlı Sayım Modu</b> — taramaları listede toplar, siz "Kaydet"e basınca hepsini birden gönderir (yanlış okuma varsa göndermeden düzeltebilirsiniz)
       </label>
+      ${s.rapidMode && Object.keys(s.batchItems||{}).length>0 ? `
+        <div style="background:var(--warn-bg);border:1.5px solid var(--warn);border-radius:6px;padding:12px;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <b>📋 Gönderilmeyi Bekliyor — ${scanBatchTotalQty()} adet, ${Object.keys(s.batchItems).length} barkod</b>
+          </div>
+          <div style="max-height:260px;overflow-y:auto">
+            ${Object.values(s.batchItems).map(it=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid rgba(0,0,0,.08);font-size:12.5px">
+              <span style="flex:1">${esc(detailRefLabel(it.refNo,it.colorName,it.sizeLabel))} <span style="color:var(--muted);font-variant-numeric:tabular-nums">${esc(it.barcode)}</span></span>
+              <button class="btn small ghost" style="padding:2px 8px" ${s.batchCommitting?'disabled':''} onclick="adjustScanBatchQty('${attrEsc(it.barcode)}',-1)">−</button>
+              <b style="min-width:22px;text-align:center">${it.qty}</b>
+              <button class="btn small ghost" style="padding:2px 8px" ${s.batchCommitting?'disabled':''} onclick="adjustScanBatchQty('${attrEsc(it.barcode)}',1)">+</button>
+              <button class="btn small danger-outline" style="padding:2px 8px" ${s.batchCommitting?'disabled':''} onclick="removeScanBatchItem('${attrEsc(it.barcode)}')">✕</button>
+            </div>`).join('')}
+          </div>
+          <button class="btn primary" style="width:100%;margin-top:10px" ${s.batchCommitting?'disabled':''} onclick="commitScanBatch()">${s.batchCommitting?'⏳ Kaydediliyor…':`✓ ${scanBatchTotalQty()} Adedi Kaydet`}</button>
+        </div>
+      ` : ''}
       ${s.negativeStockFlags.length>0 ? `
         <div style="background:var(--danger-bg);border:1.5px solid var(--danger);border-radius:6px;padding:12px;margin-bottom:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
