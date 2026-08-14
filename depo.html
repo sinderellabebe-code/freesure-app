@@ -725,7 +725,7 @@ const state = {
   modalMode: null,       // null | 'users' | 'depoMove' | 'depoBulk' | 'bulkImage' | 'newDepoItem' | 'depoScan'
   depoMoveTarget: null,   // {barcode, refNo, colorName, sizeLabel, type:'in'|'out'}
   depoMoveRunning: false,
-  scan: { mode:'out', stage:'scan', barcode:'', item:null, sessionLog:[] },
+  scan: { mode:'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[] },
   depoBulkRunning: false,
   depoBulkFile: null,
   depoBulkError: null,
@@ -1318,6 +1318,19 @@ async function submitDepoMove(){
   const qty = parseInt(document.getElementById('dm-qty').value, 10);
   const note = document.getElementById('dm-note').value.trim();
   if(!qty || qty <= 0){ showToast('Geçerli bir miktar girin'); return; }
+  if(t.type==='out'){
+    const item = state.warehouseItems.find(w=>w.barcode===t.barcode);
+    const currentStock = item ? (Number(item.stock)||0) : 0;
+    if(qty > currentStock){
+      const ok = confirm(`⚠ Depoda sadece ${currentStock} adet görünüyor, ${qty} adet çıkış girdiniz.\n\nBu şekilde devam ederseniz stok EKSİYE düşecek — sistemde "depoda yok" görünen bir ürün satılmış gibi olur, bu doğru değildir.\n\n"Tamam" derseniz miktar otomatik olarak mevcut ${currentStock} adede sınırlanır. Yine de ${qty} adet olarak göndermek isterseniz "İptal"e basıp devam edin.`);
+      if(ok){
+        document.getElementById('dm-qty').value = currentStock;
+        if(currentStock <= 0){ showToast('Depoda hiç stok yok, çıkış girilemez'); return; }
+        return submitDepoMove(); // resubmit with the capped quantity
+      }
+      // person explicitly chose to proceed with the over-quantity — fall through and submit as-is
+    }
+  }
   state.depoMoveRunning = true;
   render();
   const r = await postStockMovement(t.barcode, t.type, qty, note, t.refNo, t.colorName, t.sizeLabel);
@@ -2070,7 +2083,7 @@ function openScanModePrompt(){
   render();
 }
 function openScanMode(mode){
-  state.scan = { mode: mode||'out', stage:'scan', barcode:'', item:null, sessionLog:[], rapidMode:true, lastResult:null };
+  state.scan = { mode: mode||'out', stage:'scan', barcode:'', item:null, sessionLog:[], negativeStockFlags:[], rapidMode:true, lastResult:null };
   state.modalMode = 'depoScan';
   render();
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
@@ -2080,6 +2093,9 @@ function closeScanMode(){
   const pendingCount = s.sessionLog.filter(l=>l.status==='pending').length;
   if(s.stage==='pending' || pendingCount>0){
     if(!confirm(`${pendingCount>0?pendingCount+' tarama':'Bir kayıt'} hâlâ sunucuya kaydediliyor. Şimdi kapatırsanız bu kayıtların durumunu göremezsiniz (kaydedilmiş de olabilirler, edilmemiş de olabilirler). Yine de kapatmak istediğinize emin misiniz?`)) return;
+  }
+  if(s.negativeStockFlags.length > 0){
+    if(!confirm(`${s.negativeStockFlags.length} barkod eksi stoğa düştü ve henüz düzeltilmedi. Bu durumda "depoda yok" görünen ürünler aslında eksi görünmeye devam edecek. Yine de kapatmak istediğinize emin misiniz?`)) return;
   }
   state.modalMode = null;
   render();
@@ -2734,6 +2750,31 @@ function confirmScanUnknown(){
 
 // Queue a scan for background processing — returns immediately so the operator can keep scanning
 // without waiting for the server round-trip. Each entry shows its own pending/ok/error status.
+function flagNegativeStock(barcode, refNo, colorName, sizeLabel, stock){
+  if(state.scan.negativeStockFlags.some(f=>f.barcode===barcode)) return; // already flagged this session
+  state.scan.negativeStockFlags.push({barcode, refNo, colorName, sizeLabel, stock});
+  playAlertSound();
+}
+async function fixOneNegativeStock(barcode){
+  const flag = state.scan.negativeStockFlags.find(f=>f.barcode===barcode);
+  if(!flag) return;
+  const qty = Math.abs(flag.stock);
+  const r = await postStockMovement(barcode, 'in', qty, 'Eksi stok düzeltmesi (Hızlı Tarama)', flag.refNo, flag.colorName, flag.sizeLabel);
+  if(r.ok){
+    state.scan.negativeStockFlags = state.scan.negativeStockFlags.filter(f=>f.barcode!==barcode);
+    showToast(`${flag.barcode} stoğu 0'a düzeltildi`);
+    render();
+  } else {
+    showToast('Düzeltme kaydedilemedi — tekrar deneyin');
+  }
+}
+async function fixAllNegativeStock(){
+  const flags = [...state.scan.negativeStockFlags];
+  if(flags.length===0) return;
+  if(!confirm(`${flags.length} barkodun eksi stoğu 0'a düzeltilecek. Onaylıyor musunuz?`)) return;
+  for(const f of flags){ await fixOneNegativeStock(f.barcode); }
+  showToast('Tüm eksi stoklar düzeltildi');
+}
 function queueScan(item, qty){
   const mode = state.scan.mode;
   const entry = {
@@ -2750,6 +2791,7 @@ async function processQueuedScan(entry){
   if(r.ok){
     entry.status = 'ok';
     entry.stock = r.stock;
+    if(r.stock < 0) flagNegativeStock(entry.barcode, entry.refNo, entry.colorName, entry.sizeLabel, r.stock);
     if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'ok');
   } else {
     entry.status = 'error';
@@ -2775,6 +2817,7 @@ async function submitScanMovement(qty){
   if(r.ok){
     state.scan.sessionLog.unshift({id:uid(), barcode:item.barcode, refNo:item.refNo, colorName:item.colorName, sizeLabel:item.sizeLabel, qty, mode, status:'ok', stock:r.stock});
     state.scan.lastResult = { ok:true, text: `✓ ${detailRefLabel(item.refNo,item.colorName,item.sizeLabel)} — ${mode==='out'?'Çıkış':'Giriş'} ${qty} kaydedildi (Yeni stok: ${r.stock})` };
+    if(r.stock < 0) flagNegativeStock(item.barcode, item.refNo, item.colorName, item.sizeLabel, r.stock);
   } else {
     state.scan.lastResult = { ok:false, text: r.networkError ? '⚠ Sunucuya bağlanılamadı — kaydedilmedi, tekrar deneyin' : '⚠ Kaydedilemedi, tekrar deneyin' };
   }
@@ -3093,11 +3136,11 @@ function renderDepoMoveModal(){
       </p>
       <div class="field">
         <label>Miktar</label>
-        <input id="dm-qty" type="number" min="1" placeholder="Örn. 20" ${running?'disabled':''} />
+        <input id="dm-qty" type="number" min="1" placeholder="Örn. 20" ${running?'disabled':''} onkeydown="if(event.key==='Enter'){event.preventDefault();submitDepoMove();}" />
       </div>
       <div class="field">
         <label>Not (opsiyonel)</label>
-        <input id="dm-note" type="text" placeholder="${t.type==='in' ? 'Örn. Yeni üretim, iade' : 'Örn. Pazaryeri satışı, hasar'}" ${running?'disabled':''} />
+        <input id="dm-note" type="text" placeholder="${t.type==='in' ? 'Örn. Yeni üretim, iade' : 'Örn. Pazaryeri satışı, hasar'}" ${running?'disabled':''} onkeydown="if(event.key==='Enter'){event.preventDefault();submitDepoMove();}" />
       </div>
       <div class="modal-actions">
         <button class="btn ghost" ${running?'disabled':''} onclick="closeModal()">Vazgeç</button>
@@ -3894,6 +3937,18 @@ function renderScanModal(){
         <input type="checkbox" ${s.rapidMode?'checked':''} ${s.stage==='pending'?'disabled':''} onchange="toggleScanRapidMode()" style="width:auto" />
         <b>Hızlı Sayım Modu</b> — her taramada miktar sormadan otomatik 1 adet kaydet
       </label>
+      ${s.negativeStockFlags.length>0 ? `
+        <div style="background:var(--danger-bg);border:1.5px solid var(--danger);border-radius:6px;padding:12px;margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <b style="color:var(--danger)">⚠ ${s.negativeStockFlags.length} barkod eksi stoğa düştü</b>
+            <button class="btn small" style="background:var(--danger);color:#fff" onclick="fixAllNegativeStock()">Tümünü 0'a Düzelt</button>
+          </div>
+          ${s.negativeStockFlags.map(f=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12.5px;border-top:1px solid rgba(0,0,0,.08)">
+            <span>${esc(detailRefLabel(f.refNo,f.colorName,f.sizeLabel))} — <span style="font-variant-numeric:tabular-nums">${esc(f.barcode)}</span> — <b>${f.stock}</b> adet</span>
+            <button class="btn small ghost" onclick="fixOneNegativeStock('${attrEsc(f.barcode)}')">0'a Düzelt</button>
+          </div>`).join('')}
+        </div>
+      ` : ''}
       ${s.sessionLog.length>0 ? `
         <div style="margin-bottom:18px">
           <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
