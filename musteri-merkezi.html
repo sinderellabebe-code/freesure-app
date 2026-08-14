@@ -754,7 +754,8 @@ const state = {
   revenueSelectedYear: null,
   revenueSelectedMonth: null,
   revenueBoxOpen: false,
-  latestStockCount: null
+  latestStockCount: null,
+  monthlyStockSummary: null
 };
 
 async function fetchLatestStockCountSummary(){
@@ -765,6 +766,17 @@ async function fetchLatestStockCountSummary(){
     if(data && data.ok){
       const completed = (data.counts||[]).filter(c=>c.status==='completed' && c.periodSummary);
       state.latestStockCount = completed.length>0 ? completed[0] : null;
+      render();
+    }
+  }catch(e){ /* supplemental info — silent fail */ }
+}
+async function fetchMonthlyStockSummary(){
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=getMonthlyStockSummary' + authParams);
+    const data = await res.json();
+    if(data && data.ok){
+      state.monthlyStockSummary = { monthly: data.monthly||{}, yearly: data.yearly||{} };
       render();
     }
   }catch(e){ /* supplemental info — silent fail */ }
@@ -790,6 +802,7 @@ async function init(){
     if(!state.meta.nextCustomerNo) state.meta.nextCustomerNo = 1;
     state.logo = all['logo'] || null;
     fetchLatestStockCountSummary(); // non-blocking — revenue box shows it once it arrives
+    fetchMonthlyStockSummary(); // non-blocking — same pattern
   }catch(e){
     showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
   }
@@ -1659,8 +1672,13 @@ function renderRevenueBox(){
   const selectedTotal = selMonth ? (monthly[selYear+'-'+selMonth]||0) : yearly[selYear];
   const selectedLabel = selMonth ? (monthNames[parseInt(selMonth,10)-1] + ' ' + selYear) : selYear;
 
+  // Dynamic stock giren/çıkan for the SAME selected period — independent of Depo Sayımı sessions.
+  const ms = state.monthlyStockSummary;
+  const stockKey = selMonth ? (selYear+'-'+selMonth) : selYear;
+  const stockBucket = ms ? (selMonth ? ms.monthly[stockKey] : ms.yearly[stockKey]) : null;
+
   return `<details class="extra-fields" style="margin-bottom:14px" ${state.revenueBoxOpen?'open':''} ontoggle="state.revenueBoxOpen=this.open">
-    <summary>📊 Aylık ve Yıllık Ciro</summary>
+    <summary>📊 Aylık ve Yıllık Analiz</summary>
     <div class="extra-fields-body">
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
         ${yearKeys.map(y=>`<button class="btn small ${y===selYear?'primary':'ghost'}" onclick="setRevenuePeriod('${y}', null)">${esc(y)} · $${formatMoney(yearly[y])}</button>`).join('')}
@@ -1677,6 +1695,18 @@ function renderRevenueBox(){
         <div class="extra-info-row"><span class="extra-info-label">${esc(selectedLabel)} Toplam Ciro</span><span class="extra-info-value" style="font-weight:700;font-size:15px">$${formatMoney(selectedTotal)}</span></div>
       </div>
       <div class="field-msg" style="margin-top:8px">İptal edilmiş ve taslak siparişler dahil edilmez; iade edilen tutarlar düşülmüştür.</div>
+
+      <div class="extra-info-box" style="margin-top:14px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-bottom:6px">${esc(selectedLabel)} Depo Hareketi</div>
+        ${stockBucket ? `
+          <div class="extra-info-row"><span class="extra-info-label">Depoya Giren (Üretilen)</span><span class="extra-info-value" style="color:var(--good)">+${stockBucket.in}</span></div>
+          <div class="extra-info-row"><span class="extra-info-label">Depodan Çıkan</span><span class="extra-info-value" style="color:var(--danger)">−${stockBucket.out}</span></div>
+          ${(stockBucket.correctionIn>0 || stockBucket.correctionOut>0) ? `
+            <div class="field-msg" style="margin-top:6px">⚙ Ayrıca ${stockBucket.correctionIn>0?`+${stockBucket.correctionIn}`:''}${(stockBucket.correctionIn>0&&stockBucket.correctionOut>0)?' / ':''}${stockBucket.correctionOut>0?`−${stockBucket.correctionOut}`:''} eksi stok düzeltmesi yapıldı — bu, gerçek üretim/satış olmadığı için yukarıdaki rakamlara dahil edilmedi.</div>
+          ` : ''}
+        ` : `<div class="field-msg">${ms ? 'Bu dönemde depo hareketi kaydı bulunmuyor.' : 'Depo verisi yükleniyor…'}</div>`}
+      </div>
+
       ${state.latestStockCount ? `
         <div class="extra-info-box" style="margin-top:14px">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;margin-bottom:6px">Son Depo Sayımı — ${esc(state.latestStockCount.name)}</div>

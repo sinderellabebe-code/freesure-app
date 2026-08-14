@@ -1283,11 +1283,11 @@ window.addEventListener('beforeunload', function(e){
     return '';
   }
 });
-async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel){
+async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel, isCorrection){
   beginCriticalWrite();
   const clientRequestId = uid() + '-' + Date.now();
   const body = JSON.stringify({action:'addStockMovement', auth:{username:session.username, passwordHash:session.passwordHash}, clientRequestId,
-    movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName}});
+    movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName, isCorrection: !!isCorrection}});
   async function attempt(){
     const res = await fetchWithTimeout(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body }, 20000);
     return await res.json();
@@ -2822,7 +2822,7 @@ async function fixOneNegativeStock(barcode){
   const flag = state.scan.negativeStockFlags.find(f=>f.barcode===barcode);
   if(!flag) return;
   const qty = Math.abs(flag.stock);
-  const r = await postStockMovement(barcode, 'in', qty, 'Eksi stok düzeltmesi (Hızlı Tarama)', flag.refNo, flag.colorName, flag.sizeLabel);
+  const r = await postStockMovement(barcode, 'in', qty, 'Eksi stok düzeltmesi (Hızlı Tarama)', flag.refNo, flag.colorName, flag.sizeLabel, true);
   if(r.ok){
     state.scan.negativeStockFlags = state.scan.negativeStockFlags.filter(f=>f.barcode!==barcode);
     showToast(`${flag.barcode} stoğu 0'a düzeltildi`);

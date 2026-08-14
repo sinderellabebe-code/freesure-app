@@ -1538,13 +1538,13 @@ window.addEventListener('beforeunload', function(e){
     return '';
   }
 });
-async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel){
+async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel, isCorrection){
   beginCriticalWrite();
   try{
     const res = await fetch(API_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({action:'addStockMovement', auth:{username:session.username, passwordHash:session.passwordHash},
-        movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName}})
+        movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName, isCorrection: !!isCorrection}})
     });
     const data = await res.json();
     if(data && data.ok){
