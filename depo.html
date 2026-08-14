@@ -2090,7 +2090,7 @@ function openScanMode(mode){
 }
 function closeScanMode(){
   const s = state.scan;
-  const pendingCount = s.sessionLog.filter(l=>l.status==='pending').length;
+  const pendingCount = s.sessionLog.reduce((sum,l)=>sum+(l.pendingCount||0),0);
   if(s.stage==='pending' || pendingCount>0){
     if(!confirm(`${pendingCount>0?pendingCount+' tarama':'Bir kayıt'} hâlâ sunucuya kaydediliyor. Şimdi kapatırsanız bu kayıtların durumunu göremezsiniz (kaydedilmiş de olabilirler, edilmemiş de olabilirler). Yine de kapatmak istediğinize emin misiniz?`)) return;
   }
@@ -2777,25 +2777,36 @@ async function fixAllNegativeStock(){
 }
 function queueScan(item, qty){
   const mode = state.scan.mode;
-  const entry = {
-    id: uid(), barcode: item.barcode, refNo: item.refNo, colorName: item.colorName, sizeLabel: item.sizeLabel,
-    qty, mode, status: 'pending'
-  };
-  state.scan.sessionLog.unshift(entry);
+  let entry = state.scan.sessionLog.find(l=>l.barcode===item.barcode && l.mode===mode && l.status!=='unknown');
+  if(!entry){
+    entry = { id: uid(), barcode: item.barcode, refNo: item.refNo, colorName: item.colorName, sizeLabel: item.sizeLabel,
+      mode, scanCount: 0, totalQty: 0, pendingCount: 0, errorCount: 0, status: 'pending', stock: null };
+    state.scan.sessionLog.unshift(entry);
+  } else {
+    // Bring an existing row back to the top so the operator sees it update as they keep scanning.
+    state.scan.sessionLog = state.scan.sessionLog.filter(l=>l!==entry);
+    state.scan.sessionLog.unshift(entry);
+  }
+  entry.scanCount++;
+  entry.pendingCount++;
+  entry.status = 'pending';
   render();
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 0);
-  processQueuedScan(entry);
+  processQueuedScan(entry, qty);
 }
-async function processQueuedScan(entry){
-  const r = await postStockMovement(entry.barcode, entry.mode, entry.qty, 'Hızlı tarama', entry.refNo, entry.colorName, entry.sizeLabel);
+async function processQueuedScan(entry, qty){
+  const r = await postStockMovement(entry.barcode, entry.mode, qty, 'Hızlı tarama', entry.refNo, entry.colorName, entry.sizeLabel);
+  entry.pendingCount--;
   if(r.ok){
-    entry.status = 'ok';
+    entry.totalQty += qty;
     entry.stock = r.stock;
+    entry.status = entry.pendingCount>0 ? 'pending' : (entry.errorCount>0 ? 'partial' : 'ok');
     if(r.stock < 0) flagNegativeStock(entry.barcode, entry.refNo, entry.colorName, entry.sizeLabel, r.stock);
     if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'ok');
   } else {
-    entry.status = 'error';
-    entry.errorMsg = r.networkError ? 'Bağlantı hatası' : 'Kaydedilemedi';
+    entry.errorCount++;
+    entry.scanCount--; // this particular scan attempt didn't actually count — doesn't inflate the total
+    entry.status = entry.pendingCount>0 ? 'pending' : 'error';
     playAlertSound();
     if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'error');
   }
@@ -2804,9 +2815,12 @@ async function processQueuedScan(entry){
 function retryQueuedScan(entryId){
   const entry = state.scan.sessionLog.find(x=>x.id===entryId);
   if(!entry) return;
+  entry.errorCount = Math.max(0, entry.errorCount-1);
+  entry.scanCount++;
+  entry.pendingCount++;
   entry.status = 'pending';
   render();
-  processQueuedScan(entry);
+  processQueuedScan(entry, 1);
 }
 async function submitScanMovement(qty){
   const item = state.scan.item, mode = state.scan.mode;
@@ -2815,7 +2829,19 @@ async function submitScanMovement(qty){
   render();
   const r = await postStockMovement(item.barcode, mode, qty, 'Hızlı tarama', item.refNo, item.colorName, item.sizeLabel);
   if(r.ok){
-    state.scan.sessionLog.unshift({id:uid(), barcode:item.barcode, refNo:item.refNo, colorName:item.colorName, sizeLabel:item.sizeLabel, qty, mode, status:'ok', stock:r.stock});
+    let entry = state.scan.sessionLog.find(l=>l.barcode===item.barcode && l.mode===mode && l.status!=='unknown');
+    if(!entry){
+      entry = { id: uid(), barcode: item.barcode, refNo: item.refNo, colorName: item.colorName, sizeLabel: item.sizeLabel,
+        mode, scanCount: 0, totalQty: 0, pendingCount: 0, errorCount: 0, status: 'ok', stock: null };
+      state.scan.sessionLog.unshift(entry);
+    } else {
+      state.scan.sessionLog = state.scan.sessionLog.filter(l=>l!==entry);
+      state.scan.sessionLog.unshift(entry);
+    }
+    entry.scanCount++;
+    entry.totalQty += qty;
+    entry.stock = r.stock;
+    entry.status = entry.errorCount>0 ? 'partial' : 'ok';
     state.scan.lastResult = { ok:true, text: `✓ ${detailRefLabel(item.refNo,item.colorName,item.sizeLabel)} — ${mode==='out'?'Çıkış':'Giriş'} ${qty} kaydedildi (Yeni stok: ${r.stock})` };
     if(r.stock < 0) flagNegativeStock(item.barcode, item.refNo, item.colorName, item.sizeLabel, r.stock);
   } else {
@@ -3951,7 +3977,7 @@ function renderScanModal(){
       ` : ''}
       ${s.sessionLog.length>0 ? `
         <div style="margin-bottom:18px">
-          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.status==='pending')?' — bazıları kaydediliyor…':''}</div>
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px;font-weight:700">Bu oturumda (${s.sessionLog.length})${s.sessionLog.some(l=>l.pendingCount>0)?' — bazıları kaydediliyor…':''}</div>
           <div style="max-height:320px;overflow-y:auto">
           ${s.sessionLog.map(l=>l.status==='unknown' ? `<div class="log-item" style="padding:10px 10px;background:#FFDCC2;border-left:4px solid #D9480F;border-radius:4px;margin-bottom:4px">
             <div class="meta" style="flex-wrap:wrap;gap:6px">
@@ -3962,14 +3988,15 @@ function renderScanModal(){
                 <button class="btn small primary" style="flex:1" onclick="defineUnknownScanEntry('${l.id}')">+ Yeni Barkod Olarak Tanımla</button>
               </div>
             </div>
-          </div>` : `<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='pending'?'background:#FBF9F3':''}">
+          </div>` : `<div class="log-item" style="padding:6px 0;${l.status==='error'?'background:var(--danger-bg)':l.status==='partial'?'background:var(--warn-bg)':l.status==='pending'?'background:#FBF9F3':''}">
             <div class="meta">
               <span class="chip ${l.mode==='in'?'wa':'other'}">${l.mode==='in'?'Giriş':'Çıkış'}</span>
               <span>${esc(detailRefLabel(l.refNo, l.colorName, l.sizeLabel))}</span>
-              <span style="font-weight:700;margin-left:auto">${l.mode==='in'?'+':'−'}${l.qty}</span>
-              ${l.status==='pending' ? '<span style="font-size:11px;color:var(--muted)">⏳</span>' : ''}
+              <span style="font-size:11px;color:var(--muted)">× ${l.scanCount} tarama</span>
+              <span style="font-weight:700;margin-left:auto">${l.mode==='in'?'+':'−'}${l.totalQty}</span>
+              ${l.pendingCount>0 ? `<span style="font-size:11px;color:var(--muted)">⏳ ${l.pendingCount}</span>` : ''}
               ${l.status==='ok' ? '<span style="font-size:12px;color:var(--good)">✓</span>' : ''}
-              ${l.status==='error' ? `<span style="font-size:11px;color:var(--danger)">⚠ ${esc(l.errorMsg||'')}</span><button class="btn small danger-outline" style="padding:2px 8px" onclick="retryQueuedScan('${l.id}')">Tekrar Dene</button>` : ''}
+              ${l.errorCount>0 ? `<span style="font-size:11px;color:var(--danger)">⚠ ${l.errorCount} başarısız</span><button class="btn small danger-outline" style="padding:2px 8px" onclick="retryQueuedScan('${l.id}')">Tekrar Dene</button>` : ''}
             </div>
           </div>`).join('')}
           </div>
