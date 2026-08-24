@@ -830,9 +830,21 @@ async function silentAutoRefresh(){
   if(state.modalMode) return; // don't disrupt an open form (new customer, bulk import, payment entry, etc.)
   if(state.bulkImportRunning) return;
   if(!state.loaded || state.blockedForDepocu) return;
+  // Don't disrupt an in-progress, unsaved note/contact/order/payment entry on the customer
+  // detail screen either — these live inline in the page (not a modal), so the check above
+  // doesn't catch them. A full re-render mid-typing would silently wipe the text.
+  if(hasUnsavedInlineFormText_()) return;
   try{
     await init();
   }catch(e){ /* silent — a failed background refresh isn't worth interrupting the user for */ }
+}
+function hasUnsavedInlineFormText_(){
+  const ids = ['cf-note', 'of-note', 'pf-note'];
+  for(const id of ids){
+    const el = document.getElementById(id);
+    if(el && el.value && el.value.trim().length>0) return true;
+  }
+  return false;
 }
 async function refreshCustomerDetail(customerId){
   await refreshData();
