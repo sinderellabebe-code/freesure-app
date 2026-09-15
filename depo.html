@@ -268,11 +268,11 @@ function describeWriteBlock_(data){
 }
 async function saveKey(key, value){
   try{
-    const res = await fetch(API_URL, {
+    const res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
-    });
+    }, 30000);
     const data = await res.json();
     if(!data || !data.ok){
       showToast(describeWriteBlock_(data) || 'Kaydetme hatası — tekrar deneyin');
@@ -280,7 +280,11 @@ async function saveKey(key, value){
     }
     return true;
   }catch(e){
-    showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    if(e && e.name==='AbortError'){
+      showToast('⏱ Sunucu yanıtı gecikti — kayıt yine de tamamlanmış olabilir, birkaç saniye sonra sayfayı yenileyip kontrol edin.');
+    } else {
+      showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    }
     return false;
   }
 }
@@ -294,17 +298,21 @@ async function deleteSkuRows(skuIds){ for(const id of skuIds) await deleteSkuRow
 // silently overwriting someone else's more recent edit (e.g. a price just updated elsewhere).
 async function patchProducts(upserts, deleteIds){
   try{
-    const res = await fetch(API_URL, {
+    const res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify({action:'patchCatalogProducts', auth:{username:session.username, passwordHash:session.passwordHash}, upserts: upserts||[], deleteIds: deleteIds||[]})
-    });
+    }, 30000);
     const data = await res.json();
     if(data && data.ok){ state.products = data.products; return true; }
-    showToast('Kaydetme hatası — tekrar deneyin');
+    showToast(describeWriteBlock_(data) || 'Kaydetme hatası — tekrar deneyin');
     return false;
   }catch(e){
-    showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    if(e && e.name==='AbortError'){
+      showToast('⏱ Sunucu yanıtı gecikti — kayıt yine de tamamlanmış olabilir, birkaç saniye sonra sayfayı yenileyip kontrol edin.');
+    } else {
+      showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    }
     return false;
   }
 }
@@ -870,6 +878,8 @@ const state = {
   depoBulkChunkErrorReason: {},
   depoBulkNoOpSkipped: 0,
   newDepoItemSaving: false,
+  newDepoItemProgress: null,
+  newDepoItemError: null,
   newDepoItemSuccess: null,
   newDepoItemImage: null,
   depoFilterGender: new Set(),
@@ -2132,8 +2142,8 @@ async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
   let product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
   if(!product){
     product = {id:uid(), refNo:String(refNo).replace(/[^0-9]/g,''), name:(refName||'').trim(), price:0, createdAt:todayISO(), createdBy:session.displayName};
-    state.products = [...state.products, product];
-    await patchProducts([product]);
+    const saved = await patchProducts([product]);
+    if(!saved) return {error:'Model kaydı oluşturulamadı — yukarıdaki mesaja bakıp tekrar deneyin'};
   }
   let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
   if(!variant){
@@ -2161,6 +2171,8 @@ function openNewDepoItemModal(){
   state.modalMode = 'newDepoItem';
   state.newDepoItemSuccess = null;
   state.newDepoItemSaving = false;
+  state.newDepoItemProgress = null;
+  state.newDepoItemError = null;
   state.newDepoItemImage = null;
   render();
 }
@@ -2190,26 +2202,34 @@ async function submitNewDepoItem(){
   if(selectedSizes.length===0){ showToast('En az bir beden seçin'); return; }
 
   state.newDepoItemSaving = true;
+  state.newDepoItemError = null;
   render();
 
   const created = [];
-  let allOk = true;
-  for(const sizeInfo of selectedSizes){
+  let failReason = null;
+  for(let i=0;i<selectedSizes.length;i++){
+    const sizeInfo = selectedSizes[i];
+    state.newDepoItemProgress = `Kaydediliyor… (${i+1}/${selectedSizes.length}: ${sizeInfo.short})`;
+    render();
     const qty = parseInt(document.getElementById('ndi-qty-'+sizeInfo.code).value, 10) || 0;
     const r = await ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeInfo.code);
-    if(r.error){ showToast(r.error); allOk = false; break; }
+    if(r.error){ failReason = r.error; break; }
     const existing = state.warehouseItems.find(w=>w.barcode===r.barcode);
     if(existing && (existing.refNo && existing.refNo!==refNo || existing.colorName && existing.colorName.toUpperCase()!==colorName)){
-      showToast('⚠ Barkod çakışması: ' + sizeInfo.short); allOk = false; break;
+      failReason = '⚠ Barkod çakışması: ' + sizeInfo.short; break;
     }
     if(qty > 0){
       const res = await postStockMovement(r.barcode, 'in', qty, 'İlk depo kaydı', refNo, colorName, sizeInfo.short);
-      if(!res || !res.ok){ allOk = false; break; }
+      if(!res || !res.ok){
+        failReason = res && res.blockReason ? res.blockReason : (res && res.networkError ? 'Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin' : 'Stok kaydı başarısız oldu');
+        break;
+      }
     } else if(!state.warehouseItems.find(w=>w.barcode===r.barcode)){
       state.warehouseItems.push({barcode:r.barcode, refNo, colorName, sizeLabel:sizeInfo.short, stock:0});
     }
     created.push({barcode:r.barcode, sizeLabel:sizeInfo.short, qty});
   }
+  const allOk = !failReason;
 
   // Unit/gender/season + image apply once per ref/color, not per size
   if(allOk){
@@ -2229,10 +2249,16 @@ async function submitNewDepoItem(){
   }
 
   state.newDepoItemSaving = false;
+  state.newDepoItemProgress = null;
   if(allOk){
     state.newDepoItemSuccess = { refNo, colorName, items: created };
     render();
   } else {
+    const doneCount = created.length;
+    const totalCount = selectedSizes.length;
+    state.newDepoItemError = doneCount>0
+      ? `⚠ ${failReason} — ${doneCount}/${totalCount} beden zaten kaydedildi (bunlar için tekrar denemenize gerek yok), kalan bedenleri ayrı ayrı eklemeyi deneyin.`
+      : `⚠ ${failReason} — hiçbir beden kaydedilmedi.`;
     render();
   }
 }
@@ -3851,7 +3877,8 @@ function renderNewDepoItemModal(){
           `).join('')}
         </div>
       </div>
-      ${saving ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ Kaydediliyor…</div>` : ''}
+      ${saving ? `<div class="field-msg" style="text-align:center;font-weight:600">⏳ ${esc(state.newDepoItemProgress||'Kaydediliyor…')}</div>` : ''}
+      ${state.newDepoItemError ? `<div class="bulk-result error" style="display:block;margin-top:10px">${esc(state.newDepoItemError)}</div>` : ''}
       <div class="modal-actions">
         <button class="btn ghost" ${saving?'disabled':''} onclick="closeModal()">Vazgeç</button>
         <button class="btn primary" ${saving?'disabled':''} onclick="submitNewDepoItem()">Kaydet ve Barkodları Üret</button>
