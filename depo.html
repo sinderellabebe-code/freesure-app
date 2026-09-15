@@ -942,7 +942,11 @@ const state = {
 
 async function init(){
   try{
-    const all = await loadAll();
+    const [all, pendingPackingOrders, activeStockCount] = await Promise.all([
+      loadAll(),
+      fetchPendingPackingOrders(),
+      fetchActiveStockCount()
+    ]);
     state.products = all['catalogProducts'] || [];
     state.skus = all['catalogSkus'] || [];
     state.logo = all['logo'] || null;
@@ -955,8 +959,8 @@ async function init(){
         state.warehouseItems.push(all[k]);
       }
     });
-    state.pendingPackingOrders = await fetchPendingPackingOrders();
-    state.activeStockCount = await fetchActiveStockCount();
+    state.pendingPackingOrders = pendingPackingOrders;
+    state.activeStockCount = activeStockCount;
   }catch(e){
     showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
   }
