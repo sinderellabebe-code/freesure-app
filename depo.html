@@ -2174,7 +2174,20 @@ function openNewDepoItemModal(){
   state.newDepoItemProgress = null;
   state.newDepoItemError = null;
   state.newDepoItemImage = null;
+  state.newDepoItemDraft = {
+    refNo:'', refName:'', colorName:'', unit:'Adet', gender:'', season:'',
+    sizeChecked:{}, sizeQty:{}
+  };
   render();
+}
+function updateNewDepoItemDraft(field, value){
+  state.newDepoItemDraft[field] = value;
+}
+function updateNewDepoItemSizeChecked(code, checked){
+  state.newDepoItemDraft.sizeChecked[code] = checked;
+}
+function updateNewDepoItemSizeQty(code, value){
+  state.newDepoItemDraft.sizeQty[code] = value;
 }
 async function handleNewDepoItemImage(e){
   const file = e.target.files && e.target.files[0];
@@ -2190,15 +2203,16 @@ async function handleNewDepoItemImage(e){
   render();
 }
 async function submitNewDepoItem(){
-  const refNo = document.getElementById('ndi-ref').value.trim();
-  const refName = document.getElementById('ndi-refname').value.trim();
-  const colorName = document.getElementById('ndi-color').value.trim().toUpperCase();
-  const unit = document.getElementById('ndi-unit').value;
-  const gender = document.getElementById('ndi-gender').value;
-  const season = document.getElementById('ndi-season').value;
+  const d = state.newDepoItemDraft || {};
+  const refNo = (d.refNo||'').trim();
+  const refName = (d.refName||'').trim();
+  const colorName = (d.colorName||'').trim().toUpperCase();
+  const unit = d.unit || 'Adet';
+  const gender = d.gender || '';
+  const season = d.season || '';
   if(!/^[0-9]{1,6}$/.test(refNo)){ showToast('Referans No 1-6 haneli bir sayı olmalı'); return; }
   if(!colorName){ showToast('Renk adı girin'); return; }
-  const selectedSizes = SIZES.filter(s=>document.getElementById('ndi-size-'+s.code).checked);
+  const selectedSizes = SIZES.filter(s=>d.sizeChecked && d.sizeChecked[s.code]);
   if(selectedSizes.length===0){ showToast('En az bir beden seçin'); return; }
 
   state.newDepoItemSaving = true;
@@ -2211,7 +2225,7 @@ async function submitNewDepoItem(){
     const sizeInfo = selectedSizes[i];
     state.newDepoItemProgress = `Kaydediliyor… (${i+1}/${selectedSizes.length}: ${sizeInfo.short})`;
     render();
-    const qty = parseInt(document.getElementById('ndi-qty-'+sizeInfo.code).value, 10) || 0;
+    const qty = parseInt(d.sizeQty && d.sizeQty[sizeInfo.code], 10) || 0;
     const r = await ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeInfo.code);
     if(r.error){ failReason = r.error; break; }
     const existing = state.warehouseItems.find(w=>w.barcode===r.barcode);
@@ -3785,6 +3799,7 @@ function renderBulkImageModal(){
 function renderNewDepoItemModal(){
   const s = state.newDepoItemSuccess;
   const saving = state.newDepoItemSaving;
+  const d = state.newDepoItemDraft || {refNo:'', refName:'', colorName:'', unit:'Adet', gender:'', season:'', sizeChecked:{}, sizeQty:{}};
   if(s){
     return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeNewDepoItemSuccess()">
       <div class="modal">
@@ -3812,46 +3827,46 @@ function renderNewDepoItemModal(){
       <div class="row2">
         <div class="field">
           <label>Referans No *</label>
-          <input id="ndi-ref" type="text" inputmode="numeric" maxlength="6" placeholder="Örn. 2000" oninput="this.value=this.value.replace(/[^0-9]/g,'')" ${saving?'disabled':''} />
+          <input id="ndi-ref" type="text" inputmode="numeric" maxlength="6" placeholder="Örn. 2000" value="${attrEsc(d.refNo)}" oninput="this.value=this.value.replace(/[^0-9]/g,'');updateNewDepoItemDraft('refNo',this.value)" ${saving?'disabled':''} />
         </div>
         <div class="field">
           <label>Model Adı (opsiyonel)</label>
-          <input id="ndi-refname" type="text" placeholder="Yalnızca yeni modelse kullanılır" ${saving?'disabled':''} />
+          <input id="ndi-refname" type="text" placeholder="Yalnızca yeni modelse kullanılır" value="${attrEsc(d.refName)}" oninput="updateNewDepoItemDraft('refName',this.value)" ${saving?'disabled':''} />
         </div>
       </div>
       <div class="row2">
         <div class="field">
           <label>Renk *</label>
-          <input id="ndi-color" type="text" placeholder="Örn. BLUE" oninput="this.value=this.value.toUpperCase()" style="text-transform:uppercase" ${saving?'disabled':''} />
+          <input id="ndi-color" type="text" placeholder="Örn. BLUE" value="${attrEsc(d.colorName)}" oninput="this.value=this.value.toUpperCase();updateNewDepoItemDraft('colorName',this.value)" style="text-transform:uppercase" ${saving?'disabled':''} />
         </div>
         <div class="field">
           <label>Birim</label>
-          <select id="ndi-unit" ${saving?'disabled':''}>
-            <option value="Adet">Adet</option>
-            <option value="Çift">Çift</option>
-            <option value="Kg">Kg</option>
-            <option value="Metre">Metre</option>
-            <option value="Diğer">Diğer</option>
+          <select id="ndi-unit" onchange="updateNewDepoItemDraft('unit',this.value)" ${saving?'disabled':''}>
+            <option value="Adet" ${d.unit==='Adet'?'selected':''}>Adet</option>
+            <option value="Çift" ${d.unit==='Çift'?'selected':''}>Çift</option>
+            <option value="Kg" ${d.unit==='Kg'?'selected':''}>Kg</option>
+            <option value="Metre" ${d.unit==='Metre'?'selected':''}>Metre</option>
+            <option value="Diğer" ${d.unit==='Diğer'?'selected':''}>Diğer</option>
           </select>
         </div>
       </div>
       <div class="row2">
         <div class="field">
           <label>Cinsiyet</label>
-          <select id="ndi-gender" ${saving?'disabled':''}>
-            <option value="">—</option>
-            <option value="KIZ">Kız</option>
-            <option value="ERKEK">Erkek</option>
-            <option value="UNISEX">Unisex</option>
+          <select id="ndi-gender" onchange="updateNewDepoItemDraft('gender',this.value)" ${saving?'disabled':''}>
+            <option value="" ${d.gender===''?'selected':''}>—</option>
+            <option value="KIZ" ${d.gender==='KIZ'?'selected':''}>Kız</option>
+            <option value="ERKEK" ${d.gender==='ERKEK'?'selected':''}>Erkek</option>
+            <option value="UNISEX" ${d.gender==='UNISEX'?'selected':''}>Unisex</option>
           </select>
         </div>
         <div class="field">
           <label>Sezon</label>
-          <select id="ndi-season" ${saving?'disabled':''}>
-            <option value="">—</option>
-            <option value="YAZ">Yaz</option>
-            <option value="KIŞ">Kış</option>
-            <option value="TÜM MEVSİM">Tüm Mevsim</option>
+          <select id="ndi-season" onchange="updateNewDepoItemDraft('season',this.value)" ${saving?'disabled':''}>
+            <option value="" ${d.season===''?'selected':''}>—</option>
+            <option value="YAZ" ${d.season==='YAZ'?'selected':''}>Yaz</option>
+            <option value="KIŞ" ${d.season==='KIŞ'?'selected':''}>Kış</option>
+            <option value="TÜM MEVSİM" ${d.season==='TÜM MEVSİM'?'selected':''}>Tüm Mevsim</option>
           </select>
         </div>
       </div>
@@ -3869,10 +3884,10 @@ function renderNewDepoItemModal(){
           ${SIZES.map(sz=>`
             <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border:1px solid var(--line);border-radius:5px">
               <label style="display:flex;align-items:center;gap:6px;flex:1;cursor:pointer;font-weight:600;font-size:13px">
-                <input type="checkbox" id="ndi-size-${sz.code}" ${saving?'disabled':''} style="width:auto" />
+                <input type="checkbox" id="ndi-size-${sz.code}" ${d.sizeChecked[sz.code]?'checked':''} onchange="updateNewDepoItemSizeChecked('${sz.code}',this.checked)" ${saving?'disabled':''} style="width:auto" />
                 ${esc(sz.short)} (EU ${sz.eu})
               </label>
-              <input id="ndi-qty-${sz.code}" type="number" min="0" placeholder="Stok" ${saving?'disabled':''} style="width:90px" />
+              <input id="ndi-qty-${sz.code}" type="number" min="0" placeholder="Stok" value="${d.sizeQty[sz.code]!=null?esc(String(d.sizeQty[sz.code])):''}" oninput="updateNewDepoItemSizeQty('${sz.code}',this.value)" ${saving?'disabled':''} style="width:90px" />
             </div>
           `).join('')}
         </div>
