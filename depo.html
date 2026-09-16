@@ -259,7 +259,14 @@ async function loadAll(){
   const authParams = session ? ('?authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash)) : '';
   const res = await fetch(API_URL + authParams);
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  const data = text ? JSON.parse(text) : {};
+  // A genuine bulk-data response never has an explicit `ok:false`/`error` field at the top level
+  // — if one is present, the server rejected the request (maintenance mode, auth issue, a
+  // transient error, etc.) rather than returning real data. Treat this as a failure so the
+  // caller's try/catch skips the update, instead of silently wiping out good local data with an
+  // empty/malformed result.
+  if(data && data.ok===false) throw new Error(data.error || 'bulk_fetch_rejected');
+  return data;
 }
 function describeWriteBlock_(data){
   if(data && data.error==='maintenance_mode') return data.message || 'Sistem şu anda bakımda — lütfen daha sonra tekrar deneyin.';
@@ -1022,6 +1029,14 @@ async function silentAutoRefresh(){
       if(k.indexOf('catalogVariant:') === 0 && all[k]) newVariants.push(all[k]);
       else if(k.indexOf('warehouseItem:') === 0 && all[k]) newWarehouseItems.push(all[k]);
     });
+    // Sanity check: a background refresh should never make the known data shrink drastically.
+    // If it does, something went wrong server-side (a partial/malformed response, a transient
+    // Apps Script hiccup, etc.) — better to keep showing the last known-good data and quietly
+    // retry next cycle than to wipe the list out from under the user.
+    const suspiciouslyEmpty = state.warehouseItems.length>0 && newWarehouseItems.length===0;
+    if(suspiciouslyEmpty){
+      return; // skip this refresh cycle entirely — try again in 45s
+    }
     state.products = all['catalogProducts'] || state.products;
     state.skus = all['catalogSkus'] || state.skus;
     state.warehouseItems = newWarehouseItems;
