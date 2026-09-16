@@ -2280,7 +2280,21 @@ async function submitNewDepoItem(){
     render();
   }
 }
-function closeNewDepoItemSuccess(){ state.modalMode = null; state.newDepoItemSuccess = null; render(); }
+function closeNewDepoItemSuccess(){
+  const s = state.newDepoItemSuccess;
+  state.modalMode = null;
+  state.newDepoItemSuccess = null;
+  if(s){
+    const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0;
+    if(wasFiltered){
+      state.depoSearch = '';
+      state.depoFilterGender = new Set();
+      state.depoFilterSeason = new Set();
+      showToast('Az önce oluşturduğunuz kaydı görebilmeniz için arama/filtreler temizlendi');
+    }
+  }
+  render();
+}
 function addAnotherDepoItem(){ state.newDepoItemSuccess = null; state.newDepoItemImage = null; render(); }
 
 // ---------- Hızlı Tarama (barkod okuyucu ile) ----------
@@ -3805,6 +3819,7 @@ function renderNewDepoItemModal(){
   const saving = state.newDepoItemSaving;
   const d = state.newDepoItemDraft || {refNo:'', refName:'', colorName:'', unit:'Adet', gender:'', season:'', sizeChecked:{}, sizeQty:{}};
   if(s){
+    const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0;
     return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeNewDepoItemSuccess()">
       <div class="modal">
         <div class="bulk-result ok" style="display:block;text-align:center;padding:18px">
@@ -3816,6 +3831,7 @@ function renderNewDepoItemModal(){
               <span style="font-weight:700">${it.qty>0?it.qty+' adet':'0'}</span>
             </div>`).join('')}
           </div>
+          ${wasFiltered ? `<div class="field-msg" style="margin-top:10px;text-align:left">ℹ Şu an aktif bir arama/filtre var — bu yeni kayıt listede görünmeyebilir. "Kapat"a bastığınızda arama/filtreler otomatik temizlenecek.</div>` : ''}
         </div>
         <div class="modal-actions">
           <button class="btn ghost" onclick="closeNewDepoItemSuccess()">Kapat</button>
