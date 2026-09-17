@@ -176,6 +176,7 @@
 <div id="root" class="app"><div class="loading">Yükleniyor…</div></div>
 <div id="toast" class="toast"></div>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 
 <script>
 'use strict';
@@ -894,6 +895,7 @@ const state = {
   depoVisibleBarcodes: [],
   depoBulkCatalogRunning: false,
   depoTogglingBarcodes: new Set(),
+  depoExcelExportRunning: false,
   sheetHealthReports: null,
   maintenanceMode: null,
   activeStockCountLockInfo: null,
@@ -1684,6 +1686,88 @@ function exportDepoCSV(){
   const csv = [header, ...rows].map(r=>r.map(csvField).join(',')).join('\n');
   downloadBlob('depo-stok-listesi.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
   showToast('Depo stok listesi indirildi');
+}
+async function exportDepoExcelWithImages(){
+  if(session.role==='depocu') return;
+  if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
+  if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edip tekrar deneyin'); return; }
+  if(state.depoExcelExportRunning) return;
+  state.depoExcelExportRunning = true;
+  render();
+  try{
+    const items = [...state.warehouseItems].sort((a,b)=> (a.refNo||'').localeCompare(b.refNo||'') || (a.colorName||'').localeCompare(b.colorName||''));
+
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet('Depo Stok Listesi');
+    ws.columns = [
+      {header:'Resim', key:'img', width:9},
+      {header:'Barkod', key:'barcode', width:16},
+      {header:'Referans No', key:'refNo', width:12},
+      {header:'Renk', key:'colorName', width:12},
+      {header:'Beden', key:'sizeLabel', width:10},
+      {header:'Detay Referans', key:'detail', width:22},
+      {header:'Depo Girişi', key:'totalIn', width:12},
+      {header:'Depo Çıkışı', key:'totalOut', width:12},
+      {header:'Kalan Stok', key:'stock', width:11},
+      {header:'Fiyat (USD)', key:'price', width:12},
+    ];
+    ws.getRow(1).font = {bold:true};
+
+    // Embed each UNIQUE ref+color image only once (workbook.addImage is the relatively heavy
+    // step) and reuse the same imageId across every size row that shares it — most refs have
+    // several sizes per color, so this avoids redundant work for what is, in practice, the same photo.
+    const imageIdByKey = {};
+    let processedCount = 0;
+    for(const it of items){
+      processedCount++;
+      if(processedCount % 150 === 0){
+        showToast(`Excel hazırlanıyor… (${processedCount}/${items.length})`, true);
+        await new Promise(r=>setTimeout(r,0)); // yield so the toast actually paints
+      }
+      const key = padRef(it.refNo)+'::'+String(it.colorName||'').toUpperCase();
+      if(imageIdByKey[key] !== undefined) continue; // already registered for this ref+color
+      const dataUrl = imageForRefColor(it.refNo, it.colorName);
+      if(!dataUrl) { imageIdByKey[key] = null; continue; }
+      try{
+        const extMatch = /^data:image\/(\w+);/.exec(dataUrl);
+        const ext = (extMatch && extMatch[1]==='jpeg') ? 'jpeg' : (extMatch ? extMatch[1] : 'jpeg');
+        imageIdByKey[key] = workbook.addImage({base64:dataUrl, extension:ext});
+      }catch(err){ imageIdByKey[key] = null; }
+    }
+
+    showToast('Excel satırları yazılıyor…', true);
+    await new Promise(r=>setTimeout(r,0));
+
+    items.forEach((it,i)=>{
+      const rowNum = i+2; // header is row 1
+      const price = priceForBarcode(it.barcode, it.refNo);
+      ws.addRow({
+        barcode: it.barcode, refNo: it.refNo||'', colorName: it.colorName||'', sizeLabel: it.sizeLabel||'',
+        detail: detailRefLabel(it.refNo, it.colorName, it.sizeLabel),
+        totalIn: it.totalIn||0, totalOut: it.totalOut||0, stock: it.stock||0,
+        price: price!=null ? Number(price.toFixed(2)) : ''
+      });
+      ws.getRow(rowNum).height = 40;
+      const key = padRef(it.refNo)+'::'+String(it.colorName||'').toUpperCase();
+      const imageId = imageIdByKey[key];
+      if(imageId!=null){
+        ws.addImage(imageId, {tl:{col:0, row:rowNum-1}, ext:{width:48, height:48}, editAs:'oneCell'});
+      }
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'depo-stok-listesi-resimli.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Resimli Excel dosyası indirildi');
+  }catch(err){
+    showToast('Excel oluşturulamadı — tekrar deneyin');
+  }
+  state.depoExcelExportRunning = false;
+  render();
 }
 function parseCombinedRef(text){
   // "261523 BLUE 1" -> {refNo:'261523', colorName:'BLUE', sizeLabel:'1'}
@@ -3385,7 +3469,8 @@ function renderDepoView(){
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.repairingReservations?'disabled':''} onclick="repairReservations()" title="Rezerve miktarlarını, gerçekte onaylı siparişlerde ne olması gerektiğine göre yeniden hesaplar">${state.repairingReservations?'⏳ Onarılıyor…':'🔧 Rezerveleri Onar'}</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
-    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar (Excel)</button>` : ''}
+    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar — CSV (Hızlı)</button>` : ''}
+    ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.depoExcelExportRunning?'disabled':''} onclick="exportDepoExcelWithImages()">${state.depoExcelExportRunning?'⏳ Hazırlanıyor…':'Dışa Aktar — Excel + Resim (Yavaş)'}</button>` : ''}
     ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkRemoveSelectedFromCatalog()">${state.depoBulkCatalogRunning?'⏳ İşleniyor…':'Seçilenleri Kataloğdan Kaldır ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
