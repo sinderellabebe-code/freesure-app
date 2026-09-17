@@ -3480,13 +3480,17 @@ function downloadStockPriceUpdateTemplate(){
   showToast('Şablon indirildi');
 }
 function parseFlexibleNumber(str){
-  // Handles "8,5" or "8,50" as a European-style decimal (comma instead of dot) — this happens when
-  // the value survives CSV export as a single field (e.g. quoted by Excel) rather than getting split
-  // into two columns. parseFloat("8,5") alone would silently read this as just 8.
+  // Accepts both "8.50" (dot decimal) and "8,50" (comma decimal, Turkish/European style) so the
+  // person doesn't have to remember to always type a dot. Also handles "1.234,50" (dot as
+  // thousands separator, comma as decimal) in case a larger price gets pasted in that format.
   if(str==null) return NaN;
   str = String(str).trim();
   str = str.replace(/[$₺€£]/g, '').trim(); // strip currency symbols (our own export prefixes prices with $)
-  if(/^\d+,\d{1,2}$/.test(str)) str = str.replace(',', '.');
+  if(/^\d{1,3}(\.\d{3})+,\d+$/.test(str)){
+    str = str.replace(/\./g, '').replace(',', '.'); // European: dot=thousands, comma=decimal
+  } else if(/^\d+,\d+$/.test(str)){
+    str = str.replace(',', '.'); // plain comma-as-decimal, any number of digits after it
+  }
   return parseFloat(str);
 }
 function healDecimalCommaSplit(cols, expectedCount){
