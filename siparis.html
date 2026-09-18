@@ -256,6 +256,7 @@ function showToast(msg, persistent){
 
 // ---------- EAN-13 barcode ----------
 function padRef(refNo){ return String(refNo).replace(/[^0-9]/g,'').padStart(6,'0').slice(-6); }
+function normColor(c){ return String(c||'').trim().toUpperCase(); }
 function ean13CheckDigit(base12){
   let sum = 0;
   for(let i=0;i<12;i++){
@@ -1115,7 +1116,7 @@ function addOrderColorLine(refNo, colorName){
   const key = orderGroupKey(refNo, colorName);
   if(state.orderDraft.lines.some(l=>l.groupKey===key)) return; // already added
   const product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNo).trim().toUpperCase());
-  const variant = product ? state.variants.find(v=>v.productId===product.id && v.colorName===colorName) : null;
+  const variant = product ? state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName)) : null;
   const sizes = [];
   if(variant){
     skusFor(variant.id).forEach(s=>{
@@ -1255,7 +1256,7 @@ function editOrderDraft(orderId){
     const key = orderGroupKey(l.refNo, l.colorName);
     if(!byKey[key]){
       const product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(l.refNo).trim().toUpperCase());
-      const variant = product ? state.variants.find(v=>v.productId===product.id && v.colorName===l.colorName) : null;
+      const variant = product ? state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(l.colorName)) : null;
       byKey[key] = { groupKey:key, refNo: l.refNo, colorName: l.colorName, image: variant?variant.image:null, unitPrice: l.unitPrice, sizes: [] };
       lines.push(byKey[key]);
     }
@@ -1906,11 +1907,11 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     product.active = true;
     await patchProducts([{id:product.id, active:true}]);
   }
-  let variant = state.variants.find(v=>v.productId===product.id && v.colorName===(colorName||'').trim());
+  let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   if(!variant){
     const existingV = variantsFor(product.id);
     const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-    variant = {id:uid(), productId:product.id, colorName:(colorName||'').trim(), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
     state.variants = [...state.variants, variant];
     await saveKey('catalogVariant:'+variant.id, variant);
   }
@@ -2014,7 +2015,7 @@ async function handleExcelImportFile(e){
       let alreadyHasImage = false;
       if(match){
         const product = state.products.find(p=>padRef(p.refNo)===padRef(match.refNo));
-        const variant = product ? state.variants.find(v=>v.productId===product.id && v.colorName===match.colorName) : null;
+        const variant = product ? state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(match.colorName)) : null;
         alreadyHasImage = !!(variant && variant.image);
       }
       return {
@@ -2232,11 +2233,11 @@ async function commitBulkImageImport(){
       product.name = description; productUpserts.push({id:product.id, name:description});
     }
 
-    let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+    let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
     if(!variant){
       const existingV = variantsFor(product.id);
       const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-      variant = {id:uid(), productId:product.id, colorName, colorOrder, image:row.processedImage, createdAt:todayISO(), createdBy:session.displayName};
+      variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:row.processedImage, createdAt:todayISO(), createdBy:session.displayName};
       state.variants.push(variant);
       totalVariants++;
     } else {
@@ -2282,12 +2283,12 @@ async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
     state.products = [...state.products, product];
     await patchProducts([product]);
   }
-  let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+  let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   if(!variant){
     const existingV = variantsFor(product.id);
     if(existingV.length >= MAX_COLORS_PER_MODEL){ return {error:'Bu modelde en fazla ' + MAX_COLORS_PER_MODEL + ' renk olabilir'}; }
     const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-    variant = {id:uid(), productId:product.id, colorName, colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
     state.variants = [...state.variants, variant];
     await saveKey('catalogVariant:'+variant.id, variant);
   }
@@ -3196,7 +3197,7 @@ function renderOrderDetailView(order){
   // Group flat lines back by refNo+colorName for the image display.
   const grouped = [];
   order.lines.forEach(l=>{
-    let g = grouped.find(x=>x.refNo===l.refNo && x.colorName===l.colorName);
+    let g = grouped.find(x=>x.refNo===l.refNo && normColor(x.colorName)===normColor(l.colorName));
     if(!g){
       const sku = state.skus.find(s=>s.barcode===l.barcode);
       const variant = sku ? state.variants.find(v=>v.id===sku.variantId) : null;
@@ -3765,7 +3766,7 @@ function openGalleryLightbox(refNo, colorName){
 function renderGalleryLightboxModal(){
   const lb = state.galleryLightbox;
   if(!lb) return '';
-  const entry = catalogGalleryEntries().find(e=>e.refNo===lb.refNo && e.colorName===lb.colorName);
+  const entry = catalogGalleryEntries().find(e=>e.refNo===lb.refNo && normColor(e.colorName)===normColor(lb.colorName));
   if(!entry) return '';
   const inputId = 'single-img-' + attrEsc(entry.refNo) + '-' + attrEsc(entry.colorName).replace(/[^a-zA-Z0-9]/g,'');
   return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
@@ -3793,7 +3794,7 @@ function catalogGalleryEntries(){
   // Pull in the image from the matching catalog variant, if one's been linked.
   Object.values(map).forEach(entry=>{
     const product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(entry.refNo).trim().toUpperCase());
-    const variant = product ? state.variants.find(v=>v.productId===product.id && v.colorName===entry.colorName) : null;
+    const variant = product ? state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(entry.colorName)) : null;
     entry.image = variant ? variant.image : null;
     entry.variantId = variant ? variant.id : null;
     entry.productId = product ? product.id : null;

@@ -242,6 +242,7 @@ function showToast(msg, persistent){
 
 // ---------- EAN-13 barcode ----------
 function padRef(refNo){ return String(refNo).replace(/[^0-9]/g,'').padStart(6,'0').slice(-6); }
+function normColor(c){ return String(c||'').trim().toUpperCase(); }
 function ean13CheckDigit(base12){
   let sum = 0;
   for(let i=0;i<12;i++){
@@ -1699,19 +1700,16 @@ async function exportDepoExcelWithImages(){
 
     const workbook = new ExcelJS.Workbook();
     const ws = workbook.addWorksheet('Depo Stok Listesi');
-    ws.columns = [
-      {header:'Resim', key:'img', width:9},
-      {header:'Barkod', key:'barcode', width:16},
-      {header:'Referans No', key:'refNo', width:12},
-      {header:'Renk', key:'colorName', width:12},
-      {header:'Beden', key:'sizeLabel', width:10},
-      {header:'Detay Referans', key:'detail', width:22},
-      {header:'Depo Girişi', key:'totalIn', width:12},
-      {header:'Depo Çıkışı', key:'totalOut', width:12},
-      {header:'Kalan Stok', key:'stock', width:11},
-      {header:'Fiyat (USD)', key:'price', width:12},
-    ];
-    ws.getRow(1).font = {bold:true};
+    ws.getColumn(1).width = 9;
+    ws.getColumn(2).width = 16;
+    ws.getColumn(3).width = 12;
+    ws.getColumn(4).width = 12;
+    ws.getColumn(5).width = 10;
+    ws.getColumn(6).width = 22;
+    ws.getColumn(7).width = 12;
+    ws.getColumn(8).width = 12;
+    ws.getColumn(9).width = 11;
+    ws.getColumn(10).width = 12;
 
     // Embed each UNIQUE ref+color image only once (workbook.addImage is the relatively heavy
     // step) and reuse the same imageId across every size row that shares it — most refs have
@@ -1738,15 +1736,34 @@ async function exportDepoExcelWithImages(){
     showToast('Excel satırları yazılıyor…', true);
     await new Promise(r=>setTimeout(r,0));
 
+    // Build as a genuine Excel Table (not a plain range with a bold header) — this gives native
+    // filter dropdowns out of the box, and Excel manages Table row operations (filter/sort) far
+    // more robustly than a plain range, which is what actually helps the floating images track
+    // correctly with their row. (Excel images are always anchored/floating objects near a cell,
+    // never truly "inside" it like text — that's a property of Excel itself, not fixable in code —
+    // but a real Table is the strongest practical mitigation for keeping them aligned.)
+    const tableRows = items.map(it=>{
+      const price = priceForBarcode(it.barcode, it.refNo);
+      return ['', it.barcode, it.refNo||'', it.colorName||'', it.sizeLabel||'',
+        detailRefLabel(it.refNo, it.colorName, it.sizeLabel),
+        it.totalIn||0, it.totalOut||0, it.stock||0,
+        price!=null ? Number(price.toFixed(2)) : ''];
+    });
+    ws.addTable({
+      name: 'DepoStokTablosu',
+      ref: 'A1',
+      headerRow: true,
+      totalsRow: false,
+      style: {theme:'TableStyleMedium2', showRowStripes:true},
+      columns: [
+        {name:'Resim'}, {name:'Barkod'}, {name:'Referans No'}, {name:'Renk'}, {name:'Beden'},
+        {name:'Detay Referans'}, {name:'Depo Girişi'}, {name:'Depo Çıkışı'}, {name:'Kalan Stok'}, {name:'Fiyat (USD)'}
+      ],
+      rows: tableRows
+    });
+
     items.forEach((it,i)=>{
       const rowNum = i+2; // header is row 1
-      const price = priceForBarcode(it.barcode, it.refNo);
-      ws.addRow({
-        barcode: it.barcode, refNo: it.refNo||'', colorName: it.colorName||'', sizeLabel: it.sizeLabel||'',
-        detail: detailRefLabel(it.refNo, it.colorName, it.sizeLabel),
-        totalIn: it.totalIn||0, totalOut: it.totalOut||0, stock: it.stock||0,
-        price: price!=null ? Number(price.toFixed(2)) : ''
-      });
       ws.getRow(rowNum).height = 40;
       const key = padRef(it.refNo)+'::'+String(it.colorName||'').toUpperCase();
       const imageId = imageIdByKey[key];
@@ -2067,11 +2084,11 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     product.active = true;
     await patchProducts([{id:product.id, active:true}]);
   }
-  let variant = state.variants.find(v=>v.productId===product.id && v.colorName===(colorName||'').trim());
+  let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   if(!variant){
     const existingV = variantsFor(product.id);
     const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-    variant = {id:uid(), productId:product.id, colorName:(colorName||'').trim(), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
     state.variants = [...state.variants, variant];
     await saveKey('catalogVariant:'+variant.id, variant);
   }
@@ -2187,11 +2204,11 @@ async function commitBulkImageImport(){
       product.name = description; productUpserts.push({id:product.id, name:description});
     }
 
-    let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+    let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
     if(!variant){
       const existingV = variantsFor(product.id);
       const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-      variant = {id:uid(), productId:product.id, colorName, colorOrder, image:row.processedImage, createdAt:todayISO(), createdBy:session.displayName};
+      variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:row.processedImage, createdAt:todayISO(), createdBy:session.displayName};
       state.variants.push(variant);
       totalVariants++;
     } else {
@@ -2233,7 +2250,7 @@ function isBarcodeInCatalog(barcode){
 function imageForRefColor(refNo, colorName){
   const product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
   if(!product) return null;
-  const variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+  const variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   return variant ? variant.image : null;
 }
 async function handleDepoRowImage(e, refNo, colorName, barcode){
@@ -2265,12 +2282,12 @@ async function ensureCatalogSkuAndBarcode(refNo, refName, colorName, sizeCode){
     const saved = await patchProducts([product]);
     if(!saved) return {error:'Model kaydı oluşturulamadı — yukarıdaki mesaja bakıp tekrar deneyin'};
   }
-  let variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+  let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   if(!variant){
     const existingV = variantsFor(product.id);
     if(existingV.length >= MAX_COLORS_PER_MODEL){ return {error:'Bu modelde en fazla ' + MAX_COLORS_PER_MODEL + ' renk olabilir'}; }
     const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-    variant = {id:uid(), productId:product.id, colorName, colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
     state.variants = [...state.variants, variant];
     await saveKey('catalogVariant:'+variant.id, variant);
   }
@@ -2376,7 +2393,7 @@ async function submitNewDepoItem(){
       if(season && product.season!==season){ product.season = season; patch.season = season; hasChange = true; }
       if(hasChange) await patchProducts([patch]);
       if(state.newDepoItemImage){
-        const variant = state.variants.find(v=>v.productId===product.id && v.colorName===colorName);
+        const variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
         if(variant){ variant.image = state.newDepoItemImage; await saveKey('catalogVariant:'+variant.id, variant); }
       }
     }
