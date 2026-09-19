@@ -1633,8 +1633,8 @@ async function bulkAddSelectedToCatalog(){
   let okCount = 0, errCount = 0;
   for(const it of items){
     try{
-      await ensureCatalogEntryForExistingBarcode(it.barcode, it.refNo, it.colorName, it.sizeLabel);
-      okCount++;
+      const r = await ensureCatalogEntryForExistingBarcode(it.barcode, it.refNo, it.colorName, it.sizeLabel);
+      if(r.error) errCount++; else okCount++;
     }catch(err){ errCount++; }
     render();
   }
@@ -2074,25 +2074,30 @@ function handleDepoBulkFile(e){
 function clearDepoBulkFile(){ state.depoBulkFile = null; state.depoBulkError = null; state.depoBulkSkippedLines = []; render(); }
 
 // ---------- Yeni Depo Kaydı — barkodu otomatik formülle üretir (admin/staff) ----------
-async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, sizeLabel){
+async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, sizeLabel, initialImage){
   // Used for legacy/imported barcodes that already exist — reuses the given barcode
   // as-is instead of computing a new one, and allows non-numeric reference codes.
   let product = state.products.find(p=>String(p.refNo).trim().toUpperCase()===String(refNo||'').trim().toUpperCase());
   if(!product){
     product = {id:uid(), refNo:(refNo||'').trim(), name:'', price:0, active:true, createdAt:todayISO(), createdBy:session.displayName};
     state.products = [...state.products, product];
-    await patchProducts([product]);
+    const ok = await patchProducts([product]);
+    if(!ok){ state.products = state.products.filter(p=>p!==product); return {error:'Model kaydı oluşturulamadı — bağlantı sorunu olabilir, tekrar deneyin'}; }
   } else if(product.active === false){
     product.active = true;
-    await patchProducts([{id:product.id, active:true}]);
+    const ok = await patchProducts([{id:product.id, active:true}]);
+    if(!ok){ product.active = false; return {error:'Model güncellenemedi — bağlantı sorunu olabilir, tekrar deneyin'}; }
   }
   let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   if(!variant){
     const existingV = variantsFor(product.id);
     const colorOrder = existingV.length ? Math.max(...existingV.map(v=>v.colorOrder))+1 : 1;
-    variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:null, createdAt:todayISO(), createdBy:session.displayName};
+    // Include the image right away if we already have it — avoids a separate follow-up write
+    // for what is, in practice, the most common case (uploading a photo for a brand-new color).
+    variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:initialImage||null, createdAt:todayISO(), createdBy:session.displayName};
     state.variants = [...state.variants, variant];
-    await saveKey('catalogVariant:'+variant.id, variant);
+    const ok = await saveKey('catalogVariant:'+variant.id, variant);
+    if(!ok){ state.variants = state.variants.filter(v=>v!==variant); return {error:'Renk kaydı oluşturulamadı — bağlantı sorunu olabilir, tekrar deneyin'}; }
   }
   let sku = state.skus.find(s=>s.barcode===barcode);
   if(!sku){
@@ -2102,7 +2107,8 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     const matchedSize = SIZES.find(s=>s.code===num);
     sku = {id:uid(), variantId:variant.id, sizeCode: matchedSize?matchedSize.code:null, sizeOrder, euSize: matchedSize?matchedSize.eu:null, customSizeLabel: matchedSize?'':(sizeLabel||''), barcode, createdAt:todayISO()};
     state.skus = [...state.skus, sku];
-    await saveSkuRow(sku);
+    const ok = await saveSkuRow(sku);
+    if(!ok){ state.skus = state.skus.filter(s=>s!==sku); return {error:'Beden/barkod kaydı oluşturulamadı — bağlantı sorunu olabilir, tekrar deneyin'}; }
   }
   return {productId:product.id, variantId:variant.id, skuId:sku.id};
 }
@@ -2127,10 +2133,11 @@ async function toggleCatalogMembership(barcode){
       if(!item.refNo && !item.colorName){ state.depoTogglingBarcodes.delete(barcode); showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
       render();
       showToast('Kataloğa ekleniyor…', true);
-      await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
+      const r = await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
       state.depoTogglingBarcodes.delete(barcode);
       render();
-      showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+      if(r.error) showToast(r.error);
+      else showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
     }
   } finally {
     endCriticalWrite();
@@ -2268,10 +2275,15 @@ async function handleDepoRowImage(e, refNo, colorName, barcode){
   beginCriticalWrite();
   try{
     const processed = await processImageFile(file);
-    const {variantId} = await ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, '');
-    const variant = state.variants.find(v=>v.id===variantId);
-    variant.image = processed;
-    await saveKey('catalogVariant:'+variantId, variant);
+    const result = await ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, '', processed);
+    if(result.error){ showToast(result.error); return; }
+    const variant = state.variants.find(v=>v.id===result.variantId);
+    if(variant.image !== processed){
+      // The variant already existed (its image wasn't set at creation time above) — save it now.
+      variant.image = processed;
+      const ok = await saveKey('catalogVariant:'+result.variantId, variant);
+      if(!ok){ showToast('Resim kaydedilemedi — bağlantı sorunu olabilir, tekrar deneyin'); return; }
+    }
     render();
     showToast('Resim kaydedildi');
   }catch(err){
