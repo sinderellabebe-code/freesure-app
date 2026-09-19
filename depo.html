@@ -1017,10 +1017,12 @@ function startDepoLiveClock(){
   depoLiveClockTimer = setInterval(tick, 1000);
 }
 async function silentAutoRefresh(){
-  // Never interrupt active work: skip while a modal is open, a background op is running, or the tab isn't visible.
+  // Never interrupt active work: skip while a modal is open, a background op is running, an
+  // inline row action (like an image upload) is mid-flight, or the tab isn't visible.
   if(document.hidden) return;
   if(state.modalMode) return;
   if(state.depoBulkRunning || state.packingRunning || state.newDepoItemSaving) return;
+  if(pendingCriticalWrites > 0) return;
   if(!state.loaded) return;
 
   const prevPendingIds = new Set((state.pendingPackingOrders||[]).map(o=>o.id));
@@ -2111,22 +2113,27 @@ async function toggleCatalogMembership(barcode){
   const product = item.refNo ? state.products.find(p=>padRef(p.refNo)===padRef(item.refNo)) : null;
   const isActive = !!(product && product.active !== false);
   state.depoTogglingBarcodes.add(barcode);
-  if(isActive){
-    render();
-    showToast('Kataloğdan kaldırılıyor…', true);
-    product.active = false;
-    await patchProducts([{id:product.id, active:false}]);
-    state.depoTogglingBarcodes.delete(barcode);
-    render();
-    showToast('Kataloğdan kaldırıldı — resim, fiyat ve depo stoğu korunuyor, istediğiniz zaman geri ekleyebilirsiniz');
-  } else {
-    if(!item.refNo && !item.colorName){ state.depoTogglingBarcodes.delete(barcode); showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
-    render();
-    showToast('Kataloğa ekleniyor…', true);
-    await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
-    state.depoTogglingBarcodes.delete(barcode);
-    render();
-    showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+  beginCriticalWrite();
+  try{
+    if(isActive){
+      render();
+      showToast('Kataloğdan kaldırılıyor…', true);
+      product.active = false;
+      await patchProducts([{id:product.id, active:false}]);
+      state.depoTogglingBarcodes.delete(barcode);
+      render();
+      showToast('Kataloğdan kaldırıldı — resim, fiyat ve depo stoğu korunuyor, istediğiniz zaman geri ekleyebilirsiniz');
+    } else {
+      if(!item.refNo && !item.colorName){ state.depoTogglingBarcodes.delete(barcode); showToast('Kataloğa eklemek için önce referans/renk bilgisi girin'); return; }
+      render();
+      showToast('Kataloğa ekleniyor…', true);
+      await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
+      state.depoTogglingBarcodes.delete(barcode);
+      render();
+      showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+    }
+  } finally {
+    endCriticalWrite();
   }
 }
 
@@ -2258,6 +2265,7 @@ async function handleDepoRowImage(e, refNo, colorName, barcode){
   e.target.value = '';
   if(!file) return;
   showToast('Resim işleniyor…', true);
+  beginCriticalWrite();
   try{
     const processed = await processImageFile(file);
     const {variantId} = await ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, '');
@@ -2268,6 +2276,8 @@ async function handleDepoRowImage(e, refNo, colorName, barcode){
     showToast('Resim kaydedildi');
   }catch(err){
     showToast('Resim işlenemedi — lütfen başka bir dosya deneyin');
+  } finally {
+    endCriticalWrite();
   }
 }
 function openDepoImageLightbox(refNo, colorName, barcode){
