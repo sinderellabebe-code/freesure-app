@@ -1903,11 +1903,11 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     product = {id:uid(), refNo:(refNo||'').trim(), name:'', price:0, active:true, createdAt:todayISO(), createdBy:session.displayName};
     state.products = [...state.products, product];
     const ok = await patchProducts([product]);
-    if(!ok){ state.products = state.products.filter(p=>p!==product); return {error:'Model kaydı oluşturulamadı — bağlantı sorunu olabilir, tekrar deneyin'}; }
+    if(!ok){ state.products = state.products.filter(p=>p!==product); return {error:true}; }
   } else if(product.active === false){
     product.active = true;
     const ok = await patchProducts([{id:product.id, active:true}]);
-    if(!ok){ product.active = false; return {error:'Model güncellenemedi — bağlantı sorunu olabilir, tekrar deneyin'}; }
+    if(!ok){ product.active = false; return {error:true}; }
   }
   let variant = state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
   if(!variant){
@@ -1916,7 +1916,7 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     variant = {id:uid(), productId:product.id, colorName:normColor(colorName), colorOrder, image:initialImage||null, createdAt:todayISO(), createdBy:session.displayName};
     state.variants = [...state.variants, variant];
     const ok = await saveKey('catalogVariant:'+variant.id, variant);
-    if(!ok){ state.variants = state.variants.filter(v=>v!==variant); return {error:'Renk kaydı oluşturulamadı — bağlantı sorunu olabilir, tekrar deneyin'}; }
+    if(!ok){ state.variants = state.variants.filter(v=>v!==variant); return {error:true}; }
   }
   let sku = state.skus.find(s=>s.barcode===barcode);
   if(!sku){
@@ -1927,7 +1927,7 @@ async function ensureCatalogEntryForExistingBarcode(barcode, refNo, colorName, s
     sku = {id:uid(), variantId:variant.id, sizeCode: matchedSize?matchedSize.code:null, sizeOrder, euSize: matchedSize?matchedSize.eu:null, customSizeLabel: matchedSize?'':(sizeLabel||''), barcode, createdAt:todayISO()};
     state.skus = [...state.skus, sku];
     const ok = await saveSkuRow(sku);
-    if(!ok){ state.skus = state.skus.filter(s=>s!==sku); return {error:'Beden/barkod kaydı oluşturulamadı — bağlantı sorunu olabilir, tekrar deneyin'}; }
+    if(!ok){ state.skus = state.skus.filter(s=>s!==sku); return {error:true}; }
   }
   return {productId:product.id, variantId:variant.id, skuId:sku.id};
 }
@@ -1955,8 +1955,7 @@ async function toggleCatalogMembership(barcode){
       const r = await ensureCatalogEntryForExistingBarcode(item.barcode, item.refNo, item.colorName, item.sizeLabel);
       state.depoTogglingBarcodes.delete(barcode);
       render();
-      if(r.error) showToast(r.error);
-      else showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
+      if(!r.error) showToast('Kataloğa eklendi — fotoğraf ve fiyat eklemek için Sipariş sayfasının Modeller sekmesinde ilgili modeli açın');
     }
   } finally {
     endCriticalWrite();
@@ -3760,12 +3759,12 @@ async function handleSingleVariantImage(e, refNo, colorName){
     const processed = await processImageFile(file);
     const repItem = state.warehouseItems.find(w=>orderGroupKey(w.refNo,w.colorName)===orderGroupKey(refNo,colorName));
     const result = await ensureCatalogEntryForExistingBarcode(repItem?repItem.barcode:uid(), refNo, colorName, repItem?repItem.sizeLabel:'', processed);
-    if(result.error){ showToast(result.error); return; }
+    if(result.error) return; // the underlying save already showed the specific reason
     const variant = state.variants.find(v=>v.id===result.variantId);
     if(variant.image !== processed){
       variant.image = processed;
       const ok = await saveKey('catalogVariant:'+result.variantId, variant);
-      if(!ok){ showToast('Resim kaydedilemedi — bağlantı sorunu olabilir, tekrar deneyin'); return; }
+      if(!ok) return; // saveKey already showed the specific reason
     }
     render();
     showToast('Resim kaydedildi');
