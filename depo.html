@@ -276,26 +276,37 @@ function describeWriteBlock_(data){
   return null;
 }
 async function saveKey(key, value){
+  let res;
   try{
-    const res = await fetchWithTimeout(API_URL, {
+    res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
     }, 30000);
-    const data = await res.json();
-    if(!data || !data.ok){
-      showToast(describeWriteBlock_(data) || 'Kaydetme hatası — tekrar deneyin');
-      return false;
-    }
-    return true;
   }catch(e){
     if(e && e.name==='AbortError'){
       showToast('⏱ Sunucu yanıtı gecikti — kayıt yine de tamamlanmış olabilir, birkaç saniye sonra sayfayı yenileyip kontrol edin.');
     } else {
-      showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+      showToast('Kaydetme hatası — sunucuya ulaşılamadı (' + (e && e.message ? e.message : 'bilinmeyen ağ hatası') + ')');
     }
     return false;
   }
+  if(!res.ok){
+    showToast('Kaydetme hatası — sunucu ' + res.status + ' koduyla yanıt verdi, tekrar deneyin');
+    return false;
+  }
+  let data;
+  try{
+    data = await res.json();
+  }catch(e){
+    showToast('Kaydetme hatası — sunucu beklenmeyen bir yanıt döndürdü, tekrar deneyin');
+    return false;
+  }
+  if(!data || !data.ok){
+    showToast(describeWriteBlock_(data) || (data && data.message) || 'Kaydetme hatası — tekrar deneyin');
+    return false;
+  }
+  return true;
 }
 // SKUs are stored as individual catalogSku:<id> rows (like colors/variants) rather than one
 // big array in a single cell, which has a hard 50,000-character ceiling in Google Sheets.
@@ -306,24 +317,46 @@ async function deleteSkuRows(skuIds){ for(const id of skuIds) await deleteSkuRow
 // server-side array, not the client's local copy) — protects against a stale tab/session
 // silently overwriting someone else's more recent edit (e.g. a price just updated elsewhere).
 async function patchProducts(upserts, deleteIds){
+  let res;
   try{
-    const res = await fetchWithTimeout(API_URL, {
+    res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify({action:'patchCatalogProducts', auth:{username:session.username, passwordHash:session.passwordHash}, upserts: upserts||[], deleteIds: deleteIds||[]})
     }, 30000);
-    const data = await res.json();
-    if(data && data.ok){ state.products = data.products; return true; }
-    showToast(describeWriteBlock_(data) || 'Kaydetme hatası — tekrar deneyin');
-    return false;
   }catch(e){
     if(e && e.name==='AbortError'){
       showToast('⏱ Sunucu yanıtı gecikti — kayıt yine de tamamlanmış olabilir, birkaç saniye sonra sayfayı yenileyip kontrol edin.');
     } else {
-      showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+      showToast('Kaydetme hatası — sunucuya ulaşılamadı (' + (e && e.message ? e.message : 'bilinmeyen ağ hatası') + ')');
     }
     return false;
   }
+  if(!res.ok){
+    showToast('Kaydetme hatası — sunucu ' + res.status + ' koduyla yanıt verdi, tekrar deneyin');
+    return false;
+  }
+  let data;
+  try{
+    data = await res.json();
+  }catch(e){
+    showToast('Kaydetme hatası — sunucu beklenmeyen bir yanıt döndürdü, tekrar deneyin');
+    return false;
+  }
+  if(data && data.ok){
+    // Merge locally instead of replacing the whole array — the server now returns only the
+    // touched products (upserted/deleted), not the entire catalog, since each product lives in
+    // its own row server-side and there's no reason to round-trip every other product too.
+    const deletedSet = new Set(data.deletedIds||[]);
+    state.products = state.products.filter(p=>!deletedSet.has(p.id));
+    (data.upserted||[]).forEach(saved=>{
+      const idx = state.products.findIndex(p=>p.id===saved.id);
+      if(idx>=0) state.products[idx] = saved; else state.products.push(saved);
+    });
+    return true;
+  }
+  showToast(describeWriteBlock_(data) || (data && data.message) || 'Kaydetme hatası — tekrar deneyin');
+  return false;
 }
 
 // ---------- authentication ----------
@@ -681,7 +714,8 @@ const SHEET_HEALTH_PREFIX_LABELS = {
   'warehouseItem:': 'Depo Kaydı (barkod başına stok)',
   'catalogSku:': 'Katalog Beden/Barkod Kaydı',
   'catalogVariant:': 'Katalog Renk Kaydı (resim dahil)',
-  'catalogProducts': 'Katalog Model Listesi (tek kayıt)',
+  'catalogProduct:': 'Katalog Model Kaydı',
+  'catalogProducts': 'Eski Katalog Model Listesi (artık kullanılmıyor — boş olmalı)',
   'catalogSkus': 'Eski Katalog Beden Listesi (artık kullanılmıyor — boş olmalı)',
   'stockCount:': 'Depo Sayımı Oturumu',
   'stockCountEntry:': 'Depo Sayımı Satır Kaydı',
@@ -721,7 +755,7 @@ function renderSheetHealthModal(){
           <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden">
             ${r.breakdown.map(b=>{
               const pct = r.approxTotalChars>0 ? Math.round(100*b.approxChars/r.approxTotalChars) : 0;
-              const isLegacy = b.prefix==='catalogSkus' || b.prefix==='__migrated__';
+              const isLegacy = b.prefix==='catalogSkus' || b.prefix==='__migrated__' || b.prefix==='catalogProducts';
               return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px;${isLegacy&&b.count>0?'background:var(--danger-bg)':''}">
                 <div style="flex:1">
                   <div>${esc(sheetHealthLabel(b.prefix))}${isLegacy&&b.count>0?' ⚠':''}</div>

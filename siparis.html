@@ -277,24 +277,43 @@ async function loadAll(){
   const text = await res.text();
   return text ? JSON.parse(text) : {};
 }
+function describeWriteBlock_(data){
+  if(data && data.error==='maintenance_mode') return data.message || 'Sistem şu anda bakımda — lütfen daha sonra tekrar deneyin.';
+  if(data && data.error==='stock_count_locked') return data.message || 'Aktif bir depo sayımı sürüyor — sayım tamamlanana kadar bu işlem yapılamaz.';
+  return null;
+}
 async function saveKey(key, value){
+  let res;
   try{
-    const res = await fetchWithTimeout(API_URL, {
+    res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
     }, 60000);
-    const data = await res.json();
-    if(!data || !data.ok){ showToast('Kaydetme hatası — tekrar deneyin'); return false; }
-    return true;
   }catch(e){
     if(e && e.name === 'AbortError'){
       showToast('⏱ Sunucu yanıtı gecikti — kayıt yine de tamamlanmış olabilir, birkaç saniye sonra sayfayı yenileyip kontrol edin.');
     } else {
-      showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+      showToast('Kaydetme hatası — sunucuya ulaşılamadı (' + (e && e.message ? e.message : 'bilinmeyen ağ hatası') + ')');
     }
     return false;
   }
+  if(!res.ok){
+    showToast('Kaydetme hatası — sunucu ' + res.status + ' koduyla yanıt verdi, tekrar deneyin');
+    return false;
+  }
+  let data;
+  try{
+    data = await res.json();
+  }catch(e){
+    showToast('Kaydetme hatası — sunucu beklenmeyen bir yanıt döndürdü, tekrar deneyin');
+    return false;
+  }
+  if(!data || !data.ok){
+    showToast(describeWriteBlock_(data) || (data && data.message) || 'Kaydetme hatası — tekrar deneyin');
+    return false;
+  }
+  return true;
 }
 // SKUs are stored as individual catalogSku:<id> rows (like colors/variants) rather than one
 // big array in a single cell, which has a hard 50,000-character ceiling in Google Sheets.
@@ -305,20 +324,45 @@ async function deleteSkuRows(skuIds){ for(const id of skuIds) await deleteSkuRow
 // server-side array, not the client's local copy) — protects against a stale tab/session
 // silently overwriting someone else's more recent edit (e.g. a price just updated elsewhere).
 async function patchProducts(upserts, deleteIds){
+  let res;
   try{
-    const res = await fetchWithTimeout(API_URL, {
+    res = await fetchWithTimeout(API_URL, {
       method: 'POST',
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify({action:'patchCatalogProducts', auth:{username:session.username, passwordHash:session.passwordHash}, upserts: upserts||[], deleteIds: deleteIds||[]})
     }, 30000);
-    const data = await res.json();
-    if(data && data.ok){ state.products = data.products; return true; }
-    showToast('Kaydetme hatası — tekrar deneyin');
-    return false;
   }catch(e){
-    showToast('Kaydetme hatası — internet bağlantınızı kontrol edin');
+    if(e && e.name==='AbortError'){
+      showToast('⏱ Sunucu yanıtı gecikti — kayıt yine de tamamlanmış olabilir, birkaç saniye sonra sayfayı yenileyip kontrol edin.');
+    } else {
+      showToast('Kaydetme hatası — sunucuya ulaşılamadı (' + (e && e.message ? e.message : 'bilinmeyen ağ hatası') + ')');
+    }
     return false;
   }
+  if(!res.ok){
+    showToast('Kaydetme hatası — sunucu ' + res.status + ' koduyla yanıt verdi, tekrar deneyin');
+    return false;
+  }
+  let data;
+  try{
+    data = await res.json();
+  }catch(e){
+    showToast('Kaydetme hatası — sunucu beklenmeyen bir yanıt döndürdü, tekrar deneyin');
+    return false;
+  }
+  if(data && data.ok){
+    // Merge locally instead of replacing the whole array — the server now returns only the
+    // touched products (upserted/deleted), not the entire catalog.
+    const deletedSet = new Set(data.deletedIds||[]);
+    state.products = state.products.filter(p=>!deletedSet.has(p.id));
+    (data.upserted||[]).forEach(saved=>{
+      const idx = state.products.findIndex(p=>p.id===saved.id);
+      if(idx>=0) state.products[idx] = saved; else state.products.push(saved);
+    });
+    return true;
+  }
+  showToast(describeWriteBlock_(data) || (data && data.message) || 'Kaydetme hatası — tekrar deneyin');
+  return false;
 }
 
 // ---------- authentication ----------
