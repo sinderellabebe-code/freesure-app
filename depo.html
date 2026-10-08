@@ -232,6 +232,19 @@ function downloadBlob(filename, mime, content){
 }
 
 let toastTimer = null;
+let doneBannerTimer=null;
+function showDoneBanner(title, detail){
+  let el=document.getElementById('done-banner');
+  if(!el){
+    el=document.createElement('div'); el.id='done-banner';
+    el.style.cssText='position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100000;background:#16a34a;color:#fff;padding:16px 28px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:20px;font-weight:700;text-align:center;max-width:92vw;display:none;pointer-events:none';
+    document.body.appendChild(el);
+  }
+  el.innerHTML='✅ '+title+(detail?'<div style="font-size:14px;font-weight:500;margin-top:4px;opacity:.95">'+detail+'</div>':'');
+  el.style.display='block';
+  clearTimeout(doneBannerTimer);
+  doneBannerTimer=setTimeout(()=>{el.style.display='none';},3500);
+}
 function showToast(msg, persistent){
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -1541,11 +1554,17 @@ async function postStockMovement(barcode, type, qty, note, refNo, colorName, siz
   finally{ endCriticalWrite(); }
 }
 
+const QTY_WARN_LIMIT = 1000;
+function confirmHugeQty(qty){
+  if(qty <= QTY_WARN_LIMIT) return true;
+  return confirm(`⚠ DİKKAT: ${qty} adet girdiniz!\n\nBu çok yüksek bir miktar. Barkod okuyucu yanlışlıkla adet kutusuna barkod yazmış olabilir.\n\nGerçekten ${qty} adet mi kaydedilsin?\n\n"İptal" derseniz kayıt yapılmaz, miktarı düzeltebilirsiniz.`);
+}
 async function submitDepoMove(){
   const t = state.depoMoveTarget;
   const qty = parseInt(document.getElementById('dm-qty').value, 10);
   const note = document.getElementById('dm-note').value.trim();
   if(!qty || qty <= 0){ showToast('Geçerli bir miktar girin'); return; }
+  if(!confirmHugeQty(qty)) return;
   if(t.type==='out'){
     const item = state.warehouseItems.find(w=>w.barcode===t.barcode);
     const currentStock = item ? (Number(item.stock)||0) : 0;
@@ -1566,7 +1585,7 @@ async function submitDepoMove(){
   }
   state.depoMoveRunning = false;
   if(r.ok){
-    showToast(t.type==='in' ? 'Stok girişi kaydedildi' : 'Stok çıkışı kaydedildi');
+    showDoneBanner('KAYIT TAMAMLANDI', (t.type==='in' ? 'Stok girişi' : 'Stok çıkışı')+' kaydedildi');
     if(state.returnToPackOrderId){
       const returnId = state.returnToPackOrderId;
       state.returnToPackOrderId = null;
@@ -3146,6 +3165,8 @@ function scanBatchTotalQty(){
 async function commitScanBatch(){
   const items = Object.values(state.scan.batchItems||{}).filter(it=>it.qty>0);
   if(items.length===0) return;
+  const bigItem = items.find(it=>it.qty>QTY_WARN_LIMIT);
+  if(bigItem && !confirmHugeQty(bigItem.qty)) return;
   state.scan.batchCommitting = true;
   render();
   for(const it of items){
@@ -3167,6 +3188,8 @@ async function commitScanBatch(){
   state.scan.batchItems = {};
   state.scan.batchCommitting = false;
   render();
+  const failed = (state.scan.sessionLog||[]).some(l=>l.errorCount>0 && l.status!=='ok');
+  if(!failed) showDoneBanner('TÜM KAYITLAR TAMAMLANDI', `${items.length} kalem kaydedildi`);
   setTimeout(()=>{ const el=document.getElementById('scan-barcode'); if(el) el.focus(); }, 60);
 }
 function hasUnresolvedUnknownScan(){
@@ -3272,6 +3295,10 @@ async function processQueuedScan(entry, qty){
     if(state.modalMode==='cameraScanner') updateCameraScanFeedback(entry.barcode, 'error');
   }
   render();
+  const stillPending = (state.scan.sessionLog||[]).some(l=>l.pendingCount>0);
+  if(r.ok && !stillPending && !state.scan.batchCommitting){
+    showDoneBanner('KAYIT TAMAMLANDI', `${entry.mode==='out'?'Çıkış':'Giriş'} kaydedildi — Yeni stok: ${r.stock}`);
+  }
 }
 function retryQueuedScan(entryId){
   const entry = state.scan.sessionLog.find(x=>x.id===entryId);
@@ -3305,6 +3332,7 @@ async function submitScanMovement(qty){
     entry.status = entry.errorCount>0 ? 'partial' : 'ok';
     state.scan.lastResult = { ok:true, text: `✓ ${detailRefLabel(item.refNo,item.colorName,item.sizeLabel)} — ${mode==='out'?'Çıkış':'Giriş'} ${qty} kaydedildi (Yeni stok: ${r.stock})` };
     if(r.stock < 0) flagNegativeStock(item.barcode, item.refNo, item.colorName, item.sizeLabel, r.stock);
+    showDoneBanner('KAYIT TAMAMLANDI', `${mode==='out'?'Çıkış':'Giriş'} ${qty} adet — Yeni stok: ${r.stock}`);
   } else {
     state.scan.lastResult = { ok:false, text: r.networkError ? '⚠ Sunucuya bağlanılamadı — kaydedilmedi, tekrar deneyin' : '⚠ Kaydedilemedi, tekrar deneyin' };
   }
@@ -3315,6 +3343,7 @@ async function submitScanMovement(qty){
 async function handleScanQtyKey(e){
   if(e.key !== 'Enter') return;
   const qty = parseInt(e.target.value, 10) || 1;
+  if(!confirmHugeQty(qty)){ e.target.select(); return; }
   await submitScanMovement(qty);
 }
 

@@ -340,7 +340,8 @@ function orderBalanceDue(o){
 }
 function orderDateOf(o){ return isRichOrder(o) ? (o.createdAt||'').slice(0,10) : (o.date||''); }
 function paymentsFor(cid){ return state.payments.filter(p=>p.customerId===cid); }
-function totalPaymentsFor(cid){ return paymentsFor(cid).reduce((sum,p)=>sum+(Number(p.amount)||0),0); }
+function paymentSigned(p){ const a=Number(p.amount)||0; return p.kind==='charge' ? -a : a; } // 'charge' = elle girilen borç (bakiyeyi artırır); aksi halde alacak/ödeme (bakiyeyi düşürür)
+function totalPaymentsFor(cid){ return paymentsFor(cid).reduce((sum,p)=>sum+paymentSigned(p),0); }
 function customerBalance(customerId, orders){
   const owed = (orders||[]).reduce((sum,o)=> sum + orderBalanceDue(o), 0);
   return owed - totalPaymentsFor(customerId); // can go negative — means the customer has a credit (overpaid / paid deposit before final amount)
@@ -904,7 +905,9 @@ async function printAccountStatement(customerId, fromDate, toDate){
     }
   });
   payments.forEach(p=>{
-    allEntries.push({ date: p.date, time: (p.time||'00:00')+':00', desc: p.note ? ('Payment — ' + p.note) : 'Payment', debit: 0, credit: Number(p.amount)||0 });
+    const isCharge = p.kind==='charge';
+    const amt = Number(p.amount)||0;
+    allEntries.push({ date: p.date, time: (p.time||'00:00')+':00', desc: isCharge ? (p.note ? ('Adjustment (debit) — ' + p.note) : 'Adjustment (debit)') : (p.note ? ('Payment — ' + p.note) : 'Payment'), debit: isCharge?amt:0, credit: isCharge?0:amt });
   });
   allEntries.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 
@@ -1181,15 +1184,17 @@ async function addPaymentFromForm(cid){
   const time = document.getElementById('pf-time').value || '';
   const amount = parseFloat(document.getElementById('pf-amount').value) || 0;
   const note = document.getElementById('pf-note').value.trim();
+  const kind = (document.getElementById('pf-kind')||{}).value === 'charge' ? 'charge' : 'payment';
   if(amount<=0){ showToast('Lütfen geçerli bir tutar girin'); return; }
-  const payment = {id:uid(), customerId:cid, date, time, amount, note, createdBy: session.displayName, createdAt: new Date().toISOString()};
+  if(kind==='charge' && !note){ showToast('Borç kaydı için açıklama yazın (örn. kargo farkı, düzeltme)'); return; }
+  const payment = {id:uid(), customerId:cid, date, time, amount, note, kind, createdBy: session.displayName, createdAt: new Date().toISOString()};
   state.payments = [...state.payments, payment];
   render();
   const ok = await saveKey('payment:'+payment.id, payment);
-  if(ok) showToast('Ödeme kaydedildi'); else showToast('Kaydedilemedi — tekrar deneyin');
+  if(ok) showToast(kind==='charge' ? 'Borç kaydı eklendi' : 'Ödeme kaydedildi'); else showToast('Kaydedilemedi — tekrar deneyin');
 }
 async function deletePayment(cid, id){
-  if(!confirm('Bu ödeme kaydını silmek istediğinize emin misiniz? Bakiye yeniden hesaplanacak.')) return;
+  if(!confirm('Bu kaydı silmek istediğinize emin misiniz? Bakiye yeniden hesaplanacak.')) return;
   state.payments = state.payments.filter(p=>p.id!==id);
   render();
   await saveKey('payment:'+id, null);
@@ -1878,7 +1883,7 @@ function renderDetail(customer){
   <div class="tabs">
     <div class="tab ${state.detailTab==='contacts'?'active':''}" onclick="switchTab('contacts')">İletişim Geçmişi (${contacts.length})</div>
     <div class="tab ${state.detailTab==='orders'?'active':''}" onclick="switchTab('orders')">Siparişler (${orders.length})</div>
-    <div class="tab ${state.detailTab==='payments'?'active':''}" onclick="switchTab('payments')">Ödemeler (${paymentsFor(customer.id).length})</div>
+    <div class="tab ${state.detailTab==='payments'?'active':''}" onclick="switchTab('payments')">Ödemeler / Düzeltmeler (${paymentsFor(customer.id).length})</div>
   </div>`;
 
   if(state.detailTab === 'contacts'){
@@ -1945,18 +1950,21 @@ function renderDetail(customer){
   } else if(state.detailTab === 'payments'){
     const pays = [...paymentsFor(customer.id)].sort((a,b)=>(b.date+ (b.time||'')).localeCompare(a.date+(a.time||'')));
     out += `<div class="mini-form">
-      <div class="f"><label>Ödeme Tarihi</label><input type="date" id="pf-date" value="${todayISO()}" /></div>
+      <div class="f"><label>İşlem Türü</label><select id="pf-kind"><option value="payment">Alacak / Ödeme (−)</option><option value="charge">Borç ekle (+)</option></select></div>
+      <div class="f"><label>Tarih</label><input type="date" id="pf-date" value="${todayISO()}" /></div>
       <div class="f"><label>Saat</label><input type="time" id="pf-time" value="${new Date().toTimeString().slice(0,5)}" style="width:100px" /></div>
       <div class="f"><label>Tutar ($)</label><input type="number" id="pf-amount" step="0.01" min="0" placeholder="0" style="width:110px" /></div>
       <div class="f" style="flex:1"><label>Açıklama</label><textarea id="pf-note" placeholder="Örn. Havale, banka: ..., açıklama"></textarea></div>
-      <button class="btn small primary" onclick="addPaymentFromForm('${customer.id}')">Ödeme Ekle</button>
+      <button class="btn small primary" onclick="addPaymentFromForm('${customer.id}')">Kaydet</button>
     </div>`;
     if(pays.length===0) out += `<div class="log-empty">Henüz kayıtlı ödeme yok.</div>`;
     out += pays.map(p=>`
       <div class="log-item">
         <div class="meta">
           <span>${fmtDate(p.date)}${p.time?' · '+esc(p.time):''}</span>
-          <span style="font-weight:700;color:var(--good)">+$${formatMoney(p.amount)}</span>
+          ${p.kind==='charge'
+            ? `<span style="font-weight:700;color:var(--danger)">Borç +$${formatMoney(p.amount)}</span>`
+            : `<span style="font-weight:700;color:var(--good)">Ödeme −$${formatMoney(p.amount)}</span>`}
           ${p.createdBy ? `<span style="color:var(--muted);font-size:11px">· ${esc(p.createdBy)}</span>` : ''}
           <button class="btn small ghost" style="margin-left:auto;padding:2px 8px" onclick="deletePayment('${customer.id}','${p.id}')">Sil</button>
         </div>
