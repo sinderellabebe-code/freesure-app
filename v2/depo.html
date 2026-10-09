@@ -5340,7 +5340,7 @@ function esRender(){
   var d=__es.d, s=d.sayilar, out=document.getElementById('es-out');
   var h='<div style="background:#F5F7F4;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:10px">Site: <b>'+kanalEsc(d.site)+'</b> · Wix ürünü: <b>'+d.wixUrun+'</b> · Depoyla eşleşen: <b>'+d.eslesenUrun+'</b> · <b>Değişecek ürün: '+d.degisecekUrun+'</b><br>Stok güncellenecek varyant: '+s.stokDegisen+' · Sıfırlanacak eski SKU: '+s.eslesmeyenVaryant+' · Fiyat değişen: '+s.fiyatDegisen+' · İndirim değişen: '+s.indirimDegisen+' · Açılacak: '+s.acilacak+(d.kur?' · Baz kur: '+fyTL(d.kur):'')+'</div>';
   if(!d.degisecekUrun){ out.innerHTML=h+'<p style="color:#2f6b4f">✓ Değişecek bir şey yok.</p>'; return; }
-  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn primary small" onclick="esApply(1)">Test: ilk 1 ürünü uygula</button><button class="btn ghost small" onclick="esApply(10)">İlk 10 ürünü uygula</button><button class="btn ghost small" onclick="esApply(40)">40 ürünü uygula</button></div><div style="font-size:12px;color:#777;margin-bottom:6px">Uygulama listenin başından sırayla yapılır; her uygulamadan sonra önizleme yenilenir, kalan ürünler görünür.</div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn primary small" onclick="esApply(1)">Test: ilk 1 ürünü uygula</button><button class="btn ghost small" onclick="esApply(10)">İlk 10 ürünü uygula</button><button class="btn ghost small" onclick="esApply(40)">40 ürünü uygula</button><button class="btn ghost small" onclick="esApplyAll()">▶ Hepsini sırayla uygula ('+d.degisecekUrun+' ürün)</button></div><div style="font-size:12px;color:#777;margin-bottom:6px">Uygulama listenin başından sırayla yapılır; her uygulamadan sonra önizleme yenilenir, kalan ürünler görünür.</div>';
   h+='<div style="max-height:420px;overflow:auto;border:1px solid #e4e4e4;border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">#</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Model</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Ürün</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Yapılacak</th></tr></thead><tbody>';
   d.plan.slice(0,300).forEach(function(r,i){ h+='<tr><td style="padding:5px 8px;border-top:1px solid #eee">'+(i+1)+'</td><td style="padding:5px 8px;border-top:1px solid #eee">'+kanalEsc(r.ref)+'</td><td style="padding:5px 8px;border-top:1px solid #eee">'+kanalEsc(r.name)+(r.visible?'':' <i style="color:#888">(kapalı)</i>')+'</td><td style="padding:5px 8px;border-top:1px solid #eee">'+esCh(r.ch)+'</td></tr>'; });
   h+='</tbody></table></div>'; if(d.plan.length>300) h+='<div style="font-size:12px;color:#888;margin-top:4px">İlk 300 ürün gösteriliyor.</div>';
@@ -5357,6 +5357,25 @@ async function esApply(n){
     h+='<div style="margin-top:12px"><button class="btn primary small" onclick="esRun()">Önizlemeyi yenile</button></div>';
     out.innerHTML=h;
   }catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p><button class="btn ghost small" onclick="esRun()">Önizlemeyi yenile</button>'; }
+}
+
+async function esApplyAll(){
+  var d=__es.d;
+  if(!confirm('Wix’e YAZILACAK toplam ürün sayısı: '+d.degisecekUrun+'\n\nİşlem 25’erli gruplar hâlinde otomatik sürer; bir üründe hata olursa durur. Onaylıyor musunuz?')) return;
+  var out=document.getElementById('es-out'), tot=0, ok=0, fails=[], kalan=d.degisecekUrun;
+  try{
+    for(var i=0;i<60&&kalan>0;i++){
+      out.innerHTML='<p>⏳ Uygulanıyor… '+ok+' ürün tamam, kalan '+kalan+'</p>';
+      var r=await esCall({mode:'apply',parts:__es.o.parts,refs:__es.o.refs,max:25});
+      tot+=r.uygulanan; ok+=r.basarili; kalan=r.kalan;
+      r.sonuc.forEach(function(x){ if(!x.ok) fails.push(x); });
+      if(fails.length||r.basarili===0) break;
+    }
+  }catch(e){ fails.push({ref:'—',name:'bağlantı',hata:e.message}); }
+  var h='<div style="background:'+(fails.length?'#FFF4D6':'#E8F3EE')+';border-radius:8px;padding:10px 12px;margin-bottom:10px"><b>'+ok+' ürün güncellendi.</b> Kalan: '+kalan+(fails.length?' · <span style="color:#B5402F">'+fails.length+' hata, işlem durdu</span>':'')+'</div>';
+  h+=fails.map(function(x){return '<div style="font-size:13px;color:#B5402F">✗ '+kanalEsc(x.ref)+' – '+kanalEsc(x.name)+' '+kanalEsc(x.hata||'')+'</div>';}).join('');
+  h+='<div style="margin-top:12px"><button class="btn primary small" onclick="esRun()">Önizlemeyi yenile</button></div>';
+  out.innerHTML=h;
 }
 
 </script>
