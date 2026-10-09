@@ -45,6 +45,12 @@
   .banner .sub{color:var(--muted);font-size:13px;margin-top:4px;}
   .nav-link{font-size:12px;color:var(--accent-ink);text-decoration:none;font-weight:600;}
   .nav-link:hover{text-decoration:underline;}
+  .fsm{position:relative;display:inline-block}
+  .fsm-list{display:none;position:absolute;left:0;top:calc(100% + 4px);min-width:220px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:5px;z-index:300}
+  .fsm.open .fsm-list{display:block}
+  .fsm-list button{display:block;width:100%;text-align:left;background:none;border:0;padding:9px 12px;font:inherit;font-size:13px;color:var(--ink);border-radius:5px;cursor:pointer}
+  .fsm-list button:hover:not(:disabled){background:var(--bg)}
+  .fsm-list button.danger{color:var(--danger)}
   .top-nav{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
   .top-nav-item{display:inline-flex;align-items:center;gap:4px;padding:8px 15px;border-radius:7px;font-size:13.5px;font-weight:700;text-decoration:none;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);transition:border-color .15s,background .15s;}
   .top-nav-item:hover{border-color:var(--accent-ink);}
@@ -1768,13 +1774,20 @@ function renderList(){
     <input type="text" id="mm-search-input" placeholder="İsme veya firmaya göre ara…" value="${attrEsc(state.search)}" onkeydown="if(event.key==='Enter') setSearch(this.value)" />
     <button class="btn ghost small" onclick="setSearch(document.getElementById('mm-search-input').value)">Ara</button>
     ${state.search ? `<button class="btn ghost small" onclick="clearMMSearch()">✕ Temizle</button>` : ''}
-    <button class="btn ghost small" onclick="openBulkModal()">Toplu Müşteri Ekle</button>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
-    <button class="btn ghost small" onclick="exportCustomersCSV()">Müşterileri İndir (CSV)</button>
-    <button class="btn ghost small" onclick="exportFullBackupJSON()">Tüm Verileri Yedekle (JSON)</button>
-    ${session.role==='admin' ? `<button class="btn ghost small" onclick="repairDuplicateCustomerNumbers()">Mükerrer Numaraları Düzelt</button>` : ''}
+    <div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">＋ Müşteri Ekle ▾</button><div class="fsm-list">
+      <button onclick="fsMenuClose();openNewCustomerModal()">＋ Yeni Müşteri</button>
+      <button onclick="fsMenuClose();openBulkModal()">📥 Toplu Müşteri Ekle</button>
+      <button onclick="fsMenuClose();downloadCustomerTemplate()">📄 Boş Şablon İndir</button>
+    </div></div>
+    <div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">⬇ Müşterileri İndir ▾</button><div class="fsm-list">
+      <button onclick="fsMenuClose();exportCustomersXLSX()">📗 Excel (.xlsx)</button>
+      <button onclick="fsMenuClose();exportCustomersCSV()">CSV</button>
+    </div></div>
+    ${session.role==='admin' ? `<div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">⋯ Diğer ▾</button><div class="fsm-list">
+      <button class="danger" onclick="fsMenuClose();deleteAllCustomers()">🗑 Tümünü Sil</button>
+    </div></div>` : ''}
     <button class="btn danger-outline small" ${selectedCount===0?'disabled':''} onclick="deleteSelectedCustomers()">Seçilenleri Sil (${selectedCount})</button>
-    <button class="btn danger-outline small" onclick="deleteAllCustomers()">Tümünü Sil</button>
     <div class="count">${sorted.length} / ${state.customers.length} müşteri</div>
   </div>`;
 
@@ -2191,6 +2204,24 @@ function renderBulkModal(){
 }
 
 boot();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script>
+function fsMenuClose(){ document.querySelectorAll('.fsm.open').forEach(function(e){e.classList.remove('open');}); }
+function fsMenu(btn,ev){ ev.stopPropagation(); var m=btn.closest('.fsm'), was=m.classList.contains('open'); fsMenuClose(); if(!was) m.classList.add('open'); }
+document.addEventListener('click',fsMenuClose);
+async function exportCustomersXLSX(){
+  if(typeof ExcelJS==='undefined'){ showToast('Excel kütüphanesi yüklenemedi — sayfayı yenileyin'); return; }
+  const wb=new ExcelJS.Workbook(); const ws=wb.addWorksheet('Müşteriler');
+  ws.addRow(CUSTOMER_CSV_HEADERS);
+  state.customers.forEach(c=> ws.addRow(CUSTOMER_CSV_FIELDS.map(f=> f==='adSoyad' ? (c.adSoyad||c.name||'') : (c[f]||'') )));
+  const hr=ws.getRow(1); hr.font={bold:true,color:{argb:'FFFFFFFF'}}; hr.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF3D5A52'}};
+  ws.columns.forEach((col,i)=>{ let w=CUSTOMER_CSV_HEADERS[i].length+4; ws.eachRow({includeEmpty:false},r=>{ const v=String(r.getCell(i+1).value||''); if(v.length+2>w) w=Math.min(v.length+2,50); }); col.width=w; });
+  ws.views=[{state:'frozen',ySplit:1}]; ws.autoFilter={from:{row:1,column:1},to:{row:1,column:CUSTOMER_CSV_HEADERS.length}};
+  const buf=await wb.xlsx.writeBuffer();
+  downloadBlob('musteriler-'+new Date().toISOString().slice(0,10)+'.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
+  showToast('Excel indirildi ('+state.customers.length+' müşteri)');
+}
 </script>
 </body>
 </html>
