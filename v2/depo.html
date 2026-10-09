@@ -4671,7 +4671,7 @@ function katBuild(){
     g.items.forEach(it=>{
       const cn = normColor(it.colorName);
       const c = colors[cn] = colors[cn] || {colorName:it.colorName||'', sizes:[]};
-      c.sizes.push({label:String(it.sizeLabel||'').replace(/^size\s*/i,''), stock:Number(it.stock)||0});
+      c.sizes.push({label:String(it.sizeLabel||'').replace(/^size\s*/i,''), stock:Number(it.stock)||0, barcode:it.barcode||''});
     });
     const variants = product ? variantsFor(product.id) : [];
     const colorList = Object.keys(colors).map(cn=>{
@@ -4779,18 +4779,19 @@ async function katalogExcel(){
     await katLoadImages(data);
     const wb=new ExcelJS.Workbook(), ws=wb.addWorksheet('Katalog');
     const showP = k.price!=='none' && session.role!=='depocu';
-    const widths=[14,10,28,18,40]; if(showP) widths.push(14);
+    const widths=[14,10,28,18,40,34]; if(showP) widths.push(14);
     widths.forEach((w,i)=>ws.getColumn(i+1).width=w);
     ws.mergeCells(1,1,1,widths.length); ws.getCell(1,1).value=k.title||'Katalog'; ws.getCell(1,1).font={bold:true,size:16};
     ws.getCell(2,1).value=new Date().toLocaleDateString('tr-TR')+(k.note?'   ·   '+k.note:''); ws.getCell(2,1).font={color:{argb:'FF777777'}};
-    const hdr=['Resim','Ref','Model Adı','Renk','Bedenler'].concat(showP?['Fiyat ('+(k.price==='TRY'?'₺':'$')+')']:[]);
+    const hdr=['Resim','Ref','Model Adı','Renk','Bedenler','Barkodlar (beden: barkod)'].concat(showP?['Fiyat ('+(k.price==='TRY'?'₺':'$')+')']:[]);
     const hr=ws.getRow(4); hdr.forEach((h,i)=>{ const c=hr.getCell(i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF232C2A'}}; });
     let r=5;
     for(const m of data){
       for(const c of m.colors){
-        const row=ws.getRow(r); row.height=60;
+        const row=ws.getRow(r); row.height=Math.max(60, c.sizes.length*15+6);
         row.getCell(2).value=m.refNo; row.getCell(3).value=m.name; row.getCell(4).value=c.colorName; row.getCell(5).value=katSizesText(c,k.showQty);
-        if(showP && m.price!=null) row.getCell(6).value=Number((k.price==='TRY'?m.price*parseFloat(k.rate):m.price).toFixed(2));
+        row.getCell(6).value=c.sizes.map(z=>z.label+': '+z.barcode).join('\n');
+        if(showP && m.price!=null) row.getCell(7).value=Number((k.price==='TRY'?m.price*parseFloat(k.rate):m.price).toFixed(2));
         row.eachCell(cell=>{ cell.alignment={vertical:'middle',wrapText:true}; });
         if(c.dataUrl){
           try{ const ext=/^data:image\/png/i.test(c.dataUrl)?'png':'jpeg';
@@ -4802,6 +4803,12 @@ async function katalogExcel(){
       }
     }
     ws.views=[{state:'frozen',ySplit:4}];
+    const bs=wb.addWorksheet('Barkod Listesi');
+    [12,28,18,10,22].concat(k.showQty?[10]:[]).forEach((w,i)=>bs.getColumn(i+1).width=w);
+    const bh=bs.getRow(1); ['Ref','Model Adı','Renk','Beden','Barkod'].concat(k.showQty?['Stok']:[]).forEach((h,i)=>{ const c=bh.getCell(i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF232C2A'}}; });
+    let br=2;
+    data.forEach(m=>m.colors.forEach(c=>c.sizes.forEach(z=>{ const row=bs.getRow(br++); row.getCell(1).value=m.refNo; row.getCell(2).value=m.name; row.getCell(3).value=c.colorName; row.getCell(4).value=z.label; row.getCell(5).value=String(z.barcode); row.getCell(5).numFmt='@'; if(k.showQty) row.getCell(6).value=z.stock; })));
+    bs.views=[{state:'frozen',ySplit:1}]; bs.autoFilter={from:{row:1,column:1},to:{row:1,column:k.showQty?6:5}};
     const buf=await wb.xlsx.writeBuffer();
     downloadBlob(katFileName('xlsx'),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
     showToast('Excel katalog indirildi');
