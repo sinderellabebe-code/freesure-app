@@ -3443,7 +3443,7 @@ function render(){
     <div style="display:flex;align-items:center;gap:12px">
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
-        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
+        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
       </div>
     </div>
@@ -5039,6 +5039,64 @@ async function restoreRun(){
     log.textContent += '\n✅ Tamamlandı (' + total + ' kayıt). Sayfa yenileniyor…';
     setTimeout(function(){ location.reload(); }, 2500);
   }catch(e){ log.textContent += '\n❌ Durdu: ' + (e && e.message || e) + '\nİşlem yarıda kaldı; yüklenenler yerinde duruyor. Hata mesajını bana iletin.'; btn.disabled = false; }
+}
+
+// ================= KANAL RAPORU (yalnızca yönetici, yalnızca okuma) =================
+let __kanalData = null;
+function kanalClose(){ var e=document.getElementById('kanal-ov'); if(e) e.remove(); }
+function kanalEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function kanalOpen(){
+  if(session.role!=='admin'){ showToast('Yalnızca yönetici'); return; }
+  kanalClose();
+  var ov=document.createElement('div'); ov.id='kanal-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(35,44,42,.5);z-index:9000;overflow:auto;padding:30px 12px';
+  ov.innerHTML='<div style="background:#fff;max-width:880px;margin:0 auto;border-radius:10px;padding:22px"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🌐 Kanal Raporu</h2><button class="btn ghost small" onclick="kanalClose()">✕ Kapat</button></div><p style="color:#666;font-size:13px">Wix sitelerinizdeki ürünleri (SKU = barkod) depodaki kayıtlarla karşılaştırır. <b>Hiçbir şeyi değiştirmez</b>, yalnızca okur.</p><button class="btn primary" id="kanal-run" onclick="kanalRun()">Raporu Hazırla</button><div id="kanal-out" style="margin-top:16px"></div></div>';
+  document.body.appendChild(ov);
+}
+async function kanalRun(){
+  var out=document.getElementById('kanal-out'), btn=document.getElementById('kanal-run');
+  btn.disabled=true; out.innerHTML='<p>⏳ Wix siteleri okunuyor… (yarım dakika sürebilir)</p>';
+  try{
+    var r=await window.fsSupabase.functions.invoke('kanal-rapor',{body:{}});
+    var d=r.data;
+    if(r.error && !d){ var m=r.error.message||'bilinmeyen hata'; try{ var b=await r.error.context.json(); if(b&&b.error) m=b.error; }catch(e){} throw new Error(m); }
+    if(!d||!d.ok) throw new Error((d&&d.error)||'Yanıt alınamadı');
+    __kanalData=d; kanalRender(d);
+  }catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p>'; }
+  btn.disabled=false;
+}
+function kanalTable(rows,cols,max){
+  if(!rows.length) return '<div style="color:#888;font-size:13px">Kayıt yok</div>';
+  var h='<div style="max-height:260px;overflow:auto;border:1px solid #e4e4e4;border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>'+cols.map(function(c){return '<th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">'+c[1]+'</th>';}).join('')+'</tr></thead><tbody>';
+  rows.slice(0,max).forEach(function(r){ h+='<tr>'+cols.map(function(c){var v=r[c[0]]; if(Array.isArray(v)) v=v.join(', '); return '<td style="padding:5px 8px;border-top:1px solid #eee">'+kanalEsc(v)+'</td>';}).join('')+'</tr>'; });
+  h+='</tbody></table></div>'; if(rows.length>max) h+='<div style="font-size:12px;color:#888;margin-top:4px">İlk '+max+' satır gösteriliyor — tamamı için Excel indirin.</div>';
+  return h;
+}
+function kanalRender(d){
+  var h='<div style="margin-bottom:10px;font-size:13px">Depoda aktif kayıt: <b>'+d.depoSkus+'</b> barkod</div><button class="btn ghost small" onclick="kanalExcel()">⬇ Excel olarak indir</button>';
+  d.sites.forEach(function(s){
+    h+='<div style="margin-top:18px;border-top:2px solid #3D5A52;padding-top:10px"><h3 style="margin:0 0 6px">'+kanalEsc(s.site)+'</h3>';
+    if(!s.ok){ h+='<p style="color:#B5402F">Okunamadı: '+kanalEsc(s.error)+'</p></div>'; return; }
+    h+='<div style="font-size:13px;margin-bottom:8px">Katalog: '+kanalEsc(s.version)+' · Sitede varyant: <b>'+s.wixVariants+'</b> · Depoyla eşleşen: <b>'+s.matched+'</b>'+(s.note?' · <span style="color:#B5402F">'+kanalEsc(s.note)+'</span>':'')+'</div>';
+    h+='<h4 style="margin:12px 0 4px">📦 Depoda var, sitede yok — eklenmesi önerilen modeller ('+s.notOnSite.length+')</h4>'+kanalTable(s.notOnSite,[['refNo','Ref'],['color','Renk'],['sizes','Bedenler'],['stock','Stok']],200);
+    h+='<h4 style="margin:12px 0 4px">⚠ Sitede var, depoda barkodu bulunamadı ('+s.wixOnly.length+')</h4>'+kanalTable(s.wixOnly,[['sku','SKU'],['name','Ürün'],['price','Fiyat']],200);
+    h+='<h4 style="margin:12px 0 4px">🔁 Stok durumu uyuşmuyor ('+s.mismatch.length+')</h4>'+kanalTable(s.mismatch,[['refNo','Ref'],['color','Renk'],['size','Beden'],['depoStock','Depo stok'],['reserved','Rezerve'],['siteInStock','Sitede stokta']],200);
+    h+='</div>';
+  });
+  document.getElementById('kanal-out').innerHTML=h;
+}
+async function kanalExcel(){
+  if(!__kanalData||!window.ExcelJS) return;
+  var wb=new ExcelJS.Workbook();
+  var add=function(name,rows,cols){ var ws=wb.addWorksheet(name.slice(0,31)); ws.addRow(cols.map(function(c){return c[1];})); rows.forEach(function(r){ws.addRow(cols.map(function(c){var v=r[c[0]]; return Array.isArray(v)?v.join(', '):v;}));}); ws.getRow(1).font={bold:true}; ws.columns.forEach(function(c){c.width=18;}); };
+  __kanalData.sites.forEach(function(s){
+    if(!s.ok) return; var n=s.site.replace(/[^a-z]/gi,'').slice(0,12);
+    add(n+' Sitede Yok',s.notOnSite,[['refNo','Ref'],['color','Renk'],['sizes','Bedenler'],['stock','Stok']]);
+    add(n+' Depoda Yok',s.wixOnly,[['sku','SKU'],['name','Ürün'],['price','Fiyat']]);
+    add(n+' Stok Uyuşmaz',s.mismatch,[['barcode','Barkod'],['refNo','Ref'],['color','Renk'],['size','Beden'],['depoStock','Depo stok'],['reserved','Rezerve'],['siteInStock','Sitede stokta']]);
+  });
+  var buf=await wb.xlsx.writeBuffer();
+  downloadBlob('kanal-raporu-'+new Date().toISOString().slice(0,10)+'.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
 }
 
 </script>
