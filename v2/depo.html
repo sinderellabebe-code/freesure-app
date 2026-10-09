@@ -3443,7 +3443,7 @@ function render(){
     <div style="display:flex;align-items:center;gap:12px">
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
-        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
+        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();fyOpen()">💲 Fiyat Yönetimi</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
       </div>
     </div>
@@ -5100,6 +5100,193 @@ async function kanalExcel(){
   var buf=await wb.xlsx.writeBuffer();
   downloadBlob('kanal-raporu-'+new Date().toISOString().slice(0,10)+'.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
 }
+
+// ================= FİYAT YÖNETİMİ (yalnızca yönetici; Wix'e yazmaz) =================
+var __fy=null;
+function fyToday(){ return new Date().toLocaleDateString('sv-SE'); }
+function fyR10(x){ return Math.max(10,Math.round(x/10)*10)-0.10; }
+function fyTL(x){ return x==null?'':Number(x).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fyListe(usd,kur,a){ return fyR10(usd*kur*(1+a.kdv_pct/100)*a.carpan); }
+function fyDiscActive(d,t){ return d.aktif && (!d.baslangic||t>=d.baslangic) && (!d.bitis||t<=d.bitis); }
+function fyDiscState(d,t){ if(!d.aktif) return 'Pasif'; if(d.baslangic&&t<d.baslangic) return 'Planlı'; if(d.bitis&&t>d.bitis) return 'Bitti'; return 'Aktif'; }
+function fySale(ref,liste,list,t){
+  var best=null,bd=null;
+  (list||[]).forEach(function(d){
+    if((d.ref_no!==ref&&d.ref_no!=='*')||!fyDiscActive(d,t)) return;
+    var s=d.tip==='yuzde'?fyR10(liste*(1-d.deger/100)):Number(d.deger);
+    if(s>0&&s<liste&&(best==null||s<best)){best=s;bd=d;}
+  });
+  return best==null?null:{price:best,d:bd};
+}
+async function fyPage(q){ var out=[],from=0; for(;;){ var r=await q().range(from,from+999); if(r.error) throw r.error; out=out.concat(r.data||[]); if(!r.data||r.data.length<1000) break; from+=1000; } return out; }
+async function fyLoad(){
+  var sb=window.fsSupabase;
+  var st=await sb.from('settings').select('value').eq('key','fiyatKurali').maybeSingle();
+  var a=Object.assign({baz_kur:null,esik_pct:10,kdv_pct:10,carpan:2.5,sorma_kur:null,son_guncelleme:null},(st.data&&st.data.value)||{});
+  var skus=await fyPage(function(){return sb.from('skus').select('barcode,ref_no,stock').order('barcode');});
+  var pr=await fyPage(function(){return sb.from('sku_prices').select('barcode,price_usd').order('barcode');});
+  var usd={}; pr.forEach(function(p){ usd[p.barcode]=Number(p.price_usd)||0; });
+  var m={};
+  skus.forEach(function(s){ var o=m[s.ref_no]||(m[s.ref_no]={ref:s.ref_no,stock:0,usd:0}); o.stock+=(s.stock||0); var u=usd[s.barcode]||0; if(u>o.usd) o.usd=u; });
+  var di=await sb.from('fiyat_indirim').select('*').order('created_at',{ascending:false});
+  if(di.error) throw new Error('fiyat_indirim tablosu yok — SQL 014 çalıştırılmalı ('+di.error.message+')');
+  __fy={ayar:a,models:Object.keys(m).sort().map(function(k){return m[k];}),ind:di.data||[],kur:(__fy&&__fy.kur)||null,tab:(__fy&&__fy.tab)||'ozet'};
+}
+async function fySaveAyar(){ var r=await window.fsSupabase.from('settings').upsert({key:'fiyatKurali',value:__fy.ayar,updated_at:new Date().toISOString()}); if(r.error) throw r.error; }
+async function fyKurGetir(){
+  var r=await window.fsSupabase.functions.invoke('kur-getir',{body:{}});
+  var d=r.data;
+  if(r.error&&!d){ var m=r.error.message||'hata'; try{var b=await r.error.context.json(); if(b&&b.error) m=b.error;}catch(e){} throw new Error(m); }
+  if(!d||!d.ok) throw new Error((d&&d.error)||'Kur alınamadı');
+  return d;
+}
+function fyKurDurum(){
+  var a=__fy.ayar,k=__fy.kur; if(!k) return {t:'yok'};
+  if(!a.baz_kur) return {t:'ilk'};
+  var ref=a.sorma_kur||a.baz_kur, deg=(k.alis/a.baz_kur-1)*100;
+  if(k.alis>=ref*(1+a.esik_pct/100)) return {t:'sor',deg:deg};
+  if(k.alis<=a.baz_kur*(1-a.esik_pct/100)) return {t:'dustu',deg:deg};
+  return {t:'ok',deg:deg};
+}
+function fyClose(){ var e=document.getElementById('fy-ov'); if(e) e.remove(); }
+async function fyOpen(tab){
+  if(session.role!=='admin'){ showToast('Yalnızca yönetici'); return; }
+  fyClose();
+  var ov=document.createElement('div'); ov.id='fy-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(35,44,42,.5);z-index:9000;overflow:auto;padding:30px 12px';
+  ov.innerHTML='<div style="background:#fff;max-width:980px;margin:0 auto;border-radius:10px;padding:22px"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">💲 Fiyat Yönetimi</h2><button class="btn ghost small" onclick="fyClose()">✕ Kapat</button></div><div id="fy-body" style="margin-top:12px">⏳ Yükleniyor…</div></div>';
+  document.body.appendChild(ov);
+  try{ await fyLoad(); if(tab) __fy.tab=tab; fyRender(); fyRefreshKur(false); }
+  catch(e){ document.getElementById('fy-body').innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message||e)+'</p>'; }
+}
+async function fyRefreshKur(show){
+  try{ __fy.kur=await fyKurGetir(); }catch(e){ __fy.kurHata=e.message; }
+  if(document.getElementById('fy-body')) fyRender();
+}
+function fyTabs(){
+  var t=[['ozet','Kur ve Kurallar'],['liste','Fiyat Listesi'],['ind','İndirimler']];
+  return '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'+t.map(function(x){return '<button class="btn '+(__fy.tab===x[0]?'primary':'ghost')+' small" onclick="__fy.tab=\''+x[0]+'\';fyRender()">'+x[1]+'</button>';}).join('')+'</div>';
+}
+function fyRender(){
+  var h=fyTabs();
+  if(__fy.tab==='ozet') h+=fyOzet(); else if(__fy.tab==='liste') h+=fyListeHtml(); else h+=fyInd();
+  document.getElementById('fy-body').innerHTML=h;
+}
+function fyOzet(){
+  var a=__fy.ayar,k=__fy.kur,d=fyKurDurum(),h='';
+  h+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">';
+  var card=function(l,v,s){return '<div style="flex:1;min-width:190px;border:1px solid #e4e4e4;border-radius:8px;padding:10px 12px"><div style="font-size:12px;color:#777">'+l+'</div><div style="font-size:20px;font-weight:600">'+v+'</div><div style="font-size:12px;color:#777">'+(s||'')+'</div></div>';};
+  h+=card('TCMB USD alış (güncel)',k?fyTL(k.alis).replace(/,(\d\d)$/,',$1'):(__fy.kurHata?'—':'⏳'),k?('Bülten: '+kanalEsc(k.tarih)):kanalEsc(__fy.kurHata||''));
+  h+=card('Fiyat listesinin dayandığı kur',a.baz_kur?fyTL(a.baz_kur):'Belirlenmedi',a.son_guncelleme?('Onay: '+kanalEsc(a.son_guncelleme)):'');
+  h+=card('Değişim',(d.deg==null?'—':(d.deg>=0?'+':'')+d.deg.toFixed(1)+'%'),'Eşik: %'+a.esik_pct);
+  h+='</div>';
+  if(d.t==='sor') h+='<div style="background:#FFF4D6;border:1px solid #E7C86A;border-radius:8px;padding:12px;margin-bottom:12px"><b>Kur %'+d.deg.toFixed(1)+' arttı</b> ('+fyTL(a.baz_kur)+' → '+fyTL(k.alis)+'). Satış fiyatları yeni kura göre güncellensin mi?<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary small" onclick="fyKurOnay(true)">Evet, yeni kuru baz al</button><button class="btn ghost small" onclick="fyKurOnay(false)">Hayır, şimdilik değiştirme</button></div><div style="font-size:12px;color:#777;margin-top:6px">“Hayır” derseniz kur bundan %'+a.esik_pct+' daha artana kadar tekrar sorulmaz. “Fiyat Listesi” sekmesinde yeni kurla fiyatları önceden görebilirsiniz.</div></div>';
+  else if(d.t==='ilk') h+='<div style="background:#E8F3EE;border:1px solid #9CC9B5;border-radius:8px;padding:12px;margin-bottom:12px"><b>İlk kurulum:</b> fiyat listesi için baz kur henüz belirlenmedi. Bugünkü alış kuru ('+fyTL(k.alis)+') baz alınsın mı?<div style="margin-top:8px"><button class="btn primary small" onclick="fyKurOnay(true)">Evet, baz kur olarak kaydet</button></div></div>';
+  else if(d.t==='dustu') h+='<div style="background:#EEF1F7;border:1px solid #B7C2DA;border-radius:8px;padding:10px;margin-bottom:12px;font-size:13px">Bilgi: kur baz kurun %'+Math.abs(d.deg).toFixed(1)+' altına indi. Fiyatlar otomatik düşürülmez; isterseniz aşağıdan baz kuru elle güncelleyebilirsiniz.</div>';
+  else if(d.t==='ok') h+='<div style="font-size:13px;color:#2f6b4f;margin-bottom:12px">✓ Kur eşiğin altında; fiyat güncellemesi gerekmiyor.</div>';
+  if(__fy.kurHata) h+='<div style="color:#B5402F;font-size:13px;margin-bottom:10px">Kur alınamadı: '+kanalEsc(__fy.kurHata)+' (edge function “kur-getir” kurulu mu?)</div>';
+  h+='<h4 style="margin:14px 0 6px">Fiyat kuralı</h4><div style="font-size:13px;margin-bottom:8px">Liste fiyatı = depo $ × kur × (1 + KDV) × çarpan → en yakın 10 TL’ye yuvarlanıp <b>xxx9,90</b> yapılır. Aynı model için renk/beden fark etmeksizin tek fiyat.</div>';
+  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">'
+   +'<label style="font-size:12px">KDV %<br><input id="fy-kdv" type="number" step="0.1" value="'+a.kdv_pct+'" style="width:90px"></label>'
+   +'<label style="font-size:12px">Çarpan<br><input id="fy-car" type="number" step="0.05" value="'+a.carpan+'" style="width:90px"></label>'
+   +'<label style="font-size:12px">Kur eşiği %<br><input id="fy-esik" type="number" step="1" value="'+a.esik_pct+'" style="width:90px"></label>'
+   +'<label style="font-size:12px">Baz kuru elle belirle<br><input id="fy-baz" type="number" step="0.0001" value="'+(a.baz_kur||'')+'" style="width:110px"></label>'
+   +'<button class="btn ghost small" onclick="fyKaydetAyar()">Kaydet</button><button class="btn ghost small" onclick="fyRefreshKur(true)">↻ Kuru yenile</button></div>';
+  h+='<p style="font-size:12px;color:#777;margin-top:14px">Bu ekran Wix’e fiyat <b>göndermez</b>; kuralları ve indirimleri tutar. Wix’e gönderim önizleme + onayla ayrı adımda eklenecek.</p>';
+  return h;
+}
+async function fyKaydetAyar(){
+  var a=__fy.ayar, v=function(id){return parseFloat(String(document.getElementById(id).value).replace(',','.'));};
+  var kdv=v('fy-kdv'),car=v('fy-car'),es=v('fy-esik'),baz=v('fy-baz');
+  if(!(kdv>=0&&car>0&&es>0)){ showToast('Değerleri kontrol edin'); return; }
+  a.kdv_pct=kdv; a.carpan=car; a.esik_pct=es;
+  if(baz>1&&baz!==a.baz_kur){ a.baz_kur=baz; a.sorma_kur=null; a.son_guncelleme=fyToday(); }
+  try{ await fySaveAyar(); showToast('Kaydedildi'); fyRender(); }catch(e){ showToast('Kaydedilemedi: '+(e.message||e)); }
+}
+async function fyKurOnay(evet){
+  var a=__fy.ayar,k=__fy.kur; if(!k) return;
+  if(evet){ a.baz_kur=k.alis; a.sorma_kur=null; a.son_guncelleme=fyToday(); } else { a.sorma_kur=k.alis; }
+  try{ await fySaveAyar(); showToast(evet?'Baz kur güncellendi':'Tamam, şimdilik değişmiyor'); fyRender(); }catch(e){ showToast('Kaydedilemedi: '+(e.message||e)); }
+}
+function fyRows(){
+  var a=__fy.ayar,k=__fy.kur,t=fyToday(),baz=a.baz_kur||(k&&k.alis)||0,rows=[];
+  __fy.models.forEach(function(m){
+    if(!(m.usd>0)) return;
+    var l=fyListe(m.usd,baz,a), s=fySale(m.ref,l,__fy.ind,t);
+    var yeni=(k&&a.baz_kur&&Math.abs(k.alis/a.baz_kur-1)>0.005)?fyListe(m.usd,k.alis,a):null;
+    rows.push({ref:m.ref,stock:m.stock,usd:m.usd,liste:l,sale:s?s.price:null,yeni:yeni});
+  });
+  return rows;
+}
+function fyListeHtml(){
+  var rows=__fy.rows=fyRows(), a=__fy.ayar, hasNew=rows.some(function(r){return r.yeni!=null;});
+  var q=(__fy.q||'').toLowerCase(); var vis=rows.filter(function(r){return !q||r.ref.toLowerCase().indexOf(q)>=0;});
+  var h='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><input placeholder="Model ara…" value="'+kanalEsc(__fy.q||'')+'" oninput="__fy.q=this.value;fyListeBody()" style="padding:6px 8px"><button class="btn ghost small" onclick="fyExcel()">⬇ Excel</button><span style="font-size:12px;color:#777">'+rows.length+' model · '+(a.baz_kur?('baz kur '+fyTL(a.baz_kur)):'baz kur yok, güncel alış kullanılıyor')+'</span></div><div id="fy-lb"></div>';
+  setTimeout(fyListeBody,0); return h;
+}
+function fyListeBody(){
+  var rows=__fy.rows||[], q=(__fy.q||'').toLowerCase(), hasNew=rows.some(function(r){return r.yeni!=null;});
+  var vis=rows.filter(function(r){return !q||r.ref.toLowerCase().indexOf(q)>=0;}).slice(0,300);
+  var h='<div style="max-height:460px;overflow:auto;border:1px solid #e4e4e4;border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>'+['Model','Depo stok','Depo $','Liste TL','İndirimli TL','İndirim %'].concat(hasNew?['Yeni kurla liste']:[]).map(function(c){return '<th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">'+c+'</th>';}).join('')+'</tr></thead><tbody>';
+  vis.forEach(function(r){ var td='padding:5px 8px;border-top:1px solid #eee';
+    h+='<tr><td style="'+td+'">'+kanalEsc(r.ref)+'</td><td style="'+td+'">'+r.stock+'</td><td style="'+td+'">'+r.usd+'</td><td style="'+td+'">'+fyTL(r.liste)+'</td><td style="'+td+';color:#B5402F">'+(r.sale?fyTL(r.sale):'')+'</td><td style="'+td+'">'+(r.sale?('%'+Math.round((1-r.sale/r.liste)*100)):'')+'</td>'+(hasNew?'<td style="'+td+'">'+(r.yeni!=null?fyTL(r.yeni):'')+'</td>':'')+'</tr>'; });
+  h+='</tbody></table></div>'; var el=document.getElementById('fy-lb'); if(el) el.innerHTML=h;
+}
+async function fyExcel(){
+  if(!window.ExcelJS) return; var rows=fyRows(), wb=new ExcelJS.Workbook(), ws=wb.addWorksheet('Fiyat Listesi');
+  ws.addRow(['Model','Depo stok','Depo $','Liste TL','İndirimli TL','Yeni kurla liste TL']); 
+  rows.forEach(function(r){ws.addRow([r.ref,r.stock,r.usd,r.liste,r.sale,r.yeni]);});
+  ws.getRow(1).font={bold:true}; ws.columns.forEach(function(c){c.width=18;});
+  var buf=await wb.xlsx.writeBuffer();
+  downloadBlob('fiyat-listesi-'+fyToday()+'.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
+}
+function fyInd(){
+  var t=fyToday(), a=__fy.ayar, k=__fy.kur, baz=a.baz_kur||(k&&k.alis)||0;
+  var um={}; __fy.models.forEach(function(m){um[m.ref]=m.usd;});
+  var h='<div style="border:1px solid #e4e4e4;border-radius:8px;padding:12px;margin-bottom:14px"><b>Yeni indirim</b><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:8px">'
+   +'<label style="font-size:12px">Model<br><input id="fi-ref" list="fi-dl" placeholder="örn. 242744 veya * (tümü)" style="width:170px"><datalist id="fi-dl">'+__fy.models.map(function(m){return '<option value="'+kanalEsc(m.ref)+'">';}).join('')+'</datalist></label>'
+   +'<label style="font-size:12px">Tür<br><select id="fi-tip"><option value="yuzde">Yüzde (%)</option><option value="fiyat">Sabit fiyat (TL)</option></select></label>'
+   +'<label style="font-size:12px">Değer<br><input id="fi-deg" type="number" step="0.01" style="width:90px"></label>'
+   +'<label style="font-size:12px">Başlangıç<br><input id="fi-bas" type="date"></label>'
+   +'<label style="font-size:12px">Bitiş<br><input id="fi-bit" type="date"></label>'
+   +'<label style="font-size:12px">Not<br><input id="fi-not" style="width:150px" placeholder="örn. Ekim kampanyası"></label>'
+   +'<button class="btn primary small" onclick="fiEkle()">Ekle</button></div><div style="font-size:12px;color:#777;margin-top:6px">Tarih boş bırakılırsa süresiz. Birden fazla indirim çakışırsa müşteriye en düşük fiyat uygulanır. İndirimli fiyat da xxx9,90 biçimine yuvarlanır. Liste fiyatı değişmez; indirim Wix’te üzeri çizili fiyat olarak gösterilecek.</div></div>';
+  if(!__fy.ind.length) return h+'<div style="color:#888;font-size:13px">Henüz indirim tanımı yok.</div>';
+  h+='<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>'+['Model','İndirim','Tarih','Durum','Sonuç (liste → indirimli)','Not',''].map(function(c){return '<th style="text-align:left;padding:6px 8px;background:#f5f5f2">'+c+'</th>';}).join('')+'</tr></thead><tbody>';
+  __fy.ind.forEach(function(d){ var td='padding:5px 8px;border-top:1px solid #eee', st=fyDiscState(d,t), sonuc='';
+    if(d.ref_no==='*') sonuc='tüm modellere';
+    else if(um[d.ref_no]>0){ var l=fyListe(um[d.ref_no],baz,a), s=d.tip==='yuzde'?fyR10(l*(1-d.deger/100)):Number(d.deger); sonuc=fyTL(l)+' → '+(s<l?fyTL(s):'<span style="color:#B5402F">liste fiyatından düşük değil</span>'); }
+    else sonuc='<span style="color:#B5402F">depoda fiyatı yok</span>';
+    h+='<tr><td style="'+td+'">'+(d.ref_no==='*'?'Tümü':kanalEsc(d.ref_no))+'</td><td style="'+td+'">'+(d.tip==='yuzde'?'%'+d.deger:fyTL(d.deger)+' TL')+'</td><td style="'+td+'">'+(d.baslangic||'…')+' → '+(d.bitis||'süresiz')+'</td><td style="'+td+'">'+st+'</td><td style="'+td+'">'+sonuc+'</td><td style="'+td+'">'+kanalEsc(d.aciklama||'')+'</td><td style="'+td+';white-space:nowrap"><button class="btn ghost small" onclick="fiToggle(\''+d.id+'\')">'+(d.aktif?'Durdur':'Etkinleştir')+'</button> <button class="btn ghost small" onclick="fiSil(\''+d.id+'\')">Sil</button></td></tr>'; });
+  return h+'</tbody></table></div>';
+}
+async function fiEkle(){
+  var g=function(i){return document.getElementById(i).value.trim();}, ref=g('fi-ref'), tip=g('fi-tip'), deg=parseFloat(g('fi-deg').replace(',','.'));
+  if(!ref){ showToast('Model girin'); return; }
+  if(ref!=='*'&&!__fy.models.some(function(m){return m.ref===ref;})){ showToast('Depoda böyle bir model yok'); return; }
+  if(!(deg>0)||(tip==='yuzde'&&deg>=90)){ showToast('Değer geçersiz'); return; }
+  var bas=g('fi-bas')||null, bit=g('fi-bit')||null; if(bas&&bit&&bit<bas){ showToast('Bitiş, başlangıçtan önce olamaz'); return; }
+  var r=await window.fsSupabase.from('fiyat_indirim').insert({ref_no:ref,tip:tip,deger:deg,baslangic:bas,bitis:bit,aciklama:g('fi-not')||null});
+  if(r.error){ showToast('Eklenemedi: '+r.error.message); return; }
+  await fyLoad(); __fy.tab='ind'; fyRender(); showToast('İndirim eklendi');
+}
+async function fiToggle(id){ var d=__fy.ind.find(function(x){return x.id===id;}); if(!d) return; var r=await window.fsSupabase.from('fiyat_indirim').update({aktif:!d.aktif}).eq('id',id); if(r.error){showToast(r.error.message);return;} await fyLoad(); __fy.tab='ind'; fyRender(); }
+async function fiSil(id){ if(!confirm('Bu indirim tanımı silinsin mi?')) return; var r=await window.fsSupabase.from('fiyat_indirim').delete().eq('id',id); if(r.error){showToast(r.error.message);return;} await fyLoad(); __fy.tab='ind'; fyRender(); }
+// Günde bir kez, yönetici girişinde kur eşiğini sessizce kontrol et
+(function(){
+  var n=0, iv=setInterval(async function(){
+    if(++n>40){ clearInterval(iv); return; }
+    if(typeof session==='undefined'||!session||session.role!=='admin'||!window.fsSupabase) return;
+    clearInterval(iv);
+    try{
+      var key='fyKontrol'; try{ if(localStorage.getItem(key)===fyToday()) return; }catch(e){}
+      await fyLoad(); __fy.kur=await fyKurGetir();
+      var d=fyKurDurum();
+      if(d.t==='sor'||d.t==='ilk'){ showToast(d.t==='sor'?('💲 Kur %'+d.deg.toFixed(1)+' arttı — Yönetim → Fiyat Yönetimi'):'💲 Fiyat kuralı için baz kur belirlenmeli'); }
+      try{ localStorage.setItem(key,fyToday()); }catch(e){}
+    }catch(e){}
+  },1500);
+})();
 
 </script>
 </body>
