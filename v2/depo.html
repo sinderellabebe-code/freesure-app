@@ -3584,8 +3584,6 @@ function renderDepoView(){
     ${`<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>`}
     ${`<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar — CSV (Hızlı)</button>`}
     ${`<button class="btn ghost small" ${state.depoExcelExportRunning?'disabled':''} onclick="exportDepoExcelWithImages()">${state.depoExcelExportRunning?'⏳ Hazırlanıyor…':'Dışa Aktar — Excel + Resim (Yavaş)'}</button>`}
-    ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
-    ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkRemoveSelectedFromCatalog()">${state.depoBulkCatalogRunning?'⏳ İşleniyor…':'Seçilenleri Kataloğdan Kaldır ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
     ${canManage && selectedCount>0 ? `<button class="btn ghost small" onclick="clearDepoSelection()">✕ Seçimi Temizle (${selectedCount})</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${state.depoDeleteRunning?'disabled':''} onclick="deleteAllDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Tümünü Sil'}</button>` : ''}
@@ -3609,7 +3607,7 @@ function renderDepoView(){
     out += `<div class="depo-table-wrap"><table class="depo-table" style="--depo-cols:${cols}">
       <thead><tr>
         ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll()" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
-        <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}<th>Kataloğa Ekle</th>${canManage?'<th></th>':''}
+        <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}${canManage?'<th></th>':''}
       </tr></thead>
       <tbody>
       ${pageItems.map((it,idx)=>{
@@ -3638,7 +3636,6 @@ function renderDepoView(){
           <td>${reserved>0 ? `<span class="chip other" title="Onaylı siparişler için rezerve edilmiş">${reserved}</span>` : `<span class="depo-td-muted">—</span>`}</td>
           ${canManage ? `<td><input type="number" min="0" step="0.01" value="${price!=null?price:''}" placeholder="0.00" class="depo-price-input" onchange="updateDepoPrice('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}', this.value)" /></td>
           <td class="depo-td-muted">${tryPrice!=null ? formatMoney(tryPrice)+' ₺' : (state.fxRateLoading ? 'kur…' : '—')}</td>` : ''}
-          <td>${session.role!=='depocu' ? (state.depoTogglingBarcodes.has(it.barcode) ? `<button class="btn small ghost" disabled>⏳ İşleniyor…</button>` : (inCatalog ? `<button class="btn small ghost" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')" title="Kataloğdan kaldır — resim/fiyat/stok silinmez">✓ Kataloğda — Kaldır</button>` : `<button class="btn small primary" onclick="toggleCatalogMembership('${attrEsc(it.barcode)}')">+ Kataloğa Ekle</button>`)) : '<span class="depo-td-muted">—</span>'}</td>
           ${canManage ? `<td><button class="sku-del" onclick="deleteSelectedSingle('${attrEsc(it.barcode)}')" title="Bu kaydı sil">✕</button></td>` : ''}
         </tr>`;
       }).join('')}
@@ -4831,6 +4828,15 @@ async function katalogExcel(){
   }catch(e){ console.error(e); showToast('Excel oluşturulamadı: '+(e&&e.message||e)); }
   k.running=false; render();
 }
+
+// depo.html#katalog ile açılırsa (Sipariş'teki kısayol) Katalog Hazırla penceresini otomatik aç
+(function(){
+  if(location.hash!=='#katalog') return;
+  let n=0; const t=setInterval(function(){
+    n++; if(n>240){ clearInterval(t); return; }
+    try{ if(typeof state!=='undefined' && state.loaded && typeof session!=='undefined' && session && !state.modalMode){ clearInterval(t); history.replaceState(null,'',location.pathname); openKatalogModal(); } }catch(e){}
+  },500);
+})();
 
 </script>
 </body>
