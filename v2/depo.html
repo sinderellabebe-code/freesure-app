@@ -5060,7 +5060,7 @@ async function kanalRun(){
     var r=await window.fsSupabase.functions.invoke('kanal-rapor',{body:{}});
     var d=r.data;
     if(r.error && !d){ var m=r.error.message||'bilinmeyen hata'; try{ var b=await r.error.context.json(); if(b&&b.error) m=b.error; }catch(e){} throw new Error(m); }
-    if(!d||!d.ok) throw new Error((d&&d.error)||'Yanıt alınamadı');
+    if(!d||!d.ok){ var ex=(d&&d.sitesFound)?' — Hesaptaki siteler: '+d.sitesFound.map(function(s){return s.ad+' ['+s.id+']';}).join('; '):''; throw new Error(((d&&d.error)||'Yanıt alınamadı')+ex); }
     __kanalData=d; kanalRender(d);
   }catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p>'; }
   btn.disabled=false;
@@ -5073,7 +5073,7 @@ function kanalTable(rows,cols,max){
   return h;
 }
 function kanalRender(d){
-  var h='<div style="margin-bottom:10px;font-size:13px">Depoda aktif kayıt: <b>'+d.depoSkus+'</b> barkod</div><button class="btn ghost small" onclick="kanalExcel()">⬇ Excel olarak indir</button>';
+  var h='<div style="margin-bottom:6px;font-size:12px;color:#777">Wix siteleri: '+(d.sitesFound||[]).map(function(s){return kanalEsc(s.ad)+' ['+kanalEsc(s.id)+']';}).join(' · ')+'</div><div style="margin-bottom:10px;font-size:13px">Depoda aktif kayıt: <b>'+d.depoSkus+'</b> barkod</div><button class="btn ghost small" onclick="kanalExcel()">⬇ Excel olarak indir</button>';
   d.sites.forEach(function(s){
     h+='<div style="margin-top:18px;border-top:2px solid #3D5A52;padding-top:10px"><h3 style="margin:0 0 6px">'+kanalEsc(s.site)+'</h3>';
     if(!s.ok){ h+='<p style="color:#B5402F">Okunamadı: '+kanalEsc(s.error)+'</p></div>'; return; }
