@@ -51,6 +51,7 @@
   .fsm-list button{display:block;width:100%;text-align:left;background:none;border:0;padding:9px 12px;font:inherit;font-size:13px;color:var(--ink);border-radius:5px;cursor:pointer}
   .fsm-list button:hover:not(:disabled){background:var(--bg)}
   .fsm-list button.danger{color:var(--danger)}
+  .analiz-page details>summary{display:none}
   .top-nav{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
   .top-nav-item{display:inline-flex;align-items:center;gap:4px;padding:8px 15px;border-radius:7px;font-size:13.5px;font-weight:700;text-decoration:none;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);transition:border-color .15s,background .15s;}
   .top-nav-item:hover{border-color:var(--accent-ink);}
@@ -1561,6 +1562,7 @@ function exportFullBackupJSON(){
 
 // ---------- render ----------
 function render(){
+  if(location.hash==='#analiz') state.view='analiz';
   const root = document.getElementById('root');
   if(!state.loaded){ root.innerHTML = '<div class="loading">Yükleniyor…</div>'; return; }
 
@@ -1596,6 +1598,7 @@ function render(){
         <div class="top-nav">
           <a class="top-nav-item external" href="siparis.html" target="_blank" rel="noopener">📋 Sipariş ↗</a>
           <a class="top-nav-item external" href="depo.html" target="_blank" rel="noopener">📦 Depo ↗</a>
+          <a class="top-nav-item external" href="musteri-merkezi.html#analiz" target="_blank" rel="noopener">📊 Aylık / Yıllık Analiz ↗</a>
         </div>
       </div>
     </div>
@@ -1609,7 +1612,11 @@ function render(){
     </div>
   </div>`;
 
-  if(state.view === 'detail'){
+  if(state.view === 'analiz'){
+    state.revenueBoxOpen = true;
+    const _b = renderRevenueBox();
+    html += `<div class="analiz-page" style="max-width:760px;margin:0 auto;padding:0 16px 60px"><div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0 14px"><h2 style="margin:0">📊 Aylık ve Yıllık Analiz</h2><a class="nav-link" href="musteri-merkezi.html">← Müşteri listesi</a></div>${_b || '<div class="empty"><h3>Henüz analiz edilecek sipariş yok</h3></div>'}</div>`;
+  } else if(state.view === 'detail'){
     const customer = state.customers.find(c=>c.id===state.selectedId);
     html += customer ? renderDetail(customer) : '<div class="empty"><h3>Müşteri bulunamadı</h3></div>';
   } else {
@@ -1791,7 +1798,6 @@ function renderList(){
     <div class="count">${sorted.length} / ${state.customers.length} müşteri</div>
   </div>`;
 
-  out += renderRevenueBox();
 
   if(sorted.length === 0){
     out += `<div class="empty">
