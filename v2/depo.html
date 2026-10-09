@@ -4625,7 +4625,7 @@ function renderKatalogModal(){
   const chk=(set,val,lbl,key)=>`<label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-weight:600"><input type="checkbox" ${set.has(val)?'checked':''} onchange="katToggle('${key}','${val}')"> ${lbl}</label>`;
   return `<div class="overlay" onmousedown="if(!state.kat.running && event.target===event.currentTarget) closeModal()">
    <div class="modal kat" style="max-width:560px">
-    <h2>Katalog Hazırla</h2>
+    <h2>Katalog Hazırla <span style="font-size:11px;font-weight:400;color:var(--muted)">(sürüm 4 — beden sütunlu Excel)</span></h2>
     <div class="field"><label>Katalog başlığı</label><input id="kat-title" type="text" value="${esc(k.title)}" oninput="katSet('title',this.value)" placeholder="Örn. 2027 Yaz Koleksiyonu — Müşteri Adı"></div>
     <div class="field"><label>Alt not (isteğe bağlı)</label><input type="text" value="${esc(k.note)}" oninput="katSet('note',this.value)" placeholder="Örn. Teslimat 15 gün, KDV hariç"></div>
     <div class="field"><label>Cinsiyet <span style="font-weight:400;color:var(--muted)">(boş = hepsi)</span></label><div>${chk(k.gender,'KIZ','Kız','gender')}${chk(k.gender,'ERKEK','Erkek','gender')}${chk(k.gender,'UNISEX','Unisex','gender')}</div></div>
