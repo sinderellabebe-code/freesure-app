@@ -4779,36 +4779,52 @@ async function katalogExcel(){
     await katLoadImages(data);
     const wb=new ExcelJS.Workbook(), ws=wb.addWorksheet('Katalog');
     const showP = k.price!=='none' && session.role!=='depocu';
-    const widths=[14,10,28,18,40,34]; if(showP) widths.push(14);
-    widths.forEach((w,i)=>ws.getColumn(i+1).width=w);
-    ws.mergeCells(1,1,1,widths.length); ws.getCell(1,1).value=k.title||'Katalog'; ws.getCell(1,1).font={bold:true,size:16};
-    ws.getCell(2,1).value=new Date().toLocaleDateString('tr-TR')+(k.note?'   ·   '+k.note:''); ws.getCell(2,1).font={color:{argb:'FF777777'}};
-    const hdr=['Resim','Ref','Model Adı','Renk','Bedenler','Barkodlar (beden: barkod)'].concat(showP?['Fiyat ('+(k.price==='TRY'?'₺':'$')+')']:[]);
-    const hr=ws.getRow(4); hdr.forEach((h,i)=>{ const c=hr.getCell(i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF232C2A'}}; });
+    const cur = k.price==='TRY' ? '₺' : '$';
+    const priceVal = m => m.price==null ? null : Number((k.price==='TRY'?m.price*parseFloat(k.rate):m.price).toFixed(2));
+    const sizeSet = {};
+    data.forEach(m=>m.colors.forEach(c=>c.sizes.forEach(z=>{ sizeSet[z.label]=1; })));
+    const sizeCols = Object.keys(sizeSet).sort((a,b)=>katSizeNum(a)-katSizeNum(b) || a.localeCompare(b,'tr'));
+    const fixed = 4, total = fixed + sizeCols.length + (showP?1:0);
+    ws.getColumn(1).width=14; ws.getColumn(2).width=12; ws.getColumn(3).width=26; ws.getColumn(4).width=16;
+    sizeCols.forEach((s,i)=>ws.getColumn(fixed+1+i).width=9);
+    if(showP) ws.getColumn(total).width=14;
+    ws.getCell(1,1).value=k.title||'Katalog'; ws.getCell(1,1).font={bold:true,size:16};
+    ws.getCell(2,1).value=new Date().toLocaleDateString('tr-TR')+(k.note?'   ·   '+k.note:'')+(k.showQty?'   ·   Beden altındaki sayılar stok adedidir':'   ·   ● = bu bedende stok var'); ws.getCell(2,1).font={color:{argb:'FF777777'}};
+    const hdr=['Resim','Ref','Detay Referans','Renk'].concat(sizeCols, showP?['Fiyat ('+cur+')']:[]);
+    const hr=ws.getRow(4); hdr.forEach((h,i)=>{ const c=hr.getCell(i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.alignment={horizontal:i>=fixed?'center':'left',vertical:'middle'}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF232C2A'}}; });
     let r=5;
     for(const m of data){
       for(const c of m.colors){
-        const row=ws.getRow(r); row.height=Math.max(60, c.sizes.length*15+6);
-        row.getCell(2).value=m.refNo; row.getCell(3).value=m.name; row.getCell(4).value=c.colorName; row.getCell(5).value=katSizesText(c,k.showQty);
-        row.getCell(6).value=c.sizes.map(z=>z.label+': '+z.barcode).join('\n');
-        if(showP && m.price!=null) row.getCell(7).value=Number((k.price==='TRY'?m.price*parseFloat(k.rate):m.price).toFixed(2));
-        row.eachCell(cell=>{ cell.alignment={vertical:'middle',wrapText:true}; });
+        const row=ws.getRow(r); row.height=56;
+        row.getCell(2).value=m.refNo; row.getCell(3).value=String(m.refNo+' '+(c.colorName||'')).toUpperCase(); row.getCell(4).value=c.colorName;
+        sizeCols.forEach((s,i)=>{ const z=c.sizes.find(x=>x.label===s); if(z){ const cell=row.getCell(fixed+1+i); cell.value = k.showQty ? z.stock : '●'; cell.alignment={horizontal:'center',vertical:'middle'}; } });
+        if(showP && m.price!=null){ const pc=row.getCell(total); pc.value=priceVal(m); pc.numFmt='#,##0.00'; }
+        for(let ci=1;ci<=fixed;ci++) row.getCell(ci).alignment={vertical:'middle',wrapText:true};
+        if(showP) row.getCell(total).alignment={vertical:'middle'};
         if(c.dataUrl){
           try{ const ext=/^data:image\/png/i.test(c.dataUrl)?'png':'jpeg';
             const id=wb.addImage({base64:c.dataUrl,extension:ext});
-            const sc=Math.min(70/c.nat.w,70/c.nat.h);
+            const sc=Math.min(66/c.nat.w,66/c.nat.h);
             ws.addImage(id,{tl:{col:0.05,row:r-1+0.05},ext:{width:c.nat.w*sc,height:c.nat.h*sc},editAs:'oneCell'}); }catch(e){}
         }
         r++;
       }
     }
-    ws.views=[{state:'frozen',ySplit:4}];
+    ws.views=[{state:'frozen',xSplit:fixed,ySplit:4}];
+    // Barkod listesi: her beden bir satır
     const bs=wb.addWorksheet('Barkod Listesi');
-    [12,28,18,10,22].concat(k.showQty?[10]:[]).forEach((w,i)=>bs.getColumn(i+1).width=w);
-    const bh=bs.getRow(1); ['Ref','Model Adı','Renk','Beden','Barkod'].concat(k.showQty?['Stok']:[]).forEach((h,i)=>{ const c=bh.getCell(i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF232C2A'}}; });
+    const bcols=['Ref','Detay Referans','Renk','Beden','Barkod'].concat(k.showQty?['Stok']:[], showP?['Fiyat ('+cur+')']:[]);
+    [10,26,16,9,22,9,14].slice(0,bcols.length).forEach((w,i)=>bs.getColumn(i+1).width=w);
+    const bh=bs.getRow(1); bcols.forEach((h,i)=>{ const c=bh.getCell(i+1); c.value=h; c.font={bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF232C2A'}}; });
     let br=2;
-    data.forEach(m=>m.colors.forEach(c=>c.sizes.forEach(z=>{ const row=bs.getRow(br++); row.getCell(1).value=m.refNo; row.getCell(2).value=m.name; row.getCell(3).value=c.colorName; row.getCell(4).value=z.label; row.getCell(5).value=String(z.barcode); row.getCell(5).numFmt='@'; if(k.showQty) row.getCell(6).value=z.stock; })));
-    bs.views=[{state:'frozen',ySplit:1}]; bs.autoFilter={from:{row:1,column:1},to:{row:1,column:k.showQty?6:5}};
+    data.forEach(m=>m.colors.forEach(c=>c.sizes.forEach(z=>{
+      const row=bs.getRow(br++); let ci=1;
+      row.getCell(ci++).value=m.refNo; row.getCell(ci++).value=String(m.refNo+' '+(c.colorName||'')+' '+z.label).toUpperCase(); row.getCell(ci++).value=c.colorName; row.getCell(ci++).value=z.label;
+      const bc=row.getCell(ci++); bc.value=String(z.barcode||''); bc.numFmt='@';
+      if(k.showQty) row.getCell(ci++).value=z.stock;
+      if(showP && m.price!=null){ const pc=row.getCell(ci++); pc.value=priceVal(m); pc.numFmt='#,##0.00'; }
+    })));
+    bs.views=[{state:'frozen',ySplit:1}]; bs.autoFilter={from:{row:1,column:1},to:{row:1,column:bcols.length}};
     const buf=await wb.xlsx.writeBuffer();
     downloadBlob(katFileName('xlsx'),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
     showToast('Excel katalog indirildi');
