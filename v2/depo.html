@@ -5060,7 +5060,7 @@ async function kanalRun(){
     var r=await window.fsSupabase.functions.invoke('kanal-rapor',{body:{}});
     var d=r.data;
     if(r.error && !d){ var m=r.error.message||'bilinmeyen hata'; try{ var b=await r.error.context.json(); if(b&&b.error) m=b.error; }catch(e){} throw new Error(m); }
-    if(!d||!d.ok){ var ex=(d&&d.sitesFound)?' — Hesaptaki siteler: '+d.sitesFound.map(function(s){return s.ad+' ['+s.id+']';}).join('; '):''; throw new Error(((d&&d.error)||'Yanıt alınamadı')+ex); }
+    if(!d||!d.ok){ var ex=(d&&d.sitesFound)?' — Hesaptaki siteler: '+d.sitesFound.map(function(s){return s.ad+' ['+s.id+']';}).join('; '):''; var ki=(d&&d.keyInfo)?' — Anahtar: '+d.keyInfo.uzunluk+' karakter, başlangıcı "'+d.keyInfo.bas+'", temizlenen karakter: '+d.keyInfo.temizlenen:''; throw new Error(((d&&d.error)||'Yanıt alınamadı')+ex+ki); }
     __kanalData=d; kanalRender(d);
   }catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p>'; }
   btn.disabled=false;
