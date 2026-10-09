@@ -268,15 +268,6 @@ sb.auth.onAuthStateChange((event)=>{
   };
 });
 
-// ---------- "deneme sürümü" etiketi (geçişte kaldırılır) ----------
-document.addEventListener('DOMContentLoaded', ()=>{
-  if(window.FS_HIDE_BADGE) return;
-  const b = document.createElement('div');
-  b.textContent = 'YENİ SİSTEM · deneme';
-  b.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;background:#0f766e;color:#fff;font:600 11px Inter,system-ui,sans-serif;padding:4px 9px;border-radius:999px;opacity:.85;pointer-events:none';
-  document.body.appendChild(b);
-});
-
 // ---- Yukarı çık düğmesi (uzun listeler için) ----
 document.addEventListener('DOMContentLoaded', function(){
   var btn = document.createElement('button');
