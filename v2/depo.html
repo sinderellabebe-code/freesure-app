@@ -3443,7 +3443,7 @@ function render(){
     <div style="display:flex;align-items:center;gap:12px">
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
-        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();fyOpen()">💲 Fiyat Yönetimi</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
+        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();fyOpen()">💲 Fiyat Yönetimi</button><button onclick="fsMenuClose();esOpen()">🔄 Kanal Eşitleme</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
       </div>
     </div>
@@ -5294,6 +5294,70 @@ async function fiSil(id){ if(!confirm('Bu indirim tanımı silinsin mi?')) retur
     }catch(e){}
   },1500);
 })();
+
+// ================= KANAL EŞİTLEME (freesureshop) — önizleme + onaylı uygulama =================
+var __es=null;
+function esClose(){ var e=document.getElementById('es-ov'); if(e) e.remove(); }
+function esOpen(){
+  if(session.role!=='admin'){ showToast('Yalnızca yönetici'); return; }
+  esClose(); __es=null;
+  var ov=document.createElement('div'); ov.id='es-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(35,44,42,.5);z-index:9000;overflow:auto;padding:30px 12px';
+  ov.innerHTML='<div style="background:#fff;max-width:1000px;margin:0 auto;border-radius:10px;padding:22px"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🔄 Kanal Eşitleme — freesureshop</h2><button class="btn ghost small" onclick="esClose()">✕ Kapat</button></div>'
+   +'<p style="color:#666;font-size:13px">Önce <b>Önizleme</b>: hiçbir şey yazılmaz. Sonra az sayıda ürünle deneyip, sonucu görüp devam edersiniz.</p>'
+   +'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+   +'<label><input type="checkbox" id="es-stok" checked> Stok (depo − rezerve)</label>'
+   +'<label><input type="checkbox" id="es-fiyat"> Fiyat + indirim</label>'
+   +'<label><input type="checkbox" id="es-ac"> Stoklu kapalı ürünleri satışa aç</label>'
+   +'<label style="font-size:12px">Yalnızca model(ler):&nbsp;<input id="es-refs" placeholder="boş = hepsi" style="width:170px"></label>'
+   +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div></div>';
+  document.body.appendChild(ov);
+}
+function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked},refs:refs}; }
+async function esCall(body){
+  var r=await window.fsSupabase.functions.invoke('kanal-esitle',{body:body}), d=r.data;
+  if(r.error&&!d){ var m=r.error.message||'hata'; try{var b=await r.error.context.json(); if(b&&b.error) m=b.error;}catch(e){} throw new Error(m); }
+  if(!d||!d.ok) throw new Error((d&&d.error)||'Yanıt alınamadı');
+  return d;
+}
+async function esRun(){
+  var o=esOpts(), out=document.getElementById('es-out'), b=document.getElementById('es-prev');
+  if(!o.parts.stok&&!o.parts.fiyat&&!o.parts.ac){ showToast('En az bir seçenek işaretleyin'); return; }
+  b.disabled=true; out.innerHTML='<p>⏳ Wix ürünleri okunuyor ve depoyla karşılaştırılıyor… (yarım dakika sürebilir)</p>';
+  try{ var d=await esCall({mode:'preview',parts:o.parts,refs:o.refs}); __es={d:d,o:o}; esRender(); }
+  catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p>'; }
+  b.disabled=false;
+}
+function esCh(c){
+  var t=[];
+  if(c.stok) t.push('Stok: '+c.stok.degisen+' varyant, toplam '+c.stok.toplam+(c.stok.eslesmeyenSifirlanan?' (+'+c.stok.eslesmeyenSifirlanan+' eski SKU sıfırlanır)':''));
+  if(c.fiyat) t.push('Fiyat: '+(c.fiyat.eski==null?'—':fyTL(c.fiyat.eski))+' → <b>'+fyTL(c.fiyat.yeni)+'</b>');
+  if(c.indirim) t.push('İndirim: '+(c.indirim.yeni?('<span style="color:#B5402F">'+fyTL(c.indirim.yeni)+'</span>'):'kaldırılır'));
+  if(c.ac) t.push('<b>Satışa açılır</b>');
+  return t.join('<br>');
+}
+function esRender(){
+  var d=__es.d, s=d.sayilar, out=document.getElementById('es-out');
+  var h='<div style="background:#F5F7F4;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:10px">Site: <b>'+kanalEsc(d.site)+'</b> · Wix ürünü: <b>'+d.wixUrun+'</b> · Depoyla eşleşen: <b>'+d.eslesenUrun+'</b> · <b>Değişecek ürün: '+d.degisecekUrun+'</b><br>Stok güncellenecek varyant: '+s.stokDegisen+' · Sıfırlanacak eski SKU: '+s.eslesmeyenVaryant+' · Fiyat değişen: '+s.fiyatDegisen+' · İndirim değişen: '+s.indirimDegisen+' · Açılacak: '+s.acilacak+(d.kur?' · Baz kur: '+fyTL(d.kur):'')+'</div>';
+  if(!d.degisecekUrun){ out.innerHTML=h+'<p style="color:#2f6b4f">✓ Değişecek bir şey yok.</p>'; return; }
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn primary small" onclick="esApply(1)">Test: ilk 1 ürünü uygula</button><button class="btn ghost small" onclick="esApply(10)">İlk 10 ürünü uygula</button><button class="btn ghost small" onclick="esApply(40)">40 ürünü uygula</button></div><div style="font-size:12px;color:#777;margin-bottom:6px">Uygulama listenin başından sırayla yapılır; her uygulamadan sonra önizleme yenilenir, kalan ürünler görünür.</div>';
+  h+='<div style="max-height:420px;overflow:auto;border:1px solid #e4e4e4;border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">#</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Model</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Ürün</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Yapılacak</th></tr></thead><tbody>';
+  d.plan.slice(0,300).forEach(function(r,i){ h+='<tr><td style="padding:5px 8px;border-top:1px solid #eee">'+(i+1)+'</td><td style="padding:5px 8px;border-top:1px solid #eee">'+kanalEsc(r.ref)+'</td><td style="padding:5px 8px;border-top:1px solid #eee">'+kanalEsc(r.name)+(r.visible?'':' <i style="color:#888">(kapalı)</i>')+'</td><td style="padding:5px 8px;border-top:1px solid #eee">'+esCh(r.ch)+'</td></tr>'; });
+  h+='</tbody></table></div>'; if(d.plan.length>300) h+='<div style="font-size:12px;color:#888;margin-top:4px">İlk 300 ürün gösteriliyor.</div>';
+  out.innerHTML=h;
+}
+async function esApply(n){
+  var d=__es.d, first=d.plan.slice(0,n).map(function(r){return r.ref+' – '+r.name;});
+  if(!confirm('Wix’e YAZILACAK ürün sayısı: '+Math.min(n,d.plan.length)+'\n\n'+first.slice(0,6).join('\n')+(first.length>6?'\n…':'')+'\n\nOnaylıyor musunuz?')) return;
+  var out=document.getElementById('es-out'); out.innerHTML='<p>⏳ Wix’e yazılıyor…</p>';
+  try{
+    var r=await esCall({mode:'apply',parts:__es.o.parts,refs:__es.o.refs,max:n});
+    var h='<div style="background:#E8F3EE;border-radius:8px;padding:10px 12px;margin-bottom:10px"><b>'+r.basarili+'/'+r.uygulanan+' ürün güncellendi.</b> Sırada kalan: '+r.kalan+'</div>';
+    h+=r.sonuc.map(function(x){return '<div style="font-size:13px;padding:3px 0;color:'+(x.ok?'#2f6b4f':'#B5402F')+'">'+(x.ok?'✓ ':'✗ ')+kanalEsc(x.ref)+' – '+kanalEsc(x.name)+' <span style="color:#777">'+(x.ok?kanalEsc(x.adim.join(', ')):kanalEsc(x.hata))+'</span></div>';}).join('');
+    h+='<div style="margin-top:12px"><button class="btn primary small" onclick="esRun()">Önizlemeyi yenile</button></div>';
+    out.innerHTML=h;
+  }catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p><button class="btn ghost small" onclick="esRun()">Önizlemeyi yenile</button>'; }
+}
 
 </script>
 </body>
