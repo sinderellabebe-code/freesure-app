@@ -1072,6 +1072,7 @@ function toggleCustomerSelectAll(visibleIds){
   render();
 }
 function blockReasonLabel(reason){
+  if(reason==='has_delivered_orders') return 'teslim edilmiş siparişi var — silinemez; önce iade alın';
   return reason==='nonzero_balance' ? 'bakiyesi sıfır değil — önce ödeme alın veya sipariş(ler)i iade alıp/iptal edip bakiyeyi sıfırlayın'
     : 'silinemedi';
 }
