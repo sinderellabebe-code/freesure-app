@@ -149,6 +149,7 @@
   .chip{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
   .chip.wa{background:#E4F8EC;color:#1D9A4E;}
   .chip.other{background:#EEEBE2;color:var(--muted);}
+  .depo-main{max-height:none!important;overflow-y:visible!important}
   .depo-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px;max-height:72vh;overflow-y:auto;}
   .depo-table{border-collapse:collapse;width:100%;min-width:640px;background:var(--surface);}
   .depo-table thead th{
@@ -3542,7 +3543,7 @@ function renderDepoView(){
   const totalPages = Math.max(1, Math.ceil(items.length / DEPO_PAGE_SIZE));
   if(state.depoPage > totalPages) state.depoPage = totalPages;
   if(state.depoPage < 1) state.depoPage = 1;
-  const pageItems = items.slice((state.depoPage-1)*DEPO_PAGE_SIZE, state.depoPage*DEPO_PAGE_SIZE);
+  const pageItems = items.slice(0, state.depoPage*DEPO_PAGE_SIZE);
   const visibleBarcodes = pageItems.map(it=>it.barcode);
   state.depoVisibleBarcodes = visibleBarcodes;
   const allSelected = canManage && visibleBarcodes.length>0 && visibleBarcodes.every(b=>state.depoSelected.has(b));
@@ -3604,7 +3605,7 @@ function renderDepoView(){
     </div>`;
   } else {
     const cols = canManage ? '26px 56px 44px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 44px 130px 1fr 150px 80px 90px';
-    out += `<div class="depo-table-wrap"><table class="depo-table" style="--depo-cols:${cols}">
+    out += `<div class="depo-table-wrap depo-main"><table class="depo-table" style="--depo-cols:${cols}">
       <thead><tr>
         ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll()" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
         <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}${canManage?'<th></th>':''}
@@ -3619,7 +3620,7 @@ function renderDepoView(){
         const img = imageForRefColor(it.refNo, it.colorName);
         return `<tr>
           ${canManage ? `<td><input type="checkbox" ${state.depoSelected.has(it.barcode)?'checked':''} onchange="toggleDepoSelect('${attrEsc(it.barcode)}')" /></td>` : ''}
-          <td class="depo-td-muted">${(state.depoPage-1)*DEPO_PAGE_SIZE + idx + 1}</td>
+          <td class="depo-td-muted">${idx + 1}</td>
           <td>${img
             ? `<img src="${img}" onclick="openDepoImageLightbox('${attrEsc(it.refNo)}','${attrEsc(it.colorName)}','${attrEsc(it.barcode)}')" style="width:36px;height:36px;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:4px;cursor:pointer" />`
             : `<div onclick="document.getElementById('depo-img-input-${idx}').click()" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--line);border-radius:4px;color:var(--muted);font-size:8px;text-align:center;cursor:pointer" title="Resim yükle">+ Ekle</div>`
@@ -3641,7 +3642,9 @@ function renderDepoView(){
       }).join('')}
       </tbody>
     </table></div>`;
-    if(totalPages > 1){
+    window._depoMore = pageItems.length < items.length;
+    out += `<div id="depo-more" style="display:flex;align-items:center;gap:14px;justify-content:center;margin:14px 0 40px;font-size:12.5px;color:var(--muted)"><span>${pageItems.length} / ${items.length} model gösteriliyor${window._depoMore?' — aşağı kaydırdıkça devamı yüklenir':''}</span><a href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;" style="color:var(--accent,#2563eb);font-weight:600">↑ Başa dön</a></div>`;
+    if(false){
       out += `<div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-top:14px">
         <button class="btn small ghost" ${state.depoPage<=1?'disabled':''} onclick="setDepoPage(${state.depoPage-1})">← Önceki</button>
         <span style="font-size:12.5px;color:var(--muted)">Sayfa ${state.depoPage} / ${totalPages}</span>
