@@ -346,7 +346,8 @@ function paymentSigned(p){ const a=Number(p.amount)||0; return p.kind==='charge'
 function totalPaymentsFor(cid){ return paymentsFor(cid).reduce((sum,p)=>sum+paymentSigned(p),0); }
 function customerBalance(customerId, orders){
   const owed = (orders||[]).reduce((sum,o)=> sum + orderBalanceDue(o), 0);
-  return owed - totalPaymentsFor(customerId); // can go negative — means the customer has a credit (overpaid / paid deposit before final amount)
+  const _c = state.customers.find(c=>c.id===customerId); const _ob = _c ? (Number(_c.openingBalance)||0) : 0;
+  return owed - totalPaymentsFor(customerId) + _ob; // can go negative — means the customer has a credit (overpaid / paid deposit before final amount)
 }
 function balanceColor(bal){
   if(bal>0) return 'var(--danger)';
@@ -907,11 +908,12 @@ async function printAccountStatement(customerId, fromDate, toDate){
   });
   allEntries.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 
-  let openingBalance = 0;
+  const _obase = Number(customer.openingBalance)||0;
+  let openingBalance = _obase;
   let entries = allEntries;
   if(fromDate){
     const before = allEntries.filter(e=>e.date < fromDate);
-    openingBalance = before.reduce((sum,e)=> sum + e.debit - e.credit, 0);
+    openingBalance = _obase + before.reduce((sum,e)=> sum + e.debit - e.credit, 0);
     entries = allEntries.filter(e=>e.date >= fromDate && (!toDate || e.date <= toDate));
   } else if(toDate){
     entries = allEntries.filter(e=>e.date <= toDate);
@@ -960,7 +962,7 @@ async function printAccountStatement(customerId, fromDate, toDate){
   doc.setDrawColor(220,220,220); doc.line(margin, y, pageW-margin, y);
   y += 5;
 
-  if(fromDate && openingBalance !== 0){
+  if(openingBalance !== 0){
     doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(100,100,100);
     doc.text('Opening Balance', colDesc, y);
     doc.setFont('helvetica','bold');
@@ -1377,7 +1379,8 @@ function submitCustomerModal(){
   if((!adSoyad && !firma) || !country){ showToast('Ad Soyad veya Firma, ve Ülke zorunludur'); return; }
   if(email && !isValidEmail(email)){ showToast('E-posta geçersiz — "@" ve alan adını kontrol edin'); return; }
   const existingId = (state.modalMode && state.modalMode !== 'new') ? state.modalMode.id : null;
-  saveCustomer({ id: existingId || uid(), adSoyad, firma, country, phone, phone2, telegram, instagram, email, companyType, contactTitle, website, address, social, howMet, notes });
+  const _obEl = document.getElementById('m-openbal'); const _origC = existingId ? state.customers.find(c=>c.id===existingId) : null; const openingBalance = (session.role==='admin' && _obEl) ? (parseFloat(_obEl.value)||0) : ((_origC && _origC.openingBalance) || 0);
+  saveCustomer({ id: existingId || uid(), openingBalance, adSoyad, firma, country, phone, phone2, telegram, instagram, email, companyType, contactTitle, website, address, social, howMet, notes });
 }
 
 // ---------- bulk import ----------
@@ -1848,6 +1851,7 @@ function renderDetail(customer){
     <div class="stat-card"><div class="label">Son İletişim</div><div class="value" style="font-size:14px">${(()=>{ const last=lastContactDate(customer.id); if(!last) return '—'; const days=daysBetween(last, todayISO()); return days>=NO_CONTACT_WARNING_DAYS ? `<span style="color:var(--danger)">⚠ ${fmtDate(last)}</span>` : fmtDate(last); })()}</div></div>
     <div class="stat-card"><div class="label">Toplam Sipariş</div><div class="value" style="font-size:14px">${formatMoney(totalOrderValue(orders))}</div></div>
     <div class="stat-card"><div class="label">Son Sipariş Tarihi</div><div class="value" style="font-size:14px">${lastOrderOf(orders) ? fmtDate(orderDateOf(lastOrderOf(orders))) : '—'}</div></div>
+    ${Number(customer.openingBalance)? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabel(Number(customer.openingBalance))}</div></div>` : ''}
     <div class="stat-card"><div class="label">Bakiye</div><div class="value" style="font-size:14px;color:${balanceColor(customerBalance(customer.id,orders))}">${balanceLabel(customerBalance(customer.id,orders))}</div></div>
   </div>
   ${orders.some(o=>isRichOrder(o)) ? `<div style="margin:-6px 0 16px"><a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş detaylarını Sipariş sayfasında gör →</a></div>` : ''}
@@ -2009,6 +2013,13 @@ function renderCustomerModal(){
           <label>E-posta</label>
           <input id="m-email" value="${attrEsc(initial?.email||'')}" placeholder="Örn. ayse@example.com" oninput="validateEmailField('m-email','m-email-msg')" />
           <div id="m-email-msg" class="field-msg"></div>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Açılış Bakiyesi ($)</label>
+          <input id="m-openbal" type="number" step="0.01" value="${(initial && initial.openingBalance) ? initial.openingBalance : ''}" placeholder="0.00" ${session.role==='admin'?'':'disabled'} />
+          <div class="field-msg">Sisteme geçmeden önceki cari bakiye. Artı (+) = müşteri bize borçlu, eksi (−) = müşteri alacaklı. ${session.role==='admin'?'':'Sadece yönetici değiştirebilir.'}</div>
         </div>
       </div>
       <details class="extra-fields" ${(initial && (initial.companyType||initial.phone2||initial.contactTitle||initial.website||initial.instagram||initial.howMet||initial.address||initial.social||initial.notes)) ? 'open' : ''}>
