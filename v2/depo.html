@@ -5080,7 +5080,7 @@ function kanalRender(d){
     h+='<div style="font-size:13px;margin-bottom:8px">Katalog: '+kanalEsc(s.version)+' · Sitede varyant: <b>'+s.wixVariants+'</b> · Depoyla eşleşen: <b>'+s.matched+'</b>'+(s.note?' · <span style="color:#B5402F">'+kanalEsc(s.note)+'</span>':'')+'</div>';
     h+='<h4 style="margin:12px 0 4px">📦 Depoda var, sitede yok — eklenmesi önerilen modeller ('+s.notOnSite.length+')</h4>'+kanalTable(s.notOnSite,[['refNo','Ref'],['color','Renk'],['sizes','Bedenler'],['stock','Stok']],200);
     h+='<h4 style="margin:12px 0 4px">⚠ Sitede var, depoda barkodu bulunamadı ('+s.wixOnly.length+')</h4>'+kanalTable(s.wixOnly,[['sku','SKU'],['name','Ürün'],['price','Fiyat']],200);
-    h+='<h4 style="margin:12px 0 4px">🔁 Stok durumu uyuşmuyor ('+s.mismatch.length+')</h4>'+kanalTable(s.mismatch,[['refNo','Ref'],['color','Renk'],['size','Beden'],['depoStock','Depo stok'],['reserved','Rezerve'],['siteInStock','Sitede stokta']],200);
+    h+='<h4 style="margin:12px 0 4px">🔁 Stok durumu uyuşmuyor ('+s.mismatch.length+')</h4>'+kanalTable(s.mismatch,[['refNo','Ref'],['color','Renk'],['size','Beden'],['depoStock','Depo stok'],['reserved','Rezerve'],['siteInStock','Sitede stokta'],['siteQty','Sitede adet']],200);
     h+='</div>';
   });
   document.getElementById('kanal-out').innerHTML=h;
@@ -5093,7 +5093,7 @@ async function kanalExcel(){
     if(!s.ok) return; var n=s.site.replace(/[^a-z]/gi,'').slice(0,12);
     add(n+' Sitede Yok',s.notOnSite,[['refNo','Ref'],['color','Renk'],['sizes','Bedenler'],['stock','Stok']]);
     add(n+' Depoda Yok',s.wixOnly,[['sku','SKU'],['name','Ürün'],['price','Fiyat']]);
-    add(n+' Stok Uyuşmaz',s.mismatch,[['barcode','Barkod'],['refNo','Ref'],['color','Renk'],['size','Beden'],['depoStock','Depo stok'],['reserved','Rezerve'],['siteInStock','Sitede stokta']]);
+    add(n+' Stok Uyuşmaz',s.mismatch,[['barcode','Barkod'],['refNo','Ref'],['color','Renk'],['size','Beden'],['depoStock','Depo stok'],['reserved','Rezerve'],['siteInStock','Sitede stokta'],['siteQty','Sitede adet']]);
   });
   var buf=await wb.xlsx.writeBuffer();
   downloadBlob('kanal-raporu-'+new Date().toISOString().slice(0,10)+'.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
