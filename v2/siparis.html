@@ -582,7 +582,7 @@ async function submitAddUser(){
     } else {
       showToast((data && data.message) ? data.message : 'Kullanıcı eklenemedi');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 async function deleteUserConfirm(userId, username){
   if(!confirm('"' + username + '" kullanıcısını silmek istediğinize emin misiniz?')) return;
@@ -594,7 +594,7 @@ async function deleteUserConfirm(userId, username){
     const data = await res.json();
     if(data && data.ok){ showToast('Kullanıcı silindi'); openUsersModal(); }
     else { showToast(data && data.error==='cannot_delete_last_user' ? 'Son kullanıcı silinemez' : 'Silinemedi'); }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 function renderUsersModal(){
   return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
@@ -1050,7 +1050,7 @@ function availableForBarcode(barcode, fallback){
 }
 function unitForRefNo(refNo){
   const p = state.products.find(x=>String(x.refNo).trim().toUpperCase()===String(refNo).trim().toUpperCase());
-  return (p && p.unit) ? p.unit : 'Adet';
+  return (p && p.unit) ? p.unit : 'Çift';
 }
 function customerName(c){
   if(!c) return '—';
@@ -1117,7 +1117,7 @@ function orderDraftQtyByUnit(draft){
 }
 function orderPrimaryUnit(o){
   const first = (o.lines||[])[0];
-  return first ? unitForRefNo(first.refNo) : 'Adet';
+  return first ? unitForRefNo(first.refNo) : 'Çift';
 }
 function stockForVariant(variantId){ return skusFor(variantId).reduce((sum,s)=>sum+stockForBarcode(s.barcode, s.stock),0); }
 
@@ -1282,7 +1282,7 @@ async function saveOrderDraft(){
     } else {
       showToast('Kaydedilemedi — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
   state.orderDraftSaving = false;
   render();
 }
@@ -1328,7 +1328,7 @@ async function approveOrderAction(orderId){
     } else {
       showToast('Onaylanamadı — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 function openShipOrderModal(orderId){ state.selectedOrderId = orderId; state.modalMode = 'shipOrder'; render(); }
 async function submitShipOrder(){
@@ -1348,7 +1348,7 @@ async function submitShipOrder(){
     } else {
       showToast('Kaydedilemedi — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 async function cancelOrderAction(orderId){
   if(!confirm('Bu siparişi iptal etmek istediğinize emin misiniz? Rezerve edilmiş stok varsa serbest bırakılacak.')) return;
@@ -1365,7 +1365,7 @@ async function cancelOrderAction(orderId){
     } else {
       showToast('İptal edilemedi — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 async function deleteOrderAction(orderId, orderStatus){
   const statusNote = orderStatus==='approved' ? ' Rezerve edilmiş stok depoya iade edilecek.'
@@ -1387,7 +1387,7 @@ async function deleteOrderAction(orderId, orderStatus){
     } else {
       showToast('Silinemedi — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 
 // ---------- mutations ----------
@@ -2953,7 +2953,7 @@ async function deliverOrderAction(orderId){
     } else {
       showToast('Kaydedilemedi — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 function returnOrderAction(orderId){
   const order = state.orders.find(o=>o.id===orderId);
@@ -2993,7 +2993,7 @@ async function submitReturnOrder(){
     } else {
       showToast('İade işlenemedi' + (data && data.error ? (' — ' + data.error) : ' — tekrar deneyin'));
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
   render();
 }
 function toggleOrderSelect(id){
@@ -3026,7 +3026,7 @@ async function deleteSelectedOrders(){
     } else {
       showToast('Silinemedi — tekrar deneyin');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 function renderOrdersListView(){
   const filter = state.orderListFilter;
@@ -4064,8 +4064,8 @@ function renderProductDetail(p){
         <div>
           <label style="text-transform:none;font-weight:400;color:var(--muted);display:block;margin-bottom:3px">Birim:</label>
           <select onchange="updateProductUnit('${p.id}', this.value)" style="padding:6px 8px;border:1.5px solid var(--line);border-radius:3px">
-            <option value="Adet" ${(p.unit||'Adet')==='Adet'?'selected':''}>Adet</option>
-            <option value="Çift" ${p.unit==='Çift'?'selected':''}>Çift</option>
+            <option value="Adet" ${p.unit==='Adet'?'selected':''}>Adet</option>
+            <option value="Çift" ${(p.unit||'Çift')==='Çift'?'selected':''}>Çift</option>
             <option value="Kg" ${p.unit==='Kg'?'selected':''}>Kg</option>
             <option value="Metre" ${p.unit==='Metre'?'selected':''}>Metre</option>
             <option value="Diğer" ${p.unit==='Diğer'?'selected':''}>Diğer</option>
@@ -4404,8 +4404,8 @@ function renderBulkProductEditModal(){
         <label>Birim</label>
         <select id="bpe-unit">
           <option value="">— Değiştirme —</option>
-          <option value="Adet">Adet</option>
           <option value="Çift">Çift</option>
+          <option value="Adet">Adet</option>
           <option value="Kg">Kg</option>
           <option value="Metre">Metre</option>
           <option value="Diğer">Diğer</option>

@@ -276,4 +276,44 @@ document.addEventListener('DOMContentLoaded', ()=>{
   b.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;background:#0f766e;color:#fff;font:600 11px Inter,system-ui,sans-serif;padding:4px 9px;border-radius:999px;opacity:.85;pointer-events:none';
   document.body.appendChild(b);
 });
+
+// ---- Yukarı çık düğmesi (uzun listeler için) ----
+document.addEventListener('DOMContentLoaded', function(){
+  var btn = document.createElement('button');
+  btn.type = 'button'; btn.setAttribute('aria-label','Yukarı çık'); btn.title = 'Yukarı çık';
+  btn.innerHTML = '&#8593;';
+  btn.style.cssText = 'position:fixed;right:16px;bottom:64px;z-index:99997;width:44px;height:44px;border-radius:50%;border:0;background:#0f766e;color:#fff;font:700 22px system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;padding:0';
+  document.body.appendChild(btn);
+  var target = null;
+  function top(el){ return el === document || el === document.documentElement || el === document.body ? (window.pageYOffset || document.documentElement.scrollTop || 0) : el.scrollTop; }
+  document.addEventListener('scroll', function(e){
+    var el = e.target;
+    if (top(el) > 400) { target = el; btn.style.display = 'flex'; }
+    else if (el === target) { target = null; btn.style.display = 'none'; }
+  }, true);
+  btn.addEventListener('click', function(){
+    var el = target;
+    if (!el || el === document || el === document.documentElement || el === document.body) window.scrollTo({top:0, behavior:'smooth'});
+    else el.scrollTo({top:0, behavior:'smooth'});
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
+});
+
+// ---- Excel için resim URL'si -> data URL (önbellekli, paralel) ----
+var __fsImgCache = {};
+window.fsDataUrl = async function(u){
+  if(typeof u !== 'string' || u.indexOf('data:') === 0) return u;
+  if(__fsImgCache[u] !== undefined) return __fsImgCache[u];
+  try{
+    const r = await realFetch(u);
+    if(!r.ok) throw new Error('http ' + r.status);
+    const b = await r.blob();
+    const d = await new Promise((res, rej)=>{ const fr = new FileReader(); fr.onload = ()=>res(fr.result); fr.onerror = rej; fr.readAsDataURL(b); });
+    __fsImgCache[u] = d; return d;
+  }catch(e){ __fsImgCache[u] = null; return null; }
+};
+window.fsPrefetchImages = async function(urls){
+  const uniq = Array.from(new Set(urls.filter(x=>typeof x === 'string' && x.indexOf('data:') !== 0)));
+  await mapLimit(uniq, 6, (u)=>window.fsDataUrl(u));
+};
 })();

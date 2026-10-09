@@ -1725,21 +1725,19 @@ async function deleteAllDepoItems(){
   await deleteWarehouseItems(barcodes);
 }
 function exportDepoCSV(){
-  if(session.role==='depocu') return;
   if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
-  const header = ['Barkod','Referans No','Renk','Beden','Detay Referans','Depo Girişi','Depo Çıkışı','Kalan Stok','Fiyat (USD)'];
+  const header = ['Barkod','Referans No','Renk','Beden','Detay Referans','Depo Girişi','Depo Çıkışı','Kalan Stok','Fiyat (USD)'].slice(0, session.role==='depocu' ? 8 : 9);
   const rows = [...state.warehouseItems]
     .sort((a,b)=> (a.refNo||'').localeCompare(b.refNo||'') || (a.colorName||'').localeCompare(b.colorName||''))
     .map(it=>{
       const price = priceForBarcode(it.barcode, it.refNo);
       return [it.barcode, it.refNo||'', it.colorName||'', it.sizeLabel||'', detailRefLabel(it.refNo, it.colorName, it.sizeLabel), it.totalIn||0, it.totalOut||0, it.stock||0, price!=null?('$'+formatMoney(price)):''];
     });
-  const csv = [header, ...rows].map(r=>r.map(csvField).join(',')).join('\n');
+  const _cut = session.role==='depocu'; const csv = [header, ...rows].map(r=>(_cut?r.slice(0,-1):r).map(csvField).join(',')).join('\n');
   downloadBlob('depo-stok-listesi.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
   showToast('Depo stok listesi indirildi');
 }
 async function exportDepoExcelWithImages(){
-  if(session.role==='depocu') return;
   if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
   if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edip tekrar deneyin'); return; }
   if(state.depoExcelExportRunning) return;
@@ -1765,6 +1763,7 @@ async function exportDepoExcelWithImages(){
     // step) and reuse the same imageId across every size row that shares it — most refs have
     // several sizes per color, so this avoids redundant work for what is, in practice, the same photo.
     const imageIdByKey = {};
+    if(window.fsPrefetchImages){ showToast('Resimler indiriliyor…', true); await window.fsPrefetchImages(items.map(it=>imageForRefColor(it.refNo, it.colorName)).filter(Boolean)); }
     let processedCount = 0;
     for(const it of items){
       processedCount++;
@@ -1774,7 +1773,8 @@ async function exportDepoExcelWithImages(){
       }
       const key = padRef(it.refNo)+'::'+String(it.colorName||'').toUpperCase();
       if(imageIdByKey[key] !== undefined) continue; // already registered for this ref+color
-      const dataUrl = imageForRefColor(it.refNo, it.colorName);
+      let dataUrl = imageForRefColor(it.refNo, it.colorName);
+      if(dataUrl && window.fsDataUrl) dataUrl = await window.fsDataUrl(dataUrl);
       if(!dataUrl) { imageIdByKey[key] = null; continue; }
       try{
         const extMatch = /^data:image\/(\w+);/.exec(dataUrl);
@@ -1799,6 +1799,7 @@ async function exportDepoExcelWithImages(){
         it.totalIn||0, it.totalOut||0, it.stock||0,
         price!=null ? Number(price.toFixed(2)) : ''];
     });
+    const _dc = session.role==='depocu'; if(_dc){ tableRows.forEach(r=>r.pop()); }
     ws.addTable({
       name: 'DepoStokTablosu',
       ref: 'A1',
@@ -1807,7 +1808,7 @@ async function exportDepoExcelWithImages(){
       style: {theme:'TableStyleMedium2', showRowStripes:true},
       columns: [
         {name:'Resim'}, {name:'Barkod'}, {name:'Referans No'}, {name:'Renk'}, {name:'Beden'},
-        {name:'Detay Referans'}, {name:'Depo Girişi'}, {name:'Depo Çıkışı'}, {name:'Kalan Stok'}, {name:'Fiyat (USD)'}
+        {name:'Detay Referans'}, {name:'Depo Girişi'}, {name:'Depo Çıkışı'}, {name:'Kalan Stok'}, ...(_dc ? [] : [{name:'Fiyat (USD)'}])
       ],
       rows: tableRows
     });
@@ -2342,6 +2343,16 @@ async function handleDepoRowImage(e, refNo, colorName, barcode){
     endCriticalWrite();
   }
 }
+async function deleteDepoRowImage(refNo, colorName){
+  if(!confirm('Bu resmi silmek istediğinize emin misiniz?')) return;
+  const product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
+  const variant = product && state.variants.find(v=>v.productId===product.id && normColor(v.colorName)===normColor(colorName));
+  if(!variant) return;
+  const old = variant.image; variant.image = null;
+  const ok = await saveKey('catalogVariant:'+variant.id, variant);
+  if(!ok){ variant.image = old; render(); return; }
+  state.modalMode = null; render(); showToast('Resim silindi');
+}
 function openDepoImageLightbox(refNo, colorName, barcode){
   state.depoImageLightbox = { refNo, colorName, barcode };
   state.modalMode = 'depoImageLightbox';
@@ -2384,7 +2395,7 @@ function openNewDepoItemModal(){
   state.newDepoItemError = null;
   state.newDepoItemImage = null;
   state.newDepoItemDraft = {
-    refNo:'', refName:'', colorName:'', unit:'Adet', gender:'', season:'',
+    refNo:'', refName:'', colorName:'', unit:'Çift', gender:'', season:'',
     sizeChecked:{}, sizeQty:{}
   };
   render();
@@ -2416,7 +2427,7 @@ async function submitNewDepoItem(){
   const refNo = (d.refNo||'').trim();
   const refName = (d.refName||'').trim();
   const colorName = (d.colorName||'').trim().toUpperCase();
-  const unit = d.unit || 'Adet';
+  const unit = d.unit || 'Çift';
   const gender = d.gender || '';
   const season = d.season || '';
   if(!/^[0-9]{1,6}$/.test(refNo)){ showToast('Referans No 1-6 haneli bir sayı olmalı'); return; }
@@ -3439,8 +3450,8 @@ function render(){
   else if(state.modalMode === 'depoMove') html += renderDepoMoveModal();
   else if(state.modalMode === 'depoBulk') html += renderDepoBulkModal();
   else if(state.modalMode === 'stockPriceUpdate' && !isDepocu) html += renderStockPriceUpdateModal();
-  else if(state.modalMode === 'bulkImage' && !isDepocu) html += renderBulkImageModal();
-  else if(state.modalMode === 'newDepoItem' && !isDepocu) html += renderNewDepoItemModal();
+  else if(state.modalMode === 'bulkImage') html += renderBulkImageModal();
+  else if(state.modalMode === 'newDepoItem') html += renderNewDepoItemModal();
   else if(state.modalMode === 'depoScan') html += renderScanModal();
   else if(state.modalMode === 'scanModePrompt') html += renderScanModePromptModal();
   else if(state.modalMode === 'pendingOrders') html += renderPendingOrdersModal();
@@ -3490,6 +3501,7 @@ function renderDepoImageLightbox(){
       <div class="modal-actions" style="justify-content:center;margin-top:16px">
         <button class="btn ghost" onclick="closeModal()">Kapat</button>
         <button class="btn primary" onclick="document.getElementById('${inputId}').click()">${img?'Resmi Değiştir':'Resim Yükle'}</button>
+        ${img ? `<button class="btn danger-outline" onclick="deleteDepoRowImage('${attrEsc(lb.refNo)}','${attrEsc(lb.colorName)}')">Resmi Sil</button>` : ''}
       </div>
     </div>
   </div>`;
@@ -3563,13 +3575,13 @@ function renderDepoView(){
     <button class="btn ${state.pendingPackingOrders.length>0?'primary':'ghost'} small" onclick="openPendingOrdersModal()">📦 Bekleyen Siparişler${state.pendingPackingOrders.length>0?' ('+state.pendingPackingOrders.length+')':''}</button>
     <button class="btn ${state.activeStockCount?'primary':'ghost'} small" onclick="openStockCountModal()">📋 Depo Sayımı${state.activeStockCount?' (Aktif)':''}</button>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
-    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openNewDepoItemModal()">+ Yeni Depo Kaydı</button>` : ''}
+    ${`<button class="btn ghost small" onclick="openNewDepoItemModal()">+ Yeni Depo Kaydı</button>`}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openDepoBulkModal()">Toplu Model Yükle (Excel)</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openStockPriceUpdateModal()">Toplu Stok/Fiyat Güncelle</button>` : ''}
     ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.repairingReservations?'disabled':''} onclick="repairReservations()" title="Rezerve miktarlarını, gerçekte onaylı siparişlerde ne olması gerektiğine göre yeniden hesaplar">${state.repairingReservations?'⏳ Onarılıyor…':'🔧 Rezerveleri Onar'}</button>` : ''}
-    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>` : ''}
-    ${session.role!=='depocu' ? `<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar — CSV (Hızlı)</button>` : ''}
-    ${session.role!=='depocu' ? `<button class="btn ghost small" ${state.depoExcelExportRunning?'disabled':''} onclick="exportDepoExcelWithImages()">${state.depoExcelExportRunning?'⏳ Hazırlanıyor…':'Dışa Aktar — Excel + Resim (Yavaş)'}</button>` : ''}
+    ${`<button class="btn ghost small" onclick="openBulkImageModal()">Toplu Görsel Yükle</button>`}
+    ${`<button class="btn ghost small" onclick="exportDepoCSV()">Dışa Aktar — CSV (Hızlı)</button>`}
+    ${`<button class="btn ghost small" ${state.depoExcelExportRunning?'disabled':''} onclick="exportDepoExcelWithImages()">${state.depoExcelExportRunning?'⏳ Hazırlanıyor…':'Dışa Aktar — Excel + Resim (Yavaş)'}</button>`}
     ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkAddSelectedToCatalog()">${state.depoBulkCatalogRunning?'⏳ Ekleniyor…':'Seçilenleri Kataloğa Ekle ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn ghost small" ${(selectedCount===0||state.depoBulkCatalogRunning)?'disabled':''} onclick="bulkRemoveSelectedFromCatalog()">${state.depoBulkCatalogRunning?'⏳ İşleniyor…':'Seçilenleri Kataloğdan Kaldır ('+selectedCount+')'}</button>` : ''}
     ${canManage ? `<button class="btn danger-outline small" ${(selectedCount===0||state.depoDeleteRunning)?'disabled':''} onclick="deleteSelectedDepoItems()">${state.depoDeleteRunning?'⏳ Siliniyor…':'Seçilenleri Sil ('+selectedCount+')'}</button>` : ''}
@@ -4040,7 +4052,7 @@ function renderBulkImageModal(){
 function renderNewDepoItemModal(){
   const s = state.newDepoItemSuccess;
   const saving = state.newDepoItemSaving;
-  const d = state.newDepoItemDraft || {refNo:'', refName:'', colorName:'', unit:'Adet', gender:'', season:'', sizeChecked:{}, sizeQty:{}};
+  const d = state.newDepoItemDraft || {refNo:'', refName:'', colorName:'', unit:'Çift', gender:'', season:'', sizeChecked:{}, sizeQty:{}};
   if(s){
     const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0;
     return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeNewDepoItemSuccess()">

@@ -467,6 +467,7 @@ async function saveKey(key, value){
       body: JSON.stringify({key, value, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})
     });
     const data = await res.json();
+    if(data && data.error==='approval_required'){ showToast(data.message||'Silme işlemi yönetici onayına gönderildi.'); if(value===null){ try{ await init(); }catch(e){} } return false; }
     if(!data || !data.ok){ showToast('Kaydetme hatası — tekrar deneyin'); return false; }
     return true;
   }catch(e){
@@ -1106,7 +1107,7 @@ async function bulkDeleteCustomers(ids){
       showToast('Silme işlemi başarısız oldu — yetkinizi kontrol edin');
     }
   }catch(e){
-    showToast('Sunucuya bağlanılamadı');
+    showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':''));
   }
 }
 async function deleteSelectedCustomers(){
@@ -1262,7 +1263,7 @@ async function submitAddUser(){
     } else {
       showToast((data && data.message) ? data.message : 'Kullanıcı eklenemedi');
     }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 async function deleteUserConfirm(userId, username){
   if(!confirm('"' + username + '" kullanıcısını silmek istediğinize emin misiniz?')) return;
@@ -1274,7 +1275,7 @@ async function deleteUserConfirm(userId, username){
     const data = await res.json();
     if(data && data.ok){ showToast('Kullanıcı silindi'); openUsersModal(); }
     else { showToast(data && data.error==='cannot_delete_last_user' ? 'Son kullanıcı silinemez' : 'Silinemedi'); }
-  }catch(e){ showToast('Sunucuya bağlanılamadı'); }
+  }catch(e){ showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':'')); }
 }
 function renderUsersModal(){
   return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
