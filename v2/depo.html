@@ -3434,7 +3434,7 @@ function render(){
     <div style="display:flex;align-items:center;gap:12px">
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
-        ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a>' : ''}
+        ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openUsersModal();return false;">Kullanıcılar</a><a class="nav-link" href="#" onclick="yedekAl();return false;" title="Tüm verileri Excel olarak indir">💾 Yedek</a>' : ''}
         ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openSheetHealthModal();return false;">Sistem Sağlığı</a>' : ''}
         ${session.role==='admin' ? '<a class="nav-link" href="#" onclick="openMaintenanceModal();return false;">Bakım Modu</a>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
@@ -4836,6 +4836,78 @@ async function katalogExcel(){
     n++; if(n>240){ clearInterval(t); return; }
     try{ if(typeof state!=='undefined' && state.loaded && typeof session!=='undefined' && session && !state.modalMode){ clearInterval(t); history.replaceState(null,'',location.pathname); openKatalogModal(); } }catch(e){}
   },500);
+})();
+
+// ================= EXCEL YEDEĞİ (yalnızca yönetici) =================
+const YEDEK_SHEETS = {
+  customers:'Müşteriler', contacts:'İletişim Notları', payments:'Ödemeler', orders:'Siparişler', order_lines:'Sipariş Satırları',
+  skus:'Depo (SKU)', sku_prices:'Fiyatlar', stock_movements:'Stok Hareketleri', profiles:'Kullanıcılar', settings:'Ayarlar',
+  deletion_requests:'Silme Talepleri', audit_log:'İşlem Günlüğü', catalog_products:'Katalog Modeller', catalog_variants:'Katalog Renkler', catalog_skus:'Katalog Bedenler'
+};
+function yedekLast(){ try{ return localStorage.getItem('fs_last_backup'); }catch(e){ return null; } }
+function yedekCell(v){
+  if(v===null || v===undefined) return '';
+  if(typeof v==='object') v = JSON.stringify(v);
+  if(typeof v==='string' && v.length>32000) return '(çok uzun — yedeğe alınmadı)';
+  return v;
+}
+function yedekFlatten(table, rows){
+  if(table.indexOf('catalog_')!==0) return rows;
+  return rows.map(r=>{ const o = Object.assign({}, r); const d = o.doc; delete o.doc; if(d && typeof d==='object'){ Object.keys(d).forEach(k=>{ if(!(k in o)) o[k]=d[k]; else o['doc_'+k]=d[k]; }); } return o; });
+}
+async function yedekAl(){
+  if(session.role!=='admin'){ showToast('Yedek almak için yönetici girişi gerekir'); return; }
+  if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
+  if(state.yedekRunning) return; state.yedekRunning = true;
+  try{
+    showToast('Yedek hazırlanıyor…', true);
+    const call = async (body)=>{ const r = await fetch(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(body)}); return await r.json(); };
+    const meta = await call({action:'Backup'});
+    if(!meta || !meta.ok) throw new Error('Yetki yok veya sunucu yanıt vermedi');
+    const wb = new ExcelJS.Workbook(); let totalRows = 0;
+    for(const t of meta.tables){
+      let rows = [], off = 0, total = 1;
+      while(off < total){
+        showToast('Yedek hazırlanıyor… ' + (YEDEK_SHEETS[t]||t) + (total>1 ? ' ('+Math.min(off,total)+'/'+total+')' : ''), true);
+        const d = await call({action:'Backup', table:t, offset:off, limit:2000});
+        if(!d || !d.ok) throw new Error((YEDEK_SHEETS[t]||t) + ' okunamadı');
+        total = d.total; rows = rows.concat(d.rows||[]); off += 2000;
+        if(!(d.rows||[]).length) break;
+      }
+      rows = yedekFlatten(t, rows);
+      const cols = []; const seen = {};
+      rows.forEach(r=>Object.keys(r).forEach(k=>{ if(!seen[k]){ seen[k]=1; cols.push(k); } }));
+      const ws = wb.addWorksheet(YEDEK_SHEETS[t]||t);
+      ws.addRow(cols); ws.getRow(1).font = {bold:true};
+      rows.forEach(r=>ws.addRow(cols.map(k=>yedekCell(r[k]))));
+      ws.views = [{state:'frozen', ySplit:1}];
+      totalRows += rows.length;
+      await new Promise(r=>setTimeout(r,0));
+    }
+    const info = wb.addWorksheet('Bilgi', {state:'visible'});
+    info.addRow(['FreeSure yedeği']); info.addRow(['Tarih', new Date().toLocaleString('tr-TR')]); info.addRow(['Alan', session.displayName||'']); info.addRow(['Toplam satır', totalRows]);
+    info.addRow(['Not', 'Ürün görselleri Excel yedeğine dahil değildir (Supabase Storage\'da durur). Katalog tablolarında görsel adresi bulunur.']);
+    const buf = await wb.xlsx.writeBuffer();
+    const d = new Date(); const pad = n=>String(n).padStart(2,'0');
+    downloadBlob('freesure-yedek-'+d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buf);
+    try{ localStorage.setItem('fs_last_backup', String(Date.now())); }catch(e){}
+    showToast('Yedek indirildi — ' + totalRows + ' satır. Dosyayı güvenli bir yerde saklayın.');
+  }catch(e){ console.error(e); showToast('Yedek alınamadı: ' + (e && e.message || e)); }
+  state.yedekRunning = false;
+}
+// Yönetici için haftalık hatırlatma (oturum başına bir kez)
+(function(){
+  let n = 0; const t = setInterval(function(){
+    n++; if(n>120){ clearInterval(t); return; }
+    try{
+      if(typeof state!=='undefined' && state.loaded && typeof session!=='undefined' && session){
+        clearInterval(t);
+        if(session.role!=='admin') return;
+        const last = Number(yedekLast()||0), days = last ? Math.floor((Date.now()-last)/86400000) : null;
+        if(days===null || days>=7) setTimeout(function(){ showToast(days===null ? '💾 Henüz yedek alınmadı — sağ üstten "💾 Yedek"e basın.' : '💾 Son yedek '+days+' gün önce — sağ üstten "💾 Yedek"e basın.'); }, 2500);
+      }
+    }catch(e){}
+  }, 500);
 })();
 
 </script>
