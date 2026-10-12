@@ -5296,7 +5296,7 @@ async function fiSil(id){ if(!confirm('Bu indirim tanımı silinsin mi?')) retur
 })();
 
 // ================= KANAL EŞİTLEME (freesureshop) — önizleme + onaylı uygulama =================
-var __es=null;
+var __es=null, __esSel=[];
 function esClose(){ var e=document.getElementById('es-ov'); if(e) e.remove(); }
 function esOpen(){
   if(session.role!=='admin'){ showToast('Yalnızca yönetici'); return; }
@@ -5309,12 +5309,14 @@ function esOpen(){
    +'<label><input type="checkbox" id="es-stok" checked> Stok (depo − rezerve)</label>'
    +'<label><input type="checkbox" id="es-fiyat"> Fiyat + indirim</label>'
    +'<label><input type="checkbox" id="es-metin"> Başlık + açıklama + SEO</label>'
+   +'<label><input type="checkbox" id="es-beden"> Beden tablosu görseli (eskiyi sil, yenisini ekle)</label>'
    +'<label><input type="checkbox" id="es-ac"> Stoklu kapalı ürünleri satışa aç</label>'
    +'<label style="font-size:12px">Yalnızca model(ler):&nbsp;<input id="es-refs" placeholder="boş = hepsi" style="width:170px"></label>'
    +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div></div>';
   document.body.appendChild(ov);
 }
-function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked,metin:document.getElementById('es-metin').checked},refs:refs}; }
+function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked,metin:document.getElementById('es-metin').checked,beden:document.getElementById('es-beden').checked},refs:refs,eskiMedya:__esSel.slice()}; }
+function esSel(k,on){ var i=__esSel.indexOf(k); if(on&&i<0) __esSel.push(k); if(!on&&i>=0) __esSel.splice(i,1); }
 async function esCall(body){
   var r=await window.fsSupabase.functions.invoke('kanal-esitle',{body:body}), d=r.data;
   if(r.error&&!d){ var m=r.error.message||'hata'; try{var b=await r.error.context.json(); if(b&&b.error) m=b.error;}catch(e){} throw new Error(m); }
@@ -5323,9 +5325,9 @@ async function esCall(body){
 }
 async function esRun(){
   var o=esOpts(), out=document.getElementById('es-out'), b=document.getElementById('es-prev');
-  if(!o.parts.stok&&!o.parts.fiyat&&!o.parts.ac&&!o.parts.metin){ showToast('En az bir seçenek işaretleyin'); return; }
+  if(!o.parts.stok&&!o.parts.fiyat&&!o.parts.ac&&!o.parts.metin&&!o.parts.beden){ showToast('En az bir seçenek işaretleyin'); return; }
   b.disabled=true; out.innerHTML='<p>⏳ Wix ürünleri okunuyor ve depoyla karşılaştırılıyor… (yarım dakika sürebilir)</p>';
-  try{ var d=await esCall({mode:'preview',parts:o.parts,refs:o.refs}); __es={d:d,o:o}; esRender(); }
+  try{ var d=await esCall({mode:'preview',parts:o.parts,refs:o.refs,eskiMedya:o.eskiMedya}); __es={d:d,o:o}; esRender(); }
   catch(e){ out.innerHTML='<p style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</p>'; }
   b.disabled=false;
 }
@@ -5335,12 +5337,18 @@ function esCh(c){
   if(c.fiyat) t.push('Fiyat: '+(c.fiyat.eski==null?'—':fyTL(c.fiyat.eski))+' → <b>'+fyTL(c.fiyat.yeni)+'</b>');
   if(c.indirim) t.push('İndirim: '+(c.indirim.yeni?('<span style="color:#B5402F">'+fyTL(c.indirim.yeni)+'</span>'):'kaldırılır'));
   if(c.metin) t.push('<details><summary><b>Başlık/açıklama/SEO değişir</b></summary><div style="font-size:12px;color:#555;margin-top:4px"><b>Eski ad:</b> '+kanalEsc(c.metin.adEski)+'<br><b>Yeni ad:</b> '+kanalEsc(c.metin.adYeni)+'<br><b>Eski açıklama:</b> '+kanalEsc(c.metin.aciklamaEski||'(boş)')+'…<br><b>Yeni açıklama:</b> '+kanalEsc(c.metin.aciklamaYeni)+'…<br><b>SEO başlığı:</b> '+kanalEsc(c.metin.seoBaslik)+'<br><b>Meta:</b> '+kanalEsc(c.metin.meta)+'</div></details>');
+  if(c.beden) t.push('Beden tablosu: '+(c.beden.sil?('eski görsel silinir ('+c.beden.sil+') · '):'')+(c.beden.ekle?'yenisi eklenir':'yeni zaten var'));
   if(c.ac) t.push('<b>Satışa açılır</b>');
   return t.join('<br>');
 }
 function esRender(){
   var d=__es.d, s=d.sayilar, out=document.getElementById('es-out');
-  var h='<div style="background:#F5F7F4;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:10px">Site: <b>'+kanalEsc(d.site)+'</b> · Wix ürünü: <b>'+d.wixUrun+'</b> · Depoyla eşleşen: <b>'+d.eslesenUrun+'</b> · <b>Değişecek ürün: '+d.degisecekUrun+'</b><br>Stok güncellenecek varyant: '+s.stokDegisen+' · Sıfırlanacak eski SKU: '+s.eslesmeyenVaryant+' · Fiyat değişen: '+s.fiyatDegisen+' · İndirim değişen: '+s.indirimDegisen+' · Açılacak: '+s.acilacak+' · Metni değişen: '+(s.metinDegisen||0)+((s.metinYok)?' · Metni bulunamayan: '+s.metinYok:'')+(d.kur?' · Baz kur: '+fyTL(d.kur):'')+'</div>';
+  var h='<div style="background:#F5F7F4;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:10px">Site: <b>'+kanalEsc(d.site)+'</b> · Wix ürünü: <b>'+d.wixUrun+'</b> · Depoyla eşleşen: <b>'+d.eslesenUrun+'</b> · <b>Değişecek ürün: '+d.degisecekUrun+'</b><br>Stok güncellenecek varyant: '+s.stokDegisen+' · Sıfırlanacak eski SKU: '+s.eslesmeyenVaryant+' · Fiyat değişen: '+s.fiyatDegisen+' · İndirim değişen: '+s.indirimDegisen+' · Açılacak: '+s.acilacak+' · Beden tablosu değişen: '+(s.bedenDegisen||0)+' · Metni değişen: '+(s.metinDegisen||0)+((s.metinYok)?' · Metni bulunamayan: '+s.metinYok:'')+(d.kur?' · Baz kur: '+fyTL(d.kur):'')+'</div>';
+  if(d.medyaAdaylari&&d.medyaAdaylari.length){
+    h+='<div style="border:1px solid #e4e4e4;border-radius:8px;padding:10px;margin-bottom:10px"><b>Birçok üründe ortak görseller</b> <span style="font-size:12px;color:#777">— ESKİ beden tablosunu işaretleyin, sonra “Önizlemeyi yenile”ye basın. Siteye eklediğiniz asıl ürün fotoğrafları burada çıkmaz.</span><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">';
+    d.medyaAdaylari.forEach(function(m){ var on=__esSel.indexOf(m.key)>=0; h+='<label style="width:120px;font-size:11px;text-align:center"><img src="'+kanalEsc(m.url)+'" style="width:110px;height:110px;object-fit:contain;border:1px solid #ddd;background:#fafafa"><br><input type="checkbox" '+(on?'checked ':'')+'onchange="esSel(\''+kanalEsc(m.key).replace(/\'/g,'')+'\',this.checked)"> '+m.count+' üründe<br>'+(m.w?m.w+'×'+m.h:'')+'</label>'; });
+    h+='</div><div style="margin-top:8px"><button class="btn ghost small" onclick="esRun()">Önizlemeyi yenile (seçimle)</button></div></div>';
+  }
   if(!d.degisecekUrun){ out.innerHTML=h+'<p style="color:#2f6b4f">✓ Değişecek bir şey yok.</p>'; return; }
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><button class="btn primary small" onclick="esApply(1)">Test: ilk 1 ürünü uygula</button><button class="btn ghost small" onclick="esApply(10)">İlk 10 ürünü uygula</button><button class="btn ghost small" onclick="esApply(40)">40 ürünü uygula</button><button class="btn ghost small" onclick="esApplyAll()">▶ Hepsini sırayla uygula ('+d.degisecekUrun+' ürün)</button></div><div style="font-size:12px;color:#777;margin-bottom:6px">Uygulama listenin başından sırayla yapılır; her uygulamadan sonra önizleme yenilenir, kalan ürünler görünür.</div>';
   h+='<div style="max-height:420px;overflow:auto;border:1px solid #e4e4e4;border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">#</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Model</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Ürün</th><th style="text-align:left;padding:6px 8px;background:#f5f5f2;position:sticky;top:0">Yapılacak</th></tr></thead><tbody>';
@@ -5353,7 +5361,7 @@ async function esApply(n){
   if(!confirm('Wix’e YAZILACAK ürün sayısı: '+Math.min(n,d.plan.length)+'\n\n'+first.slice(0,6).join('\n')+(first.length>6?'\n…':'')+'\n\nOnaylıyor musunuz?')) return;
   var out=document.getElementById('es-out'); out.innerHTML='<p>⏳ Wix’e yazılıyor…</p>';
   try{
-    var r=await esCall({mode:'apply',parts:__es.o.parts,refs:__es.o.refs,max:n});
+    var r=await esCall({mode:'apply',parts:__es.o.parts,refs:__es.o.refs,eskiMedya:__es.o.eskiMedya,max:n});
     var h='<div style="background:#E8F3EE;border-radius:8px;padding:10px 12px;margin-bottom:10px"><b>'+r.basarili+'/'+r.uygulanan+' ürün güncellendi.</b> Sırada kalan: '+r.kalan+'</div>';
     h+=r.sonuc.map(function(x){return '<div style="font-size:13px;padding:3px 0;color:'+(x.ok?'#2f6b4f':'#B5402F')+'">'+(x.ok?'✓ ':'✗ ')+kanalEsc(x.ref)+' – '+kanalEsc(x.name)+' <span style="color:#777">'+(x.ok?kanalEsc(x.adim.join(', ')):kanalEsc(x.hata))+'</span></div>';}).join('');
     h+='<div style="margin-top:12px"><button class="btn primary small" onclick="esRun()">Önizlemeyi yenile</button></div>';
@@ -5368,7 +5376,7 @@ async function esApplyAll(){
   try{
     for(var i=0;i<60&&kalan>0;i++){
       out.innerHTML='<p>⏳ Uygulanıyor… '+ok+' ürün tamam, kalan '+kalan+'</p>';
-      var r=await esCall({mode:'apply',parts:__es.o.parts,refs:__es.o.refs,max:25});
+      var r=await esCall({mode:'apply',parts:__es.o.parts,refs:__es.o.refs,eskiMedya:__es.o.eskiMedya,max:25});
       tot+=r.uygulanan; ok+=r.basarili; kalan=r.kalan;
       r.sonuc.forEach(function(x){ if(!x.ok) fails.push(x); });
       if(fails.length||r.basarili===0) break;
