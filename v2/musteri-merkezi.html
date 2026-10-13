@@ -2232,7 +2232,7 @@ async function exportCustomersXLSX(){
 <script>
 /* Yeni (onaylı / Wix) sipariş uyarısı — Siparişler ve Müşteri Merkezi sayfaları */
 (function(){
-  var KEY='fs_seen_orders_v1', ctx=null, pending=[], titleBase=document.title;
+  var KEY='fs_seen_orders_v2_'+(/musteri/.test(location.pathname)?'mm':'sip'), ctx=null, pending=[], titleBase=document.title;
   function load(){ try{ var v=localStorage.getItem(KEY); return v?JSON.parse(v):null; }catch(e){ return null; } }
   function save(a){ try{ localStorage.setItem(KEY, JSON.stringify(a.slice(-3000))); }catch(e){} }
   function sound(){
