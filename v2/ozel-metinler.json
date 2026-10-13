@@ -1,5 +1,7 @@
 [
  {
+  "ref": "900005",
+  "renkSira": 1,
   "wix_id": "baa5a12f-ede1-40b8-f1ce-95a4b158afab",
   "eski": "Freesure İsme Özel PU Deri Mavi Bebek Patik MD5",
   "model": "MD5",
@@ -12,6 +14,8 @@
   "not_": ""
  },
  {
+  "ref": "900005",
+  "renkSira": 2,
   "wix_id": "26100c28-b5b1-da4b-d22f-997f3b2750b7",
   "eski": "Freesure İsme Özel PU Deri Gümüş Bebek Patik MD5",
   "model": "MD5",
@@ -24,6 +28,8 @@
   "not_": ""
  },
  {
+  "ref": "900005",
+  "renkSira": 3,
   "wix_id": "ce223833-a0f1-37be-8156-3b2a0d0ec333",
   "eski": "Freesure İsme Özel PU Deri Laci Bebek Patik MD5",
   "model": "MD5",
@@ -36,6 +42,8 @@
   "not_": ""
  },
  {
+  "ref": "900004",
+  "renkSira": 1,
   "wix_id": "3be71870-05bf-67fe-1e78-617c442d6d33",
   "eski": "Freesure İsme Özel PU Deri Mavi Bebek Patik MD4",
   "model": "MD4",
@@ -48,6 +56,8 @@
   "not_": ""
  },
  {
+  "ref": "900004",
+  "renkSira": 2,
   "wix_id": "44e8d8ae-5b37-aadb-3e70-c63b38d6e865",
   "eski": "Freesure İsme Özel PU Deri Lacivert Bebek Patik MD4",
   "model": "MD4",
@@ -60,6 +70,8 @@
   "not_": ""
  },
  {
+  "ref": "900004",
+  "renkSira": 3,
   "wix_id": "c102000a-db0f-2430-c42c-6bb7b0e7337e",
   "eski": "Freesure İsme Özel PU Deri Gümüş Bebek Patik MD4",
   "model": "MD4",
@@ -72,6 +84,8 @@
   "not_": ""
  },
  {
+  "ref": "900006",
+  "renkSira": 1,
   "wix_id": "e006775e-0621-192b-6d44-a4df91683518",
   "eski": "Freesure İsme Özel PU Deri Gri Bebek Patik MD6",
   "model": "MD6",
@@ -84,6 +98,8 @@
   "not_": ""
  },
  {
+  "ref": "900006",
+  "renkSira": 2,
   "wix_id": "3f440383-acb7-af4e-4bc9-8f96e16b8354",
   "eski": "Freesure İsme Özel PU Deri Lacivert Bebek Patik MD6",
   "model": "MD6",
@@ -96,6 +112,8 @@
   "not_": ""
  },
  {
+  "ref": "900006",
+  "renkSira": 3,
   "wix_id": "dde6dd2e-9650-aaf4-8ac7-202ae88b04c1",
   "eski": "Freesure İsme Özel PU Deri Mavi Bebek Patik MD6",
   "model": "MD6",
@@ -108,6 +126,8 @@
   "not_": ""
  },
  {
+  "ref": "900002",
+  "renkSira": 1,
   "wix_id": "4beeb2a7-bbdf-1a67-26c6-512cb9ed477e",
   "eski": "Freesure İsme Özel Beyaz Taşlı Kız Bebek Patik MD2",
   "model": "MD2",
@@ -120,6 +140,8 @@
   "not_": ""
  },
  {
+  "ref": "900001",
+  "renkSira": 1,
   "wix_id": "71479ca7-1a8f-e32d-1bd5-32eebb8b4bd0",
   "eski": "Freesure İsme Özel Ecru PU Deri Kız Bebek Patik MD1",
   "model": "MD1",
@@ -132,6 +154,8 @@
   "not_": ""
  },
  {
+  "ref": "900001",
+  "renkSira": 2,
   "wix_id": "63fadce9-07c5-12b1-bd3d-cecb5f0e9649",
   "eski": "Freesure İsme Özel Beyaz PU Deri Kız Bebek Patik MD1",
   "model": "MD1",
@@ -144,6 +168,8 @@
   "not_": "Ürün adı \"Beyaz\" iken renk seçeneği Pembe: yeni ad Pembe'ye göre"
  },
  {
+  "ref": "900001",
+  "renkSira": 3,
   "wix_id": "f6688f3d-38f2-b9e1-998d-d4d5aee69e02",
   "eski": "Freesure İsme Özel Beyaz PU Deri Kız Bebek Patik MD1",
   "model": "MD1",
