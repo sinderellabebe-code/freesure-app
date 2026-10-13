@@ -4665,5 +4665,70 @@ function renderScanModal(){
 
 boot();
 </script>
+<script>
+/* Yeni (onaylı / Wix) sipariş uyarısı — Siparişler ve Müşteri Merkezi sayfaları */
+(function(){
+  var KEY='fs_seen_orders_v1', ctx=null, pending=[], titleBase=document.title;
+  function load(){ try{ var v=localStorage.getItem(KEY); return v?JSON.parse(v):null; }catch(e){ return null; } }
+  function save(a){ try{ localStorage.setItem(KEY, JSON.stringify(a.slice(-3000))); }catch(e){} }
+  function sound(){
+    try{
+      if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)();
+      if(ctx.state==='suspended') ctx.resume();
+      var now=ctx.currentTime;
+      [660,330,660].forEach(function(f,i){
+        var o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=f;
+        var t=now+i*0.18; g.gain.setValueAtTime(0.001,t); g.gain.exponentialRampToValueAtTime(0.6,t+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+0.17);
+        o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.18);
+      });
+    }catch(e){}
+  }
+  // Tarayıcı ses iznini ilk tıklamada açar
+  document.addEventListener('click', function(){ try{ if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)(); if(ctx.state==='suspended') ctx.resume(); }catch(e){} }, {once:true});
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function close(){ var el=document.getElementById('fs-yeni-siparis'); if(el) el.remove(); pending=[]; document.title=titleBase; }
+  window.fsYeniSiparisKapat=close;
+  window.fsYeniSiparisGor=function(){
+    close();
+    try{
+      if(typeof state!=='undefined' && 'orderListFilter' in state){ state.view='orders'; state.orderListFilter='approved'; if(typeof render==='function') render(); }
+      else if(/musteri-merkezi/.test(location.pathname)===false){ /* diğer sayfa */ }
+      else { location.href='siparis.html'; }
+    }catch(e){}
+  };
+  function show(){
+    var el=document.getElementById('fs-yeni-siparis');
+    if(!el){ el=document.createElement('div'); el.id='fs-yeni-siparis'; document.body.appendChild(el); }
+    el.style.cssText='position:fixed;top:16px;right:16px;z-index:9999;max-width:340px;background:#fff;border:2px solid #b45309;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:14px 16px;font:14px/1.4 system-ui,sans-serif;color:#222';
+    var n=pending.length;
+    el.innerHTML='<div style="display:flex;justify-content:space-between;gap:10px"><b>🔔 '+(n>1?n+' yeni sipariş':'Yeni sipariş')+' onaylandı</b>'
+      +'<button onclick="fsYeniSiparisKapat()" style="background:none;border:0;font-size:16px;cursor:pointer;line-height:1">✕</button></div>'
+      +'<div style="margin:6px 0 10px;color:#555;font-size:13px">'+pending.slice(0,5).map(function(p){return esc(p)}).join('<br>')+(n>5?'<br>…':'')+'</div>'
+      +'<button onclick="fsYeniSiparisGor()" style="width:100%;padding:8px;border:0;border-radius:6px;background:#b45309;color:#fff;font-weight:600;cursor:pointer">Siparişleri gör</button>';
+    document.title='('+n+') Yeni sipariş — '+titleBase;
+  }
+  function check(){
+    try{
+      if(typeof state==='undefined' || !state.loaded || !Array.isArray(state.orders)) return;
+      var seen=load(), appr=state.orders.filter(function(o){return o && o.status==='approved' && o.id;});
+      if(seen===null){ save(appr.map(function(o){return o.id;})); return; } // ilk açılış: eskiler için uyarma
+      var set={}; seen.forEach(function(i){set[i]=1;});
+      var yeni=appr.filter(function(o){return !set[o.id];});
+      if(!yeni.length) return;
+      save(seen.concat(yeni.map(function(o){return o.id;})));
+      var me=(typeof session!=='undefined'&&session)?session.displayName:'';
+      var uyar=yeni.filter(function(o){ return (o.extra&&o.extra.kanal) || o.createdBy!==me; });
+      if(!uyar.length) return;
+      uyar.forEach(function(o){
+        var k=(o.extra&&o.extra.kanal)?' · '+(o.extra.kanal==='wix'?'Wix':o.extra.kanal):'';
+        pending.push((o.orderNo||o.no||'Sipariş')+k);
+      });
+      show(); sound();
+    }catch(e){}
+  }
+  if(typeof render==='function'){ var _r=render; render=function(){ var r=_r.apply(this,arguments); check(); return r; }; }
+})();
+
+</script>
 </body>
 </html>
