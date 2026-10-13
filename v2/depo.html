@@ -5313,7 +5313,7 @@ function esOpen(){
    +'<label><input type="checkbox" id="es-ac"> Stoklu kapalı ürünleri satışa aç</label>'
    +'<label style="font-size:12px">Yalnızca model(ler):&nbsp;<input id="es-refs" placeholder="boş = hepsi" style="width:170px"></label>'
    +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div>'
-   +'<div id="es-oto" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">⚙️ Otomasyon: Wix siparişleri + stok</h3><div id="es-oto-body" style="font-size:13px">Yükleniyor…</div></div></div>';
+   +'<div id="es-ozel" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">✍️ İsme özel ürün metinleri (MD modelleri)</h3><div style="font-size:13px;margin-bottom:6px">Ad + açıklama + SEO, Wix ürün numarasına göre yazılır. Önce önizleyin.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzel(\'ozel-onizle\')">Önizle (yazmaz)</button><button class="btn primary small" onclick="esOzel(\'ozel-uygula\')">Uygula (tüm MD ürünleri)</button></div><div id="es-ozel-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-oto" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">⚙️ Otomasyon: Wix siparişleri + stok</h3><div id="es-oto-body" style="font-size:13px">Yükleniyor…</div></div></div>';
   document.body.appendChild(ov); esAyarYukle();
 }
 function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked,metin:document.getElementById('es-metin').checked,beden:document.getElementById('es-beden').checked},refs:refs,eskiMedya:__esSel.slice()}; }
@@ -5429,6 +5429,17 @@ async function esSiparis(mode){
     if(s.ornek&&s.ornek.length) h+='<div style="font-size:12px;margin-top:6px">'+s.ornek.map(function(x){return '• #'+kanalEsc(x.no||'')+' '+kanalEsc(JSON.stringify(x).slice(0,200));}).join('<br>')+'</div>';
     if(s.hatalar&&s.hatalar.length) h+='<div style="color:#B5402F;font-size:12px;margin-top:6px">'+s.hatalar.map(kanalEsc).join('<br>')+'</div>';
     o.innerHTML=h; if(!s.dry) esAyarYukle();
+  }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
+}
+
+async function esOzel(mode){
+  if(mode==='ozel-uygula' && !confirm('İsme özel (MD) ürünlerinin adı, açıklaması ve SEO bilgileri Wix’te değiştirilecek.\n\nÖnce önizlemeyi kontrol ettiniz mi? Devam edilsin mi?')) return;
+  var o=document.getElementById('es-ozel-out'); o.innerHTML='⏳ Çalışıyor…';
+  try{
+    var d=await esCall({mode:mode}), u=d.urunler||[];
+    var h='<div style="background:#F5F7F4;border-radius:8px;padding:8px 10px">'+(mode==='ozel-uygula'?'Uygulanan: <b>'+u.filter(function(x){return x.ok;}).length+'</b> / '+u.length+' ürün':'Önizleme: <b>'+u.length+'</b> ürün, değişecek: <b>'+u.filter(function(x){return x.degisen;}).length+'</b>')+'</div>';
+    h+=u.map(function(x){ return '<div style="border-bottom:1px solid #eee;padding:4px 0">'+(x.hata?'<span style="color:#B5402F">✗ '+kanalEsc(x.model+' '+x.renk+': '+x.hata)+'</span>':(x.ok?'✓ ':'')+'<b>'+kanalEsc(x.model+' '+x.renk)+'</b><br><span style="color:#777">'+kanalEsc(x.adEski||'')+'</span><br>→ '+kanalEsc(x.adYeni||'')+'<br><span style="color:#777">SEO: '+kanalEsc(x.seo||'')+'</span>')+'</div>'; }).join('');
+    o.innerHTML=h;
   }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
 }
 
