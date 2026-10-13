@@ -5312,8 +5312,9 @@ function esOpen(){
    +'<label><input type="checkbox" id="es-beden"> Beden tablosu görseli (eskiyi sil, yenisini ekle)</label>'
    +'<label><input type="checkbox" id="es-ac"> Stoklu kapalı ürünleri satışa aç</label>'
    +'<label style="font-size:12px">Yalnızca model(ler):&nbsp;<input id="es-refs" placeholder="boş = hepsi" style="width:170px"></label>'
-   +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div></div>';
-  document.body.appendChild(ov);
+   +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div>'
+   +'<div id="es-oto" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">⚙️ Otomasyon: Wix siparişleri + stok</h3><div id="es-oto-body" style="font-size:13px">Yükleniyor…</div></div></div>';
+  document.body.appendChild(ov); esAyarYukle();
 }
 function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked,metin:document.getElementById('es-metin').checked,beden:document.getElementById('es-beden').checked},refs:refs,eskiMedya:__esSel.slice()}; }
 function esSel(k,on){ var i=__esSel.indexOf(k); if(on&&i<0) __esSel.push(k); if(!on&&i>=0) __esSel.splice(i,1); }
@@ -5391,6 +5392,44 @@ async function esApplyAll(){
   h+=fails.map(function(x){return '<div style="font-size:13px;color:#B5402F">✗ '+kanalEsc(x.ref)+' – '+kanalEsc(x.name)+' '+kanalEsc(x.hata||'')+'</div>';}).join('');
   h+='<div style="margin-top:12px"><button class="btn primary small" onclick="esRun()">Önizlemeyi yenile</button></div>';
   out.innerHTML=h;
+}
+
+// ---- Otomasyon paneli: Wix siparişleri + güvenlik payı ----
+async function esAyarYukle(){
+  var b=document.getElementById('es-oto-body'); if(!b) return;
+  try{ var d=await esCall({mode:'ayar-oku'}); esAyarCiz(d); }
+  catch(e){ b.innerHTML='<span style="color:#B5402F">Ayarlar okunamadı: '+kanalEsc(e.message)+' (SQL 015 çalıştırıldı mı?)</span>'; }
+}
+function esAyarCiz(d){
+  var a=d.ayar, b=document.getElementById('es-oto-body'); if(!b) return;
+  var h='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:8px">'
+   +'<label>Güvenlik payı (çift): <input id="es-guv" type="number" min="0" value="'+a.guvenlik+'" style="width:60px"></label>'
+   +'<button class="btn ghost small" onclick="esAyarKaydet({guvenlik:+document.getElementById(\'es-guv\').value})">Kaydet</button>'
+   +'<span>Sipariş otomasyonu: <b style="color:'+(a.siparis_aktif?'#2f6b4f':'#B5402F')+'">'+(a.siparis_aktif?'AÇIK':'KAPALI')+'</b>'+(a.siparis_baslangic?' · başlangıç: '+kanalEsc(new Date(a.siparis_baslangic).toLocaleString('tr-TR')):'')+'</span></div>'
+   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'
+   +'<button class="btn ghost small" onclick="esSiparis(\'siparis-onizle\')">Wix siparişlerini önizle (yazmaz)</button>'
+   +(a.siparis_aktif?'<button class="btn ghost small" onclick="esSiparis(\'siparis-al\')">Siparişleri şimdi al</button><button class="btn ghost small" onclick="esAyarKaydet({siparis_aktif:false})">Otomasyonu durdur</button>'
+     :'<button class="btn primary small" onclick="esOtoBaslat()">Otomasyonu başlat (bundan sonraki siparişler)</button>')
+   +'</div><div id="es-sip-out"></div>';
+  if(d.son&&d.son.length){ h+='<div style="font-size:12px;color:#555;margin-top:6px"><b>Son alınan siparişler</b><br>'+d.son.map(function(x){return kanalEsc(new Date(x.created_at).toLocaleString('tr-TR'))+' · Wix #'+kanalEsc(x.wix_no||'?')+' · '+kanalEsc(x.durum)+((x.ayrinti&&x.ayrinti.uyari)?' · <span style="color:#B5402F">'+kanalEsc(x.ayrinti.uyari)+'</span>':'');}).join('<br>')+'</div>'; }
+  b.innerHTML=h;
+}
+async function esAyarKaydet(ayar){
+  try{ var d=await esCall({mode:'ayar-kaydet',ayar:ayar}); esAyarCiz(d); showToast('Kaydedildi'); }catch(e){ showToast('Hata: '+e.message); }
+}
+async function esOtoBaslat(){
+  if(!confirm('Wix siparişleri bu andan itibaren depoya otomatik alınacak (eski siparişler alınmaz).\n\nNot: zamanlayıcı (SQL 016) kurulmadıysa otomatik çalışmaz; “Siparişleri şimdi al” ile elle de alabilirsiniz.\n\nBaşlatılsın mı?')) return;
+  await esAyarKaydet({siparis_aktif:true,siparis_baslangic:new Date().toISOString()});
+}
+async function esSiparis(mode){
+  var o=document.getElementById('es-sip-out'); o.innerHTML='⏳ Wix siparişleri okunuyor…';
+  try{
+    var d=await esCall({mode:mode}), s=d.siparis;
+    var h='<div style="background:#F5F7F4;border-radius:8px;padding:8px 10px">Wix’te bulunan sipariş: <b>'+s.bulunan+'</b>'+(s.dry?'':' · Yeni alınan: <b>'+s.yeni+'</b> · İptal: '+s.iptal+' · Daha önce alınmış: '+s.tekrar)+' · Başlangıçtan önce/atlanan: '+s.atlanan+'</div>';
+    if(s.ornek&&s.ornek.length) h+='<div style="font-size:12px;margin-top:6px">'+s.ornek.map(function(x){return '• #'+kanalEsc(x.no||'')+' '+kanalEsc(JSON.stringify(x).slice(0,200));}).join('<br>')+'</div>';
+    if(s.hatalar&&s.hatalar.length) h+='<div style="color:#B5402F;font-size:12px;margin-top:6px">'+s.hatalar.map(kanalEsc).join('<br>')+'</div>';
+    o.innerHTML=h; if(!s.dry) esAyarYukle();
+  }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
 }
 
 </script>
