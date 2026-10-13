@@ -5313,7 +5313,7 @@ function esOpen(){
    +'<label><input type="checkbox" id="es-ac"> Stoklu kapalı ürünleri satışa aç</label>'
    +'<label style="font-size:12px">Yalnızca model(ler):&nbsp;<input id="es-refs" placeholder="boş = hepsi" style="width:170px"></label>'
    +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div>'
-   +'<div id="es-ozel" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">✍️ İsme özel ürün metinleri (MD modelleri)</h3><div style="font-size:13px;margin-bottom:6px">Ad + açıklama + SEO, Wix ürün numarasına göre yazılır. Önce önizleyin.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzel(\'ozel-onizle\')">Önizle (yazmaz)</button><button class="btn primary small" onclick="esOzel(\'ozel-uygula\')">Uygula (tüm MD ürünleri)</button></div><div style="font-size:13px;margin:8px 0 4px"><b>Barkod / SKU eşleme</b> (önce SQL 018 çalışmış olmalı)</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzelSku(\'ozel-sku-onizle\')">SKU önizle (yazmaz)</button><button class="btn primary small" onclick="esOzelSku(\'ozel-sku-uygula\')">SKU’ları Wix’e yaz</button></div><div id="es-ozel-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-oto" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">⚙️ Otomasyon: Wix siparişleri + stok</h3><div id="es-oto-body" style="font-size:13px">Yükleniyor…</div></div></div>';
+   +'<div id="es-ozel" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">✍️ İsme özel ürün metinleri (MD modelleri)</h3><div style="font-size:13px;margin-bottom:6px">Ad + açıklama + SEO, Wix ürün numarasına göre yazılır. Önce önizleyin.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzel(\'ozel-onizle\')">Önizle (yazmaz)</button><button class="btn primary small" onclick="esOzel(\'ozel-uygula\')">Uygula (tüm MD ürünleri)</button></div><div style="font-size:13px;margin:8px 0 4px"><b>Barkod / SKU eşleme</b> (önce SQL 018 çalışmış olmalı)</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzelSku(\'ozel-sku-onizle\')">SKU önizle (yazmaz)</button><button class="btn primary small" onclick="esOzelSku(\'ozel-sku-uygula\')">SKU’ları Wix’e yaz</button></div><div id="es-ozel-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-yeni" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">➕ Yeni isme özel model ekle</h3><div style="font-size:13px;margin-bottom:6px">Önce Wix’te her renk için ürünü açın (Beden 16/17/18 seçenekleri + isim ve doğum tarihi alanları). Sonra burada model bilgisini girin: depo kaydı, barkod, ad/açıklama/SEO ve Wix SKU’ları tek seferde yapılır.</div><button class="btn ghost small" onclick="esYeniAc()">Formu aç</button><div id="es-yeni-form"></div><div id="es-yeni-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-oto" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">⚙️ Otomasyon: Wix siparişleri + stok</h3><div id="es-oto-body" style="font-size:13px">Yükleniyor…</div></div></div>';
   document.body.appendChild(ov); esAyarYukle();
 }
 function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked,metin:document.getElementById('es-metin').checked,beden:document.getElementById('es-beden').checked},refs:refs,eskiMedya:__esSel.slice()}; }
@@ -5451,6 +5451,48 @@ async function esOzelSku(mode){
     o.innerHTML=u.map(function(x){
       var v=(x.varyant||[]).map(function(y){ return y.hata?('<span style="color:#B5402F">'+kanalEsc(y.hata)+'</span>'):('&nbsp;&nbsp;'+kanalEsc(y.beden)+' → <b>'+kanalEsc(y.sku)+'</b>'+(y.mevcut?(y.mevcut===y.sku?' (aynı)':' (şimdiki: '+kanalEsc(y.mevcut)+')'):'')+(y.yazildi?' ✓':'')); }).join('<br>');
       return '<div style="border-bottom:1px solid #eee;padding:4px 0"><b>'+kanalEsc(x.model+' '+x.renk)+'</b>'+(x.not?' · <i>'+kanalEsc(x.not)+'</i>':'')+(x.hata?' · <span style="color:#B5402F">'+kanalEsc(x.hata)+'</span>':'')+'<br>'+v+'</div>'; }).join('');
+  }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
+}
+
+var __esY={ad:[]};
+async function esYeniAc(){
+  var f=document.getElementById('es-yeni-form'); f.innerHTML='⏳ Wix ürünleri okunuyor…';
+  try{
+    var d=await esCall({mode:'ozel-adaylar'}); __esY.ad=d.adaylar||[];
+    var opt='<option value="">— Wix ürünü seçin —</option>'+__esY.ad.map(function(a){return '<option value="'+kanalEsc(a.id)+'">'+kanalEsc(a.name)+'</option>';}).join('');
+    __esY.opt=opt;
+    f.innerHTML='<div style="font-size:12px;color:#777;margin:6px 0">Mevcut modeller: '+(d.mevcut||[]).map(function(n){return 'MD'+n;}).join(', ')+' · Eski bir modele renk eklemek için aynı numarayı yazın.</div>'
+     +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px">'
+     +'<label>Model no: MD <input id="esy-no" type="number" min="1" value="'+d.siradaki+'" style="width:60px"></label>'
+     +'<label>Cinsiyet <select id="esy-cins"><option>Kız</option><option>Erkek</option></select></label>'
+     +'<label>Malzeme <select id="esy-malz"><option value="pu">PU deri dış / pamuk iç</option><option value="gabardin">Pamuk gabardin dış / penye iç</option></select></label>'
+     +'<label><input id="esy-tasli" type="checkbox"> Taşlı</label></div>'
+     +'<div id="esy-renkler"></div><button class="btn ghost small" onclick="esYeniRenk()">+ Renk ekle</button> '
+     +'<button class="btn ghost small" onclick="esYeniGonder(\'ozel-model-onizle\')">Önizle (yazmaz)</button> '
+     +'<button class="btn primary small" onclick="esYeniGonder(\'ozel-model-uygula\')">Uygula</button>';
+    esYeniRenk();
+  }catch(e){ f.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
+}
+function esYeniRenk(){
+  var c=document.getElementById('esy-renkler'); if(!c) return;
+  var n=c.children.length+1; if(n>9){ showToast('En fazla 9 renk'); return; }
+  var dv=document.createElement('div'); dv.style.cssText='display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px'; dv.className='esy-r';
+  dv.innerHTML='<b>'+n+'.</b><input class="esy-renk" placeholder="Renk (ör. Lacivert)" style="width:130px"><select class="esy-sel" onchange="this.nextSibling.value=this.value">'+__esY.opt+'</select><input class="esy-wix" placeholder="veya Wix ürün kimliği/linki" style="width:240px">';
+  c.appendChild(dv);
+}
+async function esYeniGonder(mode){
+  var rows=[].slice.call(document.querySelectorAll('.esy-r')).map(function(r){return {renk:r.querySelector('.esy-renk').value,wix:r.querySelector('.esy-wix').value||r.querySelector('.esy-sel').value};}).filter(function(r){return r.renk.trim();});
+  var model={no:+document.getElementById('esy-no').value,cins:document.getElementById('esy-cins').value,malzeme:document.getElementById('esy-malz').value,tasli:document.getElementById('esy-tasli').checked,renkler:rows};
+  if(mode==='ozel-model-uygula' && !confirm('MD'+model.no+' için depo kaydı oluşturulacak ve '+rows.length+' Wix ürününün adı, açıklaması, SEO bilgisi ve SKU’ları değişecek.\n\nÖnizlemeyi kontrol ettiniz mi?')) return;
+  var o=document.getElementById('es-yeni-out'); o.innerHTML='⏳ Çalışıyor…';
+  try{
+    var d=await esCall({mode:mode,model:model}), u=d.urunler||[], dp=d.depo||{};
+    var h='<div style="background:#F5F7F4;border-radius:8px;padding:8px 10px">Ref: <b>'+kanalEsc(d.ref)+'</b> · Depo: '+(mode==='ozel-model-uygula'?'yeni eklenen ':'eklenecek ')+'<b>'+(dp.yeni||0)+'</b> barkod (toplam '+(dp.toplam||0)+', stok 0, 36,46 $)'+(dp.hata?' · <span style="color:#B5402F">'+kanalEsc(dp.hata)+'</span>':'')+'</div>';
+    h+=u.map(function(x){
+      var v=(x.varyant||[]).map(function(y){ return y.hata?('<span style="color:#B5402F">'+kanalEsc(y.hata)+'</span>'):('&nbsp;&nbsp;'+kanalEsc(y.beden)+' → <b>'+kanalEsc(y.sku)+'</b>'+(y.mevcut&&y.mevcut!==y.sku?' (şimdiki: '+kanalEsc(y.mevcut)+')':'')+(y.yazildi?' ✓':'')); }).join('<br>');
+      return '<div style="border-bottom:1px solid #eee;padding:4px 0">'+(x.hata?'<span style="color:#B5402F">✗ '+kanalEsc(x.model+' '+x.renk+': '+x.hata)+'</span>':(x.ok&&mode==='ozel-model-uygula'?'✓ ':'')+'<b>'+kanalEsc(x.model+' '+x.renk)+'</b> (renk sırası '+x.renkSira+')'+(x.not?' · <i>'+kanalEsc(x.not)+'</i>':'')+'<br><span style="color:#777">'+kanalEsc(x.adEski||'')+'</span><br>→ '+kanalEsc(x.adYeni)+'<br><span style="color:#777">SEO: '+kanalEsc(x.seo)+'</span><br>'+v)+'</div>'; }).join('');
+    if(mode==='ozel-model-uygula') h+='<div style="margin-top:8px;color:#2f6b4f"><b>Bitti.</b> Wix’te her bedene stok girmeyi unutmayın (sanal stok).</div>';
+    o.innerHTML=h;
   }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
 }
 
