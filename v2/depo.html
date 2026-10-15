@@ -330,6 +330,7 @@ async function saveKey(key, value){
     showToast(describeWriteBlock_(data) || (data && data.message) || 'Kaydetme hatası — tekrar deneyin');
     return false;
   }
+  if(data.revived) showToast('⚠ Daha önce silinmiş barkod yeniden aktif edildi: ' + (data.barcode||''));
   return true;
 }
 // SKUs are stored as individual catalogSku:<id> rows (like colors/variants) rather than one
@@ -1664,6 +1665,132 @@ async function deleteWarehouseItems(barcodes){
       showToast('Sunucuya bağlanılamadı'+(typeof e!=='undefined'&&e&&e.message?' ('+e.message+')':''));
     }
   }
+}
+function decodeBarcode(bc){
+  const m = String(bc||'').match(/^1288(\d{6})(\d)(\d)\d$/);
+  if(!m) return null;
+  const order = parseInt(m[2],10), size = m[3];
+  const product = state.products.find(p=>padRef(p.refNo)===m[1]) || null;
+  const variant = product ? state.variants.find(v=>v.productId===product.id && Number(v.colorOrder)===order) : null;
+  const sz = SIZES.find(x=>x.code===size);
+  return {refNo: product ? product.refNo : m[1], product, colorName: variant ? variant.colorName : '', sizeLabel: sz ? sz.short : '', size};
+}
+async function applyProductAttrs(refNo, gender, season){
+  if(!refNo || (!gender && !season)) return true;
+  let product = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
+  if(product){
+    const patch = {id:product.id};
+    if(gender && product.gender!==gender){ product.gender = gender; patch.gender = gender; }
+    if(season && product.season!==season){ product.season = season; patch.season = season; }
+    if(Object.keys(patch).length>1) return await patchProducts([patch]);
+    return true;
+  }
+  product = {id:uid(), refNo:String(refNo).trim(), name:'', price:0, active:false, gender:gender||'', season:season||'', createdAt:todayISO(), createdBy:session.displayName};
+  state.products = [...state.products, product];
+  return await patchProducts([product]);
+}
+function genderSeasonSelects(prefix, g, se){
+  return `<div class="row2">
+    <div class="field"><label>Cinsiyet</label><select id="${prefix}-gender">
+      <option value="">—</option>
+      <option value="KIZ" ${g==='KIZ'?'selected':''}>Kız</option>
+      <option value="ERKEK" ${g==='ERKEK'?'selected':''}>Erkek</option>
+      <option value="UNISEX" ${g==='UNISEX'?'selected':''}>Unisex</option></select></div>
+    <div class="field"><label>Sezon</label><select id="${prefix}-season">
+      <option value="">—</option>
+      <option value="YAZ" ${se==='YAZ'?'selected':''}>Yaz</option>
+      <option value="KIŞ" ${se==='KIŞ'?'selected':''}>Kış</option>
+      <option value="TÜM MEVSİM" ${se==='TÜM MEVSİM'?'selected':''}>Tüm Mevsim</option></select></div>
+  </div>`;
+}
+function openEditDepoItem(barcode){
+  const it = state.warehouseItems.find(w=>w.barcode===barcode);
+  if(!it || session.role==='depocu') return;
+  const product = it.refNo ? state.products.find(p=>padRef(p.refNo)===padRef(it.refNo)) : null;
+  state.editDepoItem = {barcode, refNo:it.refNo||'', colorName:it.colorName||'', sizeLabel:it.sizeLabel||'', gender:(product&&product.gender)||'', season:(product&&product.season)||'', saving:false};
+  state.modalMode = 'editDepoItem';
+  render();
+}
+function renderEditDepoItemModal(){
+  const d = state.editDepoItem; if(!d) return '';
+  const adm = session.role==='admin';
+  const dec = decodeBarcode(d.barcode);
+  const hint = dec && (dec.colorName||dec.sizeLabel) ? `<div class="field-msg" style="margin-bottom:8px">Bu barkod sistem şemasına göre: <b>${esc(detailRefLabel(dec.refNo, dec.colorName, dec.sizeLabel))}</b> anlamına gelir.</div>` : '';
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()"><div class="modal">
+    <h3>Depo kaydını düzenle</h3>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:8px">Barkod: ${esc(d.barcode)}</div>
+    ${hint}
+    <div class="row2">
+      <div class="field"><label>Referans No</label><input id="edi-ref" type="text" value="${esc(d.refNo)}" ${adm?'':'disabled'} /></div>
+      <div class="field"><label>Renk</label><input id="edi-color" type="text" value="${esc(d.colorName)}" style="text-transform:uppercase" ${adm?'':'disabled'} /></div>
+    </div>
+    <div class="field"><label>Beden</label><input id="edi-size" type="text" value="${esc(d.sizeLabel)}" ${adm?'':'disabled'} /></div>
+    ${adm?'':'<div class="field-msg">Referans/renk/beden yalnız yönetici tarafından değiştirilebilir.</div>'}
+    ${genderSeasonSelects('edi', d.gender, d.season)}
+    <div class="field-msg">Cinsiyet ve sezon modelin (referansın) tüm renk ve bedenlerine uygulanır.</div>
+    <div class="modal-actions">
+      <button class="btn ghost" ${d.saving?'disabled':''} onclick="closeModal()">Vazgeç</button>
+      <button class="btn primary" ${d.saving?'disabled':''} onclick="saveEditDepoItem()">${d.saving?'Kaydediliyor…':'Kaydet'}</button>
+    </div></div></div>`;
+}
+async function saveEditDepoItem(){
+  const d = state.editDepoItem; if(!d || d.saving) return;
+  const adm = session.role==='admin';
+  const refNo = adm ? document.getElementById('edi-ref').value.trim() : d.refNo;
+  const colorName = adm ? document.getElementById('edi-color').value.trim().toUpperCase() : d.colorName;
+  const sizeLabel = adm ? document.getElementById('edi-size').value.trim() : d.sizeLabel;
+  const gender = document.getElementById('edi-gender').value;
+  const season = document.getElementById('edi-season').value;
+  if(adm && (!refNo || !colorName || !sizeLabel)){ showToast('Referans, renk ve beden boş olamaz'); return; }
+  d.saving = true; render();
+  beginCriticalWrite();
+  try{
+    if(adm && (refNo!==d.refNo || colorName!==d.colorName || sizeLabel!==d.sizeLabel)){
+      const res = await fetchWithTimeout(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({action:'relabelSku', auth:{username:session.username, passwordHash:session.passwordHash}, barcode:d.barcode, refNo, colorName, sizeLabel})}, 30000);
+      const data = await res.json();
+      if(!(data && data.ok)){ d.saving=false; showToast((data && data.message) || 'Etiket değiştirilemedi'); render(); return; }
+      const it = state.warehouseItems.find(w=>w.barcode===d.barcode);
+      if(it){ it.refNo = refNo; it.colorName = colorName; it.sizeLabel = sizeLabel; }
+    }
+    await applyProductAttrs(refNo, gender, season);
+    state.modalMode = null; state.editDepoItem = null;
+    showToast('Kaydedildi');
+    render();
+    silentAutoRefresh();
+  }catch(e){ d.saving=false; showToast('Kaydedilemedi — bağlantı hatası'); render(); }
+  finally{ endCriticalWrite(); }
+}
+async function changeBarcode(oldBarcode){
+  if(session.role!=='admin') return;
+  const it = state.warehouseItems.find(w=>w.barcode===oldBarcode);
+  const nb = prompt('Yeni barkod:\n\n'+(it?(it.refNo+' '+it.colorName+' '+it.sizeLabel+'\n'):'')+'Mevcut barkod: '+oldBarcode+'\n\nStok, hareket geçmişi, fiyat ve katalog kaydı korunur; yalnız barkod değişir.', oldBarcode);
+  if(!nb || nb.trim()===oldBarcode) return;
+  if(!confirm('Barkod '+oldBarcode+' → '+nb.trim()+' olarak değiştirilecek. Emin misiniz?')) return;
+  beginCriticalWrite();
+  try{
+    const res = await fetchWithTimeout(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'changeBarcode', auth:{username:session.username, passwordHash:session.passwordHash}, oldBarcode, newBarcode:nb.trim()})}, 30000);
+    const data = await res.json();
+    if(data && data.ok){
+      if(it) it.barcode = data.newBarcode;
+      const sk = state.skus.find(x=>x.barcode===oldBarcode); if(sk) sk.barcode = data.newBarcode;
+      showToast('Barkod değiştirildi: '+data.newBarcode);
+      render();
+      silentAutoRefresh();
+    } else {
+      showToast((data && data.message) || 'Barkod değiştirilemedi');
+    }
+  }catch(e){ showToast('Barkod değiştirilemedi — bağlantı hatası'); }
+  finally{ endCriticalWrite(); }
+}
+async function persistNewWarehouseItem(item){
+  // Yeni tanımlanan (stoksuz) kaydı sunucuya hemen yaz — aksi halde 45 sn'lik yenilemede kaybolur.
+  try{
+    await fetchWithTimeout(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'bulkImportWarehouse', auth:{username:session.username, passwordHash:session.passwordHash},
+        items:[{barcode:item.barcode, refNo:item.refNo||'', colorName:item.colorName||'', sizeLabel:item.sizeLabel||'', openingStock:0}]})}, 20000);
+  }catch(e){}
 }
 async function deleteSelectedSingle(barcode){
   if(!confirm('Bu depo kaydını (stok bilgisini) silmek istediğinize emin misiniz?\n\n⚠ Bu işlem SADECE stok kaydını siler — modelin katalog kaydı (resim, isim, fiyat) SİLİNMEZ. Modeli de tamamen kaldırmak isterseniz, bunu Model Yönetimi\'nden ayrıca yapmanız gerekir.\n\n(Geçmiş hareket kayıtları korunur.)')) return;
@@ -3238,8 +3365,24 @@ function confirmScanUnknown(){
   const colorName = document.getElementById('scan-new-color').value.trim().toUpperCase();
   const sizeLabel = document.getElementById('scan-new-size').value.trim();
   if(!refNo && !colorName){ showToast('En az referans veya renk bilgisi girin'); return; }
+  const gender = (document.getElementById('scan-new-gender')||{}).value || '';
+  const season = (document.getElementById('scan-new-season')||{}).value || '';
+  const dec = decodeBarcode(state.scan.barcode);
+  if(dec){
+    const diffs = [];
+    if(refNo && padRef(refNo)!==padRef(dec.refNo)) diffs.push('referans');
+    if(dec.colorName && colorName && normColor(colorName)!==normColor(dec.colorName)) diffs.push('renk');
+    if(dec.sizeLabel && sizeLabel && sizeNumberOnly(sizeLabel)!==dec.size) diffs.push('beden');
+    if(diffs.length && !confirm('Bu barkod sisteme göre '+detailRefLabel(dec.refNo, dec.colorName, dec.sizeLabel)+' ürünüdür, ama girdiğiniz '+diffs.join('/')+' farklı.\n\nYanlış etiketle kaydedilirse aynı üründen iki kayıt oluşur. Yine de bu bilgiyle kaydedilsin mi?')) return;
+  }
+  const knownProduct = state.products.find(p=>padRef(p.refNo)===padRef(refNo));
+  if(!(gender || (knownProduct && knownProduct.gender)) || !(season || (knownProduct && knownProduct.season))){
+    if(!confirm('Cinsiyet veya sezon girilmedi. Wix ve pazaryerleri için gerekli; sonra ✎ düğmesiyle de girebilirsiniz.\n\nYine de devam edilsin mi?')) return;
+  }
   const item = { barcode: state.scan.barcode, refNo, colorName, sizeLabel, stock: 0 };
   if(!state.warehouseItems.find(w=>w.barcode===item.barcode)) state.warehouseItems.push(item);
+  persistNewWarehouseItem(item);
+  applyProductAttrs(refNo, gender, season);
   // This barcode is now defined — clear the pending "unknown" log entry it came from, if any.
   if(state.scan.pendingUnknownEntryId){
     state.scan.sessionLog = state.scan.sessionLog.filter(l=>l.id!==state.scan.pendingUnknownEntryId);
@@ -3459,6 +3602,7 @@ function render(){
   else if(state.modalMode === 'stockPriceUpdate' && !isDepocu) html += renderStockPriceUpdateModal();
   else if(state.modalMode === 'bulkImage') html += renderBulkImageModal();
   else if(state.modalMode === 'newDepoItem') html += renderNewDepoItemModal();
+  else if(state.modalMode === 'editDepoItem' && !isDepocu) html += renderEditDepoItemModal();
   else if(state.modalMode === 'katalog') html += renderKatalogModal();
   else if(state.modalMode === 'depoScan') html += renderScanModal();
   else if(state.modalMode === 'scanModePrompt') html += renderScanModePromptModal();
@@ -3649,7 +3793,7 @@ function renderDepoView(){
           <td>${reserved>0 ? `<span class="chip other" title="Onaylı siparişler için rezerve edilmiş">${reserved}</span>` : `<span class="depo-td-muted">—</span>`}</td>
           ${canManage ? `<td><input type="number" min="0" step="0.01" value="${price!=null?price:''}" placeholder="0.00" class="depo-price-input" onchange="updateDepoPrice('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}', this.value)" /></td>
           <td class="depo-td-muted">${tryPrice!=null ? formatMoney(tryPrice)+' ₺' : (state.fxRateLoading ? 'kur…' : '—')}</td>` : ''}
-          ${canManage ? `<td><button class="sku-del" onclick="deleteSelectedSingle('${attrEsc(it.barcode)}')" title="Bu kaydı sil">✕</button></td>` : ''}
+          ${canManage ? `<td><button class="btn small ghost" onclick="openEditDepoItem('${attrEsc(it.barcode)}')" title="Referans/renk/beden, cinsiyet ve sezonu düzenle">✎</button> ${session.role==='admin' ? `<button class="btn small ghost" onclick="changeBarcode('${attrEsc(it.barcode)}')" title="Barkodu düzelt (stok/geçmiş korunur)">🏷</button> ` : ''}<button class="sku-del" onclick="deleteSelectedSingle('${attrEsc(it.barcode)}')" title="Bu kaydı sil">✕</button></td>` : ''}
         </tr>`;
       }).join('')}
       </tbody>
@@ -4578,11 +4722,13 @@ function renderScanModal(){
           ⚠ <b>${esc(s.barcode)}</b> barkodu sistemde kayıtlı değil.
         </div>
         <p style="font-size:13px;color:var(--muted);margin:12px 0 10px">Genelde barkod tanımlama sipariş alınırken veya model Depo'ya eklenirken yapılır — bu barkodun okunmaması çoğunlukla bir <b>okuma hatasından</b> kaynaklanır. Gerçekten yeni bir ürünse aşağıya bilgilerini girip kaydedebilirsiniz.</p>
+        ${(()=>{ const dc = decodeBarcode(s.barcode); return dc && (dc.colorName||dc.sizeLabel) ? `<div class="bulk-result ok" style="display:block;font-size:13px;margin-bottom:8px">Barkod şemasına göre bu ürün: <b>${esc(detailRefLabel(dc.refNo, dc.colorName, dc.sizeLabel))}</b> — alanlar buna göre dolduruldu, farklıysa kontrol edin.</div>` : ''; })()}
         <div class="row2">
-          <div class="field"><label>Referans No</label><input id="scan-new-ref" type="text" /></div>
-          <div class="field"><label>Renk</label><input id="scan-new-color" type="text" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" /></div>
+          <div class="field"><label>Referans No</label><input id="scan-new-ref" type="text" value="${esc((decodeBarcode(s.barcode)||{}).refNo||'')}" /></div>
+          <div class="field"><label>Renk</label><input id="scan-new-color" type="text" value="${esc((decodeBarcode(s.barcode)||{}).colorName||'')}" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" /></div>
         </div>
-        <div class="field"><label>Beden</label><input id="scan-new-size" type="text" placeholder="Örn. 1, Size 1, 19-20" /></div>
+        <div class="field"><label>Beden</label><input id="scan-new-size" type="text" value="${esc((decodeBarcode(s.barcode)||{}).sizeLabel||'')}" placeholder="Örn. 1, Size 1, 19-20" /></div>
+        ${(()=>{ const pr = (decodeBarcode(s.barcode)||{}).product; return genderSeasonSelects('scan-new', pr&&pr.gender||'', pr&&pr.season||''); })()}
         <div class="modal-actions" style="margin-top:0">
           <button class="btn ghost" onclick="cancelScanUnknown()">Geri</button>
           <button class="btn primary" onclick="confirmScanUnknown()">Kaydet ve Devam Et</button>
