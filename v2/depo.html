@@ -1529,11 +1529,14 @@ window.addEventListener('beforeunload', function(e){
     return '';
   }
 });
-async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel, isCorrection){
+const shortfallOK_ = new Set(); // bu oturumda 'eksik stok' onayı verilen barkodlar (hızlı taramada her adımda sormamak için)
+async function postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel, isCorrection, flags){
   beginCriticalWrite();
+  flags = flags || {};
+  if(shortfallOK_.has(barcode)) flags.confirmShortfall = true;
   const clientRequestId = uid() + '-' + Date.now();
   const body = JSON.stringify({action:'addStockMovement', auth:{username:session.username, passwordHash:session.passwordHash}, clientRequestId,
-    movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName, isCorrection: !!isCorrection}});
+    movement:{barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', type, qty, note:note||'', date: todayISO(), createdBy: session.displayName, isCorrection: !!isCorrection, confirmShortfall: !!flags.confirmShortfall, confirmDup: !!flags.confirmDup}});
   async function attempt(){
     const res = await fetchWithTimeout(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body }, 20000);
     return await res.json();
@@ -1552,7 +1555,19 @@ async function postStockMovement(barcode, type, qty, note, refNo, colorName, siz
       let item = state.warehouseItems.find(w=>w.barcode===barcode);
       if(!item){ item = {barcode, refNo:refNo||'', colorName:colorName||'', sizeLabel:sizeLabel||'', stock:0}; state.warehouseItems.push(item); }
       item.stock = data.stock;
+      if(data.autoIn) showToast(`Kayıt dışı üretim girişi otomatik eklendi: ${data.autoIn} adet (o ayın üretimine sayılır)`);
       return {ok:true, stock:data.stock, item};
+    }
+    if(data && data.error==='insufficient_stock'){
+      const ok = confirm(`⚠ EKSİ STOK UYARISI\n\nDepoda sadece ${data.stock} adet görünüyor, ${data.qty} adet çıkış yapıyorsunuz.\nEksik ${data.shortfall} adet için şimdi DEPO GİRİŞİ (üretim) kaydedilecek ve bu ayın üretimine sayılacak.\n\nBu ${data.shortfall} adet gerçekten depoda vardı ve girişi yapılmamış mıydı?\n\n"Tamam" = giriş + çıkış birlikte kaydedilir\n"İptal" = hiçbir şey kaydedilmez`);
+      if(!ok) return {ok:false, blockReason:'İptal edildi — eksik stok onaylanmadı'};
+      shortfallOK_.add(barcode);
+      return await postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel, isCorrection, Object.assign({}, flags, {confirmShortfall:true}));
+    }
+    if(data && data.error==='duplicate_suspect'){
+      const ok = confirm(`⚠ MÜKERRER KAYIT ŞÜPHESİ\n\nBu barkoda ${data.minutesAgo} dk önce${data.byName?' ('+data.byName+' tarafından)':''} aynı miktarda (${qty} adet) ${type==='out'?'çıkış':'giriş'} kaydedilmiş.\n\nAynı işlemi ikinci kez mi giriyorsunuz?\n\n"Tamam" = yine de kaydet (ikinci ayrı bir ${type==='out'?'çıkış':'giriş'})\n"İptal" = kaydetme`);
+      if(!ok) return {ok:false, blockReason:'İptal edildi — mükerrer kayıt şüphesi'};
+      return await postStockMovement(barcode, type, qty, note, refNo, colorName, sizeLabel, isCorrection, Object.assign({}, flags, {confirmDup:true}));
     }
     return {ok:false, blockReason: describeWriteBlock_(data)};
   }catch(e){ return {ok:false, networkError:true}; }
@@ -1570,24 +1585,9 @@ async function submitDepoMove(){
   const note = document.getElementById('dm-note').value.trim();
   if(!qty || qty <= 0){ showToast('Geçerli bir miktar girin'); return; }
   if(!confirmHugeQty(qty)) return;
-  if(t.type==='out'){
-    const item = state.warehouseItems.find(w=>w.barcode===t.barcode);
-    const currentStock = item ? (Number(item.stock)||0) : 0;
-    if(qty > currentStock){
-      const shortfall = qty - currentStock;
-      const ok = confirm(`⚠ Depoda sadece ${currentStock} adet görünüyor, ${qty} adet çıkış girdiniz.\n\nBu genelde şu anlama gelir: ${shortfall} adet daha önce sisteme kaydedilmeden fiziksel olarak depoya girmiş (örn. bir üretim/iade kaydı unutulmuş) ve şimdi çıkışı yapılıyor.\n\n"Tamam" derseniz: gerçek çıkış miktarı olan ${qty} adet OLDUĞU GİBİ kaydedilir, ve eksi kalan ${shortfall} adet için otomatik bir "telafi girişi" eklenip stok 0'a getirilir — hem çıkış hem giriş geçmişi doğru kalır.\n\nBunun yerine sadece mevcut ${currentStock} adedi göndermek isterseniz "İptal"e basın.`);
-      if(!ok){ return; } // person chose to send only the capped/available amount — do nothing further, they'll edit qty themselves
-      state.depoMovePendingCorrection = shortfall; // apply after the real out-movement succeeds
-    }
-  }
   state.depoMoveRunning = true;
   render();
   const r = await postStockMovement(t.barcode, t.type, qty, note, t.refNo, t.colorName, t.sizeLabel);
-  if(r.ok && state.depoMovePendingCorrection){
-    const shortfall = state.depoMovePendingCorrection;
-    state.depoMovePendingCorrection = null;
-    await postStockMovement(t.barcode, 'in', shortfall, 'Kayıt dışı stok telafisi (sistemde görünmeyen ama fiilen depoda bulunan stok)', t.refNo, t.colorName, t.sizeLabel, true);
-  }
   state.depoMoveRunning = false;
   if(r.ok){
     showDoneBanner('KAYIT TAMAMLANDI', (t.type==='in' ? 'Stok girişi' : 'Stok çıkışı')+' kaydedildi');
@@ -3093,6 +3093,7 @@ async function submitPackOrder(){
       state.modalMode = 'pendingOrders';
       state.packingOrderId = null;
       await refreshData();
+      if(data.shortfalls && data.shortfalls.length){ alert('⚠ Stok yetersizdi: '+data.shortfalls.map(s=>s.barcode+' → '+s.qty+' adet').join(', ')+'\n\nBu adetler için otomatik "kayıt dışı üretim girişi" eklendi ve bu ayın üretimine sayılacak. Sayım yaparken kontrol edin.'); }
       showToast(data.fullyShipped ? 'Sipariş hazırlandı olarak işaretlendi' : `${totalConfirmed} adet stoktan düşüldü — sipariş eksik olarak bekleyen listede kaldı`);
     } else {
       showToast('Kaydedilemedi — tekrar deneyin');
