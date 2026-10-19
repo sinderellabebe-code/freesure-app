@@ -5459,8 +5459,9 @@ function esOpen(){
    +'<label><input type="checkbox" id="es-ac"> Stoklu kapalı ürünleri satışa aç</label>'
    +'<label style="font-size:12px">Yalnızca model(ler):&nbsp;<input id="es-refs" placeholder="boş = hepsi" style="width:170px"></label>'
    +'<button class="btn primary" id="es-prev" onclick="esRun(false)">Önizleme Hazırla</button></div><div id="es-out"></div>'
+   +'<div id="es-sanal" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">📦 Sanal stok (kanallarda “var” göster)</h3><div id="es-sanal-body" style="font-size:13px">Yükleniyor…</div></div>'
    +'<div id="es-yeniurun" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">🆕 Depoda olup Wix’te olmayan modelleri aç</h3><div style="font-size:13px;margin-bottom:6px">Depodaki model-renkler Wix’te yoksa GİZLİ (satışa kapalı) ürün olarak açılır: açıklama/SEO, fiyat, barkod (SKU), stok, görsel, beden tablosu ve koleksiyon yazılır. Satışa açma ayrı adımdır.</div><label style="font-size:13px"><input id="esn-stoksuz" type="checkbox"> Depo stoğu 0 olanları da dahil et</label> <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="btn ghost small" onclick="esYeniUrun(\'yeni-onizle\',0)">Önizle (yazmaz)</button><button class="btn primary small" onclick="esYeniUrun(\'yeni-uygula\',1)">Test: ilk 1 ürünü aç</button><button class="btn ghost small" onclick="esYeniUrun(\'yeni-uygula\',10)">İlk 10 ürünü aç</button></div><div id="esn-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-ozel" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">✍️ İsme özel ürün metinleri (MD modelleri)</h3><div style="font-size:13px;margin-bottom:6px">Ad + açıklama + SEO, Wix ürün numarasına göre yazılır. Önce önizleyin.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzel(\'ozel-onizle\')">Önizle (yazmaz)</button><button class="btn primary small" onclick="esOzel(\'ozel-uygula\')">Uygula (tüm MD ürünleri)</button></div><div style="font-size:13px;margin:8px 0 4px"><b>Barkod / SKU eşleme</b> (önce SQL 018 çalışmış olmalı)</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost small" onclick="esOzelSku(\'ozel-sku-onizle\')">SKU önizle (yazmaz)</button><button class="btn primary small" onclick="esOzelSku(\'ozel-sku-uygula\')">SKU’ları Wix’e yaz</button></div><div id="es-ozel-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-yeni" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">➕ Yeni isme özel model ekle</h3><div style="font-size:13px;margin-bottom:6px">Önce Wix’te her renk için ürünü açın (Beden 16/17/18 seçenekleri + isim ve doğum tarihi alanları). Sonra burada model bilgisini girin: depo kaydı, barkod, ad/açıklama/SEO ve Wix SKU’ları tek seferde yapılır.</div><button class="btn ghost small" onclick="esYeniAc()">Formu aç</button><div id="es-yeni-form"></div><div id="es-yeni-out" style="font-size:12px;margin-top:6px"></div></div><div id="es-oto" style="border-top:1px solid #e4e4e4;margin-top:16px;padding-top:12px"><h3 style="margin:0 0 6px">⚙️ Otomasyon: Wix siparişleri + stok</h3><div id="es-oto-body" style="font-size:13px">Yükleniyor…</div></div></div>';
-  document.body.appendChild(ov); esAyarYukle();
+  document.body.appendChild(ov); esAyarYukle(); esSanalYukle();
 }
 function esOpts(){ var refs=document.getElementById('es-refs').value.split(/[,;\s]+/).filter(Boolean); return {parts:{stok:document.getElementById('es-stok').checked,fiyat:document.getElementById('es-fiyat').checked,ac:document.getElementById('es-ac').checked,metin:document.getElementById('es-metin').checked,beden:document.getElementById('es-beden').checked},refs:refs,eskiMedya:__esSel.slice()}; }
 function esSel(k,on){ var i=__esSel.indexOf(k); if(on&&i<0) __esSel.push(k); if(!on&&i>=0) __esSel.splice(i,1); }
@@ -5480,7 +5481,7 @@ async function esRun(){
 }
 function esCh(c){
   var t=[];
-  if(c.stok) t.push('Stok: '+c.stok.degisen+' varyant, toplam '+c.stok.toplam+(c.stok.eslesmeyenSifirlanan?' (+'+c.stok.eslesmeyenSifirlanan+' eski SKU sıfırlanır)':''));
+  if(c.stok) t.push('Stok: '+c.stok.degisen+' varyant, toplam '+c.stok.toplam+(c.stok.eslesmeyenSifirlanan?' (+'+c.stok.eslesmeyenSifirlanan+' eski SKU sıfırlanır)':'')+(c.stok.sanal?' · sanal stok: '+c.stok.sanal+' varyant':''));
   if(c.fiyat) t.push('Fiyat: '+(c.fiyat.eski==null?'—':fyTL(c.fiyat.eski))+' → <b>'+fyTL(c.fiyat.yeni)+'</b>');
   if(c.indirim) t.push('İndirim: '+(c.indirim.yeni?('<span style="color:#B5402F">'+fyTL(c.indirim.yeni)+'</span>'):'kaldırılır'));
   if(c.metin) t.push('<details><summary><b>Başlık/açıklama/SEO değişir</b></summary><div style="font-size:12px;color:#555;margin-top:4px"><b>Eski ad:</b> '+kanalEsc(c.metin.adEski)+'<br><b>Yeni ad:</b> '+kanalEsc(c.metin.adYeni)+'<br><b>Eski açıklama:</b> '+kanalEsc(c.metin.aciklamaEski||'(boş)')+'…<br><b>Yeni açıklama:</b> '+kanalEsc(c.metin.aciklamaYeni)+'…<br><b>SEO başlığı:</b> '+kanalEsc(c.metin.seoBaslik)+'<br><b>Meta:</b> '+kanalEsc(c.metin.meta)+'</div></details>');
@@ -5662,6 +5663,58 @@ async function esYeniUrun(mode,n){
     if((d.skuEslesmeyen||[]).length) h+='<details style="margin-top:6px"><summary><b>Wix’te var ama SKU’su depo barkoduyla eşleşmeyen ürünler ('+d.skuEslesmeyenSayi+')</b> — bunlar yeniden açılmaz; barkod eşlemesi ayrı adım</summary>'+d.skuEslesmeyen.map(function(x){return '<div>'+kanalEsc(x.ad)+' <span style="color:#777">'+kanalEsc((x.sku||[]).join(', '))+'</span></div>';}).join('')+'</details>';
     o.innerHTML=h;
   }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+kanalEsc(e.message)+'</span>'; }
+}
+
+// ---- Sanal stok: model / renk / beden bazında hedef derinlik ----
+var __esSan=null;
+async function esSanalYukle(){
+  var b=document.getElementById('es-sanal-body'); if(!b) return;
+  try{ var d=await esCall({mode:'sanal-oku'}); esSanalCiz(d); }
+  catch(e){ b.innerHTML='<span style="color:#B5402F">Okunamadı: '+kanalEsc(e.message)+' (kanal-esitle fonksiyonu güncellendi mi?)</span>'; }
+}
+function esSanalCiz(d){
+  var b=document.getElementById('es-sanal-body'); if(!b) return;
+  var sv=d.sanal||{kurallar:[]}, h='';
+  h+='<div style="margin-bottom:8px;color:#555">Kanala (Wix ve bağlanacak pazaryerleri) giden stok = gerçek stok ile <b>hedef − üretim bekleyen</b> değerinin büyüğü. Depodaki gerçek stok değişmez. Kural önceliği: beden › renk › model. Gerçek stok 0 iken de hedef gösterilir.</div>';
+  h+='<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><span>Durum: <b style="color:'+(sv.aktif?'#2f6b4f':'#B5402F')+'">'+(sv.aktif?'AÇIK':'KAPALI')+'</b></span>'
+    +'<button class="btn '+(sv.aktif?'ghost':'primary')+' small" onclick="esSanalAktif('+(sv.aktif?'false':'true')+')">'+(sv.aktif?'Sanal stoku kapat':'Sanal stoku aç')+'</button>'
+    +'<span style="color:#888">Açıkken kurallar bir sonraki stok eşitlemesinde (otomasyon 5 dk) Wix’e yansır.</span></div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><label>Model (referans): <input id="esv-ref" placeholder="örn. 262460" style="width:120px"></label><button class="btn primary small" onclick="esSanalBul()">Getir / Düzenle</button></div><div id="esv-form"></div>';
+  var ks=sv.kurallar||[];
+  if(ks.length){
+    h+='<div style="margin-top:8px"><b>Tanımlı kurallar</b> ('+ks.length+')</div><table style="border-collapse:collapse;font-size:12px;margin-top:4px"><tr style="text-align:left;color:#666"><th style="padding:2px 8px">Model</th><th style="padding:2px 8px">Renk</th><th style="padding:2px 8px">Beden</th><th style="padding:2px 8px">Hedef</th></tr>'
+      +ks.map(function(k){ return '<tr><td style="padding:2px 8px;border-top:1px solid #eee"><a href="#" onclick="document.getElementById(\'esv-ref\').value=\''+kanalEsc(k.ref)+'\';esSanalBul();return false;">'+kanalEsc(k.ref)+'</a></td><td style="padding:2px 8px;border-top:1px solid #eee">'+kanalEsc(k.renk||'tümü')+'</td><td style="padding:2px 8px;border-top:1px solid #eee">'+kanalEsc(k.beden||'tümü')+'</td><td style="padding:2px 8px;border-top:1px solid #eee"><b>'+k.hedef+'</b></td></tr>'; }).join('')+'</table>';
+  }
+  var u=d.uretim||[];
+  h+='<div style="margin-top:10px"><b>Üretim / tedarik ihtiyacı</b> (rezerve &gt; depo stoğu olan kalemler)</div>';
+  h+=u.length?'<table style="border-collapse:collapse;font-size:12px;margin-top:4px"><tr style="text-align:left;color:#666"><th style="padding:2px 8px">Model</th><th style="padding:2px 8px">Renk</th><th style="padding:2px 8px">Beden</th><th style="padding:2px 8px">Eksik çift</th></tr>'+u.map(function(x){return '<tr><td style="padding:2px 8px;border-top:1px solid #eee">'+kanalEsc(x.ref)+'</td><td style="padding:2px 8px;border-top:1px solid #eee">'+kanalEsc(x.renk)+'</td><td style="padding:2px 8px;border-top:1px solid #eee">'+kanalEsc(x.beden)+'</td><td style="padding:2px 8px;border-top:1px solid #eee"><b>'+x.bekleyen+'</b></td></tr>';}).join('')+'</table>':'<div style="color:#888">Şu an yok.</div>';
+  b.innerHTML=h;
+}
+async function esSanalAktif(on){
+  if(on&&!confirm('Sanal stok AÇILIYOR. Kuralı olan ürünlerde Wix stoğu bir sonraki eşitlemede hedef derinliğe yükselir; gerçek stok sıfır olsa da müşteri sipariş verebilir.\n\nDevam edilsin mi?')) return;
+  try{ var d=await esCall({mode:'sanal-kaydet',aktif:on}); var o=await esCall({mode:'sanal-oku'}); esSanalCiz(o); showToast(on?'Sanal stok açıldı':'Sanal stok kapatıldı'); }catch(e){ showToast('Hata: '+e.message); }
+}
+async function esSanalBul(){
+  var ref=(document.getElementById('esv-ref').value||'').trim(); if(!ref){ showToast('Referans girin'); return; }
+  var f=document.getElementById('esv-form'); f.innerHTML='Yükleniyor…';
+  try{
+    var d=await esCall({mode:'sanal-bul',ref:ref}); __esSan=d.bul;
+    if(!__esSan.renkler.length){ f.innerHTML='<span style="color:#B5402F">Bu referansta aktif depo kaydı yok.</span>'; return; }
+    var h='<div style="border:1px solid #e4e4e4;border-radius:6px;padding:10px;margin-bottom:6px"><div style="margin-bottom:6px"><b>'+kanalEsc(ref)+'</b> — hedef derinlik (boş = kural yok, 0 = bu seviyede sanal stok yok)</div>'
+      +'<label>Tüm model: <input id="esv-m" type="number" min="0" max="500" value="'+(__esSan.model===null?'':__esSan.model)+'" style="width:70px"></label>';
+    __esSan.renkler.forEach(function(r,i){
+      h+='<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #ddd"><label><b>'+kanalEsc(r.renk)+'</b> (tüm bedenler): <input id="esv-r-'+i+'" type="number" min="0" max="500" value="'+(r.hedef===null?'':r.hedef)+'" style="width:70px"></label>'
+        +'<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">'+r.bedenler.map(function(x,j){ return '<label style="font-size:12px">'+kanalEsc(x.beden)+' <span style="color:#888">(stok '+x.stok+(x.rezerve?', rez. '+x.rezerve:'')+')</span>: <input id="esv-b-'+i+'-'+j+'" type="number" min="0" max="500" value="'+(x.hedef===null?'':x.hedef)+'" style="width:60px"></label>'; }).join('')+'</div></div>';
+    });
+    h+='<div style="margin-top:10px"><button class="btn primary small" onclick="esSanalKaydet()">Kuralları kaydet</button> <span style="color:#888;font-size:12px">Bu modelin eski kuralları bu değerlerle değiştirilir.</span></div></div>';
+    f.innerHTML=h;
+  }catch(e){ f.innerHTML='<span style="color:#B5402F">'+kanalEsc(e.message)+'</span>'; }
+}
+async function esSanalKaydet(){
+  if(!__esSan) return;
+  var body={mode:'sanal-kaydet',ref:__esSan.ref,model:document.getElementById('esv-m').value,renk:{},beden:{}};
+  __esSan.renkler.forEach(function(r,i){ body.renk[r.renk]=document.getElementById('esv-r-'+i).value; r.bedenler.forEach(function(x,j){ body.beden[x.barcode]=document.getElementById('esv-b-'+i+'-'+j).value; }); });
+  try{ await esCall(body); var o=await esCall({mode:'sanal-oku'}); esSanalCiz(o); showToast('Kurallar kaydedildi'+(o.sanal&&o.sanal.aktif?'':' (sanal stok kapalı — açana kadar Wix’e yansımaz)')); }catch(e){ showToast('Hata: '+e.message); }
 }
 
 </script>
