@@ -5196,8 +5196,8 @@ function kanalOpen(){
   if(session.role!=='admin'){ showToast('Yalnızca yönetici'); return; }
   kanalClose();
   var ov=document.createElement('div'); ov.id='kanal-ov';
-  ov.style.cssText='position:fixed;inset:0;background:rgba(35,44,42,.5);z-index:9000;overflow:auto;padding:30px 12px';
-  ov.innerHTML='<div style="background:#fff;max-width:880px;margin:0 auto;border-radius:10px;padding:22px"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🌐 Kanal Raporu</h2><button class="btn ghost small" onclick="kanalClose()">✕ Kapat</button></div><p style="color:#666;font-size:13px">Wix sitelerinizdeki ürünleri (SKU = barkod) depodaki kayıtlarla karşılaştırır. <b>Hiçbir şeyi değiştirmez</b>, yalnızca okur.</p><button class="btn primary" id="kanal-run" onclick="kanalRun()">Raporu Hazırla</button><div id="kanal-out" style="margin-top:16px"></div></div>';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(35,44,42,.5);z-index:9000;overflow:hidden;padding:30px 12px;box-sizing:border-box';
+  ov.innerHTML='<div style="background:#fff;max-width:880px;margin:0 auto;border-radius:10px;padding:22px;max-height:calc(100vh - 60px);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🌐 Kanal Raporu</h2><button class="btn ghost small" onclick="kanalClose()">✕ Kapat</button></div><p style="color:#666;font-size:13px">Wix sitelerinizdeki ürünleri (SKU = barkod) depodaki kayıtlarla karşılaştırır. <b>Hiçbir şeyi değiştirmez</b>, yalnızca okur.</p><button class="btn primary" id="kanal-run" onclick="kanalRun()">Raporu Hazırla</button><div id="kanal-out" style="margin-top:16px"></div></div>';
   document.body.appendChild(ov);
 }
 async function kanalRun(){
