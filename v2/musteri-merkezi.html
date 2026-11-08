@@ -410,15 +410,19 @@ function bankaAnaliz(buf){
     const m = metin.match(/(\d{3,6})\s*-\s*(\d{6,12})\s*-\s*TRENDYOL/i);
     bank.push({ tarih: bankaTarihISO(r[cD]), tutar: Math.round(tutar*100)/100, odeme_no: m ? m[2] : '', satir: metin.replace(/\s+/g,' ').slice(0,200) });
   });
+  // Mutabakat yalnızca açılış bakiyesinden SONRAKİ ödemeler içindir; önceki ödemeler açılış bakiyesine zaten dahildir.
   const od = (state.kanalCari && state.kanalCari.odemeler) || [];
-  const eslesen = [], bankadaFazla = [], kullanilan = new Set();
+  const bas = String((state.kanalCari && state.kanalCari.baslangic) || '').slice(0,10);
+  const eslesen = [], bankadaFazla = [], kullanilan = new Set(); let acilisOncesi = 0;
   bank.forEach(b=>{
     const o = od.find(x=>x.odeme && String(x.odeme)===b.odeme_no && Math.abs(Number(x.tutar)-b.tutar)<0.01);
-    if(o){ kullanilan.add(String(o.odeme)); eslesen.push(Object.assign({}, b, {zaten: !!o.banka, ekstreTarih: o.tarih})); }
-    else bankadaFazla.push(b);
+    if(o && o.sayilir===false){ acilisOncesi++; return; }
+    if(o){ kullanilan.add(String(o.odeme)); eslesen.push(Object.assign({}, b, {zaten: !!o.banka, ekstreTarih: o.tarih})); return; }
+    if(bas && b.tarih < bas){ acilisOncesi++; return; }
+    bankadaFazla.push(b);
   });
-  const ekstredeBankasiz = od.filter(x=>!x.banka && !kullanilan.has(String(x.odeme)) && aralik && String(x.tarih||'').slice(0,10) >= aralik.bas);
-  state.bankaSonuc = { aralik, eslesen, bankadaFazla, ekstredeBankasiz, trendyolSatir: bank.length };
+  const ekstredeBankasiz = od.filter(x=>x.sayilir!==false && !x.banka && !kullanilan.has(String(x.odeme)) && aralik && String(x.tarih||'').slice(0,10) >= aralik.bas);
+  state.bankaSonuc = { aralik, eslesen, bankadaFazla, ekstredeBankasiz, trendyolSatir: bank.length, acilisOncesi, bas };
   render();
 }
 async function bankaKaydet(){
@@ -441,7 +445,7 @@ function bankaBlokHTML(){
     <div style="font-size:12px;color:var(--muted);margin-top:4px">Bankadan indirdiğiniz hesap özetini (Excel) seçin. Trendyol ödemeleri ödeme numarası ve tutarla eşleştirilir. Dosya sunucuya gönderilmez, yalnızca eşleşen ödemelerin işareti kaydedilir.</div>`;
   if(r){
     const yeni = r.eslesen.filter(e=>!e.zaten).length;
-    out += `<div style="margin-top:10px;font-size:13px">Banka özetinde ${r.trendyolSatir} Trendyol satırı bulundu${r.aralik?` (${d(r.aralik.bas)} – ${d(r.aralik.bit)})`:''}.</div>
+    out += `<div style="margin-top:10px;font-size:13px">Banka özetinde ${r.trendyolSatir} Trendyol satırı bulundu${r.aralik?` (${d(r.aralik.bas)} – ${d(r.aralik.bit)})`:''}.${r.acilisOncesi?`<br><span style="color:var(--muted)">${r.acilisOncesi} satır açılış bakiyesinden (${d(r.bas)}) önceki ödeme olduğu için atlandı.</span>`:''}</div>
       <div style="margin-top:6px;font-size:13px"><b style="color:var(--good)">✓ Eşleşen: ${r.eslesen.length}</b> (${yeni} yeni, ${r.eslesen.length-yeni} zaten işaretli)${r.eslesen.length?'<br>'+r.eslesen.map(e=>`${d(e.tarih)} · ${f(e.tutar)} · ödeme ${esc(e.odeme_no)}`).join('<br>'):''}</div>
       <div style="margin-top:6px;font-size:13px"><b style="color:${r.ekstredeBankasiz.length?'var(--danger)':'var(--good)'}">Trendyol "ödedi" ama bankada görünmeyen: ${r.ekstredeBankasiz.length}</b>${r.ekstredeBankasiz.map(o=>`<br>${d(o.tarih)} · ${f(o.tutar)} · ödeme ${esc(o.odeme||'—')}`).join('')}</div>
       <div style="margin-top:6px;font-size:13px"><b style="color:${r.bankadaFazla.length?'var(--danger)':'var(--good)'}">Bankada Trendyol'dan gelen ama ekstrede karşılığı olmayan: ${r.bankadaFazla.length}</b>${r.bankadaFazla.map(b=>`<br>${d(b.tarih)} · ${f(b.tutar)}${b.odeme_no?' · ödeme '+esc(b.odeme_no):''}`).join('')}</div>
