@@ -1188,7 +1188,7 @@ async function deleteCustomerConfirm(id){
   const customer = state.customers.find(c=>c.id===id);
   const bal = customerBalance(id, ordersFor(id));
   if(bal !== 0){
-    alert(`${customer?displayName(customer):'Bu müşterinin'} bakiyesi sıfır değil (${balanceLabel(bal)}) — silinemez.\n\nÖnce ödeme kaydedin veya ilgili siparişleri iade alın/iptal edin, bakiye sıfırlandıktan sonra tekrar deneyin.`);
+    alert(`${customer?displayName(customer):'Bu müşterinin'} bakiyesi sıfır değil (${balanceLabelFor(id, bal)}) — silinemez.\n\nÖnce ödeme kaydedin veya ilgili siparişleri iade alın/iptal edin, bakiye sıfırlandıktan sonra tekrar deneyin.`);
     return;
   }
   if(!confirm(`${customer?displayName(customer):'Bu müşteriyi'} ve tüm kayıtlarını silmek istediğinize emin misiniz?`)) return;
@@ -1726,6 +1726,7 @@ function renderRevenueBox(){
   const yearly = {};  // 'YYYY' -> total
   state.orders.forEach(o=>{
     if(!isRichOrder(o) || o.status==='cancelled' || o.status==='draft') return;
+    if(isKanalCari(o.customerId)) return; // TL tutulan pazaryeri siparişleri dolar ciroya karışmasın
     const dateStr = orderDateOf(o);
     if(!dateStr) return;
     const ym = dateStr.slice(0,7), y = dateStr.slice(0,4);
@@ -1857,7 +1858,7 @@ function renderList(){
           <div class="name-cell">
             <div class="name-row"><span class="cust-id">${customerCodeDisplay(c)}</span>${nameLineHTML(c)}</div>
             <div style="margin-top:5px">${lastContactPillHTML(c.id)}</div>
-            <div class="mini-meta">Kayıt: ${c.createdAt?fmtDate(c.createdAt):'—'} · Toplam: ${formatMoney(totalOrderValue(ordersFor(c.id)))}${lastOrderOf(ordersFor(c.id)) ? ' · Son sipariş: '+formatMoney(orderAmount(lastOrderOf(ordersFor(c.id)))) : ''} · <span style="color:${balanceColor(customerBalance(c.id,ordersFor(c.id)))}">Bakiye: ${balanceLabel(customerBalance(c.id,ordersFor(c.id)))}</span></div>
+            <div class="mini-meta">Kayıt: ${c.createdAt?fmtDate(c.createdAt):'—'} · Toplam: ${formatMoney(totalOrderValue(ordersFor(c.id)))}${lastOrderOf(ordersFor(c.id)) ? ' · Son sipariş: '+formatMoney(orderAmount(lastOrderOf(ordersFor(c.id)))) : ''} · <span style="color:${balanceColor(customerBalance(c.id,ordersFor(c.id)))}">Bakiye: ${balanceLabelFor(c.id, customerBalance(c.id,ordersFor(c.id)))}</span></div>
           </div>
           <div style="color:var(--muted)">${esc(c.country)}</div>
           <div>${statusPillHTML(ordersFor(c.id))}</div>
