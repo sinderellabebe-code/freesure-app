@@ -215,6 +215,10 @@ async function handlePost(body){
     }));
     return await callApi(a, Object.assign({}, body, { images, auth: undefined }));
   }
+  if(a === 'kanalCariBanka'){
+    const { data, error } = await sb.rpc('kanal_cari_banka', { p: { kanal: body.kanal || 'trendyol', eslesmeler: body.eslesmeler || [] } });
+    return error ? { ok: false, error: error.message || 'hata' } : data;
+  }
   const params = Object.assign({}, body); delete params.auth; delete params.action;
   return await callApi(a, params);
 }
