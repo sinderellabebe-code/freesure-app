@@ -182,6 +182,10 @@ async function handleGet(u){
   }
   if(action === 'tcmbRate') return await tcmbRate();
   if(!await haveSession()) return { ok: false, error: 'unauthorized' };
+  if(action === 'kanalCari'){
+    const { data, error } = await sb.rpc('kanal_cari_liste', { p: { kanal: q.get('kanal') || 'trendyol' } });
+    return error ? { error: error.message || 'hata' } : data;
+  }
   if(!action && key){
     const v = await callApi('getKey', { key });
     return v;
