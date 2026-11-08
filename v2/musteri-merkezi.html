@@ -351,7 +351,46 @@ function orderDateOf(o){ return isRichOrder(o) ? (o.createdAt||'').slice(0,10) :
 function paymentsFor(cid){ return state.payments.filter(p=>p.customerId===cid); }
 function paymentSigned(p){ const a=Number(p.amount)||0; return p.kind==='charge' ? -a : a; } // 'charge' = elle girilen borç (bakiyeyi artırır); aksi halde alacak/ödeme (bakiyeyi düşürür)
 function totalPaymentsFor(cid){ return paymentsFor(cid).reduce((sum,p)=>sum+paymentSigned(p),0); }
+// ---- Pazaryeri (Trendyol) cari: bakiye yalnızca pazaryeri ekstresinden gelir ve TL'dir ----
+function isKanalCari(customerId){
+  const c = state.customers.find(x=>x.id===customerId);
+  return !!(c && /^trendyol$/i.test(String(c.firma||'').trim()) && state.kanalCari && !state.kanalCari.error && typeof state.kanalCari.bakiye === 'number');
+}
+function moneyFor(customerId, n){ return isKanalCari(customerId) ? (formatMoney(n)+' ₺') : ('$'+formatMoney(n)); }
+function balanceLabelFor(customerId, bal){
+  if(!isKanalCari(customerId)) return balanceLabel(bal);
+  if(bal>0) return formatMoney(bal)+' ₺ (Trendyol borçlu)';
+  if(bal<0) return formatMoney(Math.abs(bal))+' ₺ (Trendyol alacaklı)';
+  return '0 ₺';
+}
+const KANAL_KAT = {satis:'Satış', iade:'İade', indirim:'Kupon / İndirim', komisyon:'Komisyon', kargo:'Kargo', platform:'Platform bedeli', stopaj:'Stopaj', odeme:'Ödeme', virman:'Virman', diger:'Diğer'};
+async function loadKanalCari(){
+  try{
+    if(!session || session.role!=='admin') return;
+    if(!state.customers.some(c=>/^trendyol$/i.test(String(c.firma||'').trim()))) return;
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=kanalCari&kanal=trendyol' + authParams);
+    const text = await res.text();
+    state.kanalCari = text ? JSON.parse(text) : null;
+    render();
+  }catch(e){ /* cari yoksa uygulama eskisi gibi çalışır */ }
+}
+function kanalCariPanelHTML(){
+  const k = state.kanalCari; if(!k || k.error) return '<div class="empty">Cari ekstre yüklenemedi.</div>';
+  const f = n => formatMoney(n)+' ₺';
+  const ozet = (k.ozet||[]).map(o=>`<tr><td>${esc(KANAL_KAT[o.kategori]||o.kategori)}</td><td style="text-align:right">${o.adet}</td><td style="text-align:right">${o.alacak?f(o.alacak):'—'}</td><td style="text-align:right">${o.borc?f(o.borc):'—'}</td></tr>`).join('');
+  const rows = (k.hareketler||[]).map(h=>`<tr><td>${h.tarih?esc(String(h.tarih).slice(0,10)):'—'}</td><td>${esc(KANAL_KAT[h.kategori]||h.kategori)}</td><td>${esc(h.aciklama||h.tur||'')}${h.siparis?' · Sipariş '+esc(h.siparis):''}${h.belge&&!h.siparis?' · '+esc(h.belge):''}</td><td style="text-align:right">${h.alacak?f(h.alacak):''}</td><td style="text-align:right">${h.borc?f(h.borc):''}</td></tr>`).join('');
+  return `<div class="extra-info-box" style="margin-bottom:12px">
+      <div class="extra-info-row"><span class="extra-info-label">Açılış</span><span class="extra-info-value">${f(k.acilis)} (08.11.2026 Trendyol toplam güncel bakiye)</span></div>
+      <div class="extra-info-row"><span class="extra-info-label">Açılıştan beri</span><span class="extra-info-value">${f(k.bakiye-k.acilis)}</span></div>
+      <div class="extra-info-row"><span class="extra-info-label">Güncel bakiye</span><span class="extra-info-value" style="font-weight:700">${f(k.bakiye)}</span></div>
+    </div>
+    <table class="table" style="width:100%;margin-bottom:14px"><thead><tr><th>Kategori</th><th style="text-align:right">Adet</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${ozet||'<tr><td colspan="4" style="color:var(--muted)">Açılıştan sonra henüz hareket yok.</td></tr>'}</tbody></table>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Hareketler Trendyol'un resmi cari ekstresinden otomatik gelir (yaklaşık 6 saatte bir güncellenir).</div>
+    <table class="table" style="width:100%"><thead><tr><th>Tarih</th><th>Kategori</th><th>Açıklama</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 function customerBalance(customerId, orders){
+  if(isKanalCari(customerId)) return state.kanalCari.bakiye;
   const owed = (orders||[]).reduce((sum,o)=> sum + orderBalanceDue(o), 0);
   const _c = state.customers.find(c=>c.id===customerId); const _ob = _c ? (Number(_c.openingBalance)||0) : 0;
   return owed - totalPaymentsFor(customerId) + _ob; // can go negative — means the customer has a credit (overpaid / paid deposit before final amount)
@@ -738,6 +777,7 @@ const state = {
   contacts: [],
   orders: [],
   payments: [],
+  kanalCari: null, // Trendyol vb. pazaryeri cari ekstresi (TL) — sunucudan
   meta: { nextCustomerNo: 1 },
   logo: null,
   countryFilter: '',
@@ -812,6 +852,7 @@ async function init(){
     showToast('Sunucuya bağlanılamadı — internet bağlantınızı kontrol edin');
   }
   state.loaded = true;
+  loadKanalCari(); // Trendyol cari (varsa) — arka planda
   const urlParams = new URLSearchParams(window.location.search);
   const deepLinkId = urlParams.get('customer');
   if(deepLinkId && state.customers.some(c=>c.id===deepLinkId)){
@@ -1870,8 +1911,8 @@ function renderDetail(customer){
     <div class="stat-card"><div class="label">Son İletişim</div><div class="value" style="font-size:14px">${(()=>{ const last=lastContactDate(customer.id); if(!last) return '—'; const days=daysBetween(last, todayISO()); return days>=NO_CONTACT_WARNING_DAYS ? `<span style="color:var(--danger)">⚠ ${fmtDate(last)}</span>` : fmtDate(last); })()}</div></div>
     <div class="stat-card"><div class="label">Toplam Sipariş</div><div class="value" style="font-size:14px">${formatMoney(totalOrderValue(orders))}</div></div>
     <div class="stat-card"><div class="label">Son Sipariş Tarihi</div><div class="value" style="font-size:14px">${lastOrderOf(orders) ? fmtDate(orderDateOf(lastOrderOf(orders))) : '—'}</div></div>
-    ${Number(customer.openingBalance)? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabel(Number(customer.openingBalance))}</div></div>` : ''}
-    <div class="stat-card"><div class="label">Bakiye</div><div class="value" style="font-size:14px;color:${balanceColor(customerBalance(customer.id,orders))}">${balanceLabel(customerBalance(customer.id,orders))}</div></div>
+    ${isKanalCari(customer.id) ? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabelFor(customer.id, Number(state.kanalCari.acilis)||0)}</div></div>` : (Number(customer.openingBalance)? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabel(Number(customer.openingBalance))}</div></div>` : '')}
+    <div class="stat-card"><div class="label">Bakiye</div><div class="value" style="font-size:14px;color:${balanceColor(customerBalance(customer.id,orders))}">${balanceLabelFor(customer.id, customerBalance(customer.id,orders))}</div></div>
   </div>
   ${orders.some(o=>isRichOrder(o)) ? `<div style="margin:-6px 0 16px"><a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş detaylarını Sipariş sayfasında gör →</a></div>` : ''}
   <div style="margin:-6px 0 16px"><a class="nav-link" href="#" onclick="openAccountStatementModal('${customer.id}');return false;">🖨 Cari Hesap Ekstresi Yazdır (PDF)</a></div>
@@ -1903,6 +1944,7 @@ function renderDetail(customer){
   <div class="tabs">
     <div class="tab ${state.detailTab==='contacts'?'active':''}" onclick="switchTab('contacts')">İletişim Geçmişi (${contacts.length})</div>
     <div class="tab ${state.detailTab==='orders'?'active':''}" onclick="switchTab('orders')">Siparişler (${orders.length})</div>
+    ${isKanalCari(customer.id) ? `<div class="tab ${state.detailTab==='kanal'?'active':''}" onclick="switchTab('kanal')">Pazaryeri Ekstresi (TL)</div>` : ''}
     <div class="tab ${state.detailTab==='payments'?'active':''}" onclick="switchTab('payments')">Ödemeler / Düzeltmeler (${paymentsFor(customer.id).length})</div>
   </div>`;
 
@@ -1967,6 +2009,8 @@ function renderDetail(customer){
         ${o.note ? `<div class="note">${esc(o.note)}</div>` : ''}
       </div>`;
     }).join('');
+  } else if(state.detailTab === 'kanal' && isKanalCari(customer.id)){
+    out += kanalCariPanelHTML();
   } else if(state.detailTab === 'payments'){
     const pays = [...paymentsFor(customer.id)].sort((a,b)=>(b.date+ (b.time||'')).localeCompare(a.date+(a.time||'')));
     out += `<div class="mini-form">
