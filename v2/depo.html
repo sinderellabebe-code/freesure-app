@@ -3587,7 +3587,7 @@ function render(){
     <div style="display:flex;align-items:center;gap:12px">
       <div class="user-badge">
         <span>${esc(session.displayName)} <span class="role-chip">${roleLabel}</span></span>
-        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();fyOpen()">💲 Fiyat Yönetimi</button><button onclick="fsMenuClose();esOpen()">🔄 Kanal Eşitleme</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
+        ${session.role==='admin' ? '<div class="fsm"><a class="nav-link" href="#" onclick="fsMenu(this,event);return false;">⚙ Yönetim ▾</a><div class="fsm-list right"><button onclick="fsMenuClose();openUsersModal()">👥 Kullanıcılar</button><button onclick="fsMenuClose();yedekAl()">💾 Yedek Al (Excel)</button><button onclick="fsMenuClose();restoreOpen()">♻ Geri Yükle</button><button onclick="fsMenuClose();kanalOpen()">🌐 Kanal Raporu</button><button onclick="fsMenuClose();fyOpen()">💲 Fiyat Yönetimi</button><button onclick="fsMenuClose();esOpen()">🔄 Kanal Eşitleme (Wix)</button><button onclick="fsMenuClose();pzOpen()">🛒 Pazaryerleri</button><button onclick="fsMenuClose();openMaintenanceModal()">🛠 Bakım Modu</button></div></div>' : ''}
         <a class="nav-link" href="#" onclick="logout();return false;">Çıkış</a>
       </div>
     </div>
@@ -5219,9 +5219,14 @@ function kanalTable(rows,cols,max){
   h+='</tbody></table></div>'; if(rows.length>max) h+='<div style="font-size:12px;color:#888;margin-top:4px">İlk '+max+' satır gösteriliyor — tamamı için Excel indirin.</div>';
   return h;
 }
+var __kanalSite=null;
+function kanalSiteSec(i){ __kanalSite=i; kanalRender(__kanalData); }
 function kanalRender(d){
-  var h='<div style="margin-bottom:6px;font-size:12px;color:#777">Wix siteleri: '+(d.sitesFound||[]).map(function(s){return kanalEsc(s.ad)+' ['+kanalEsc(s.id)+']';}).join(' · ')+'</div><div style="margin-bottom:10px;font-size:13px">Depoda aktif kayıt: <b>'+d.depoSkus+'</b> barkod</div><button class="btn ghost small" onclick="kanalExcel()">⬇ Excel olarak indir</button>';
-  d.sites.forEach(function(s){
+  var idx=__kanalSite;
+  if(idx==null||!d.sites[idx]){ idx=d.sites.findIndex(function(s){return /freesureshop/i.test(s.site||'');}); if(idx<0) idx=0; __kanalSite=idx; } // varsayılan: freesureshop
+  var tabs='<div style="display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap">'+d.sites.map(function(s,i){return '<button class="btn small '+(i===idx?'primary':'ghost')+'" onclick="kanalSiteSec('+i+')">'+kanalEsc(s.site)+'</button>';}).join('')+'</div>';
+  var h=tabs+'<div style="margin-bottom:10px;font-size:13px">Depoda aktif kayıt: <b>'+d.depoSkus+'</b> barkod</div><button class="btn ghost small" onclick="kanalExcel()">⬇ Excel olarak indir ('+kanalEsc((d.sites[idx]||{}).site||'')+')</button>';
+  [d.sites[idx]].forEach(function(s){
     h+='<div style="margin-top:18px;border-top:2px solid #3D5A52;padding-top:10px"><h3 style="margin:0 0 6px">'+kanalEsc(s.site)+'</h3>';
     if(!s.ok){ h+='<p style="color:#B5402F">Okunamadı: '+kanalEsc(s.error)+'</p></div>'; return; }
     h+='<div style="font-size:13px;margin-bottom:8px">Katalog: '+kanalEsc(s.version)+' · Sitede varyant: <b>'+s.wixVariants+'</b> · Depoyla eşleşen: <b>'+s.matched+'</b>'+(s.note?' · <span style="color:#B5402F">'+kanalEsc(s.note)+'</span>':'')+'</div>';
@@ -5237,8 +5242,8 @@ async function kanalExcel(){
   if(!__kanalData||!window.ExcelJS) return;
   var wb=new ExcelJS.Workbook();
   var add=function(name,rows,cols){ var ws=wb.addWorksheet(name.slice(0,31)); ws.addRow(cols.map(function(c){return c[1];})); rows.forEach(function(r){ws.addRow(cols.map(function(c){var v=r[c[0]]; return Array.isArray(v)?v.join(', '):v;}));}); ws.getRow(1).font={bold:true}; ws.columns.forEach(function(c){c.width=18;}); };
-  __kanalData.sites.forEach(function(s){
-    if(!s.ok) return; var n=s.site.replace(/[^a-z]/gi,'').slice(0,12);
+  [__kanalData.sites[__kanalSite||0]].forEach(function(s){
+    if(!s||!s.ok) return; var n=s.site.replace(/[^a-z]/gi,'').slice(0,12);
     add(n+' Sitede Yok',s.notOnSite,[['refNo','Ref'],['color','Renk'],['sizes','Bedenler'],['stock','Stok']]);
     add(n+' Kapalı Stoklu',(s.closedInStock||[]).map(function(r){return {name:r.name,sizes:r.sizes.sort(),stock:r.stock};}),[['name','Model'],['sizes','Stoklu bedenler'],['stock','Toplam stok']]);
     add(n+' Depoda Yok',s.wixOnly,[['sku','SKU'],['name','Ürün'],['price','Fiyat']]);
@@ -5246,6 +5251,79 @@ async function kanalExcel(){
   });
   var buf=await wb.xlsx.writeBuffer();
   downloadBlob('kanal-raporu-'+new Date().toISOString().slice(0,10)+'.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
+}
+
+
+// ================= PAZARYERLERİ (yönetici) — Trendyol yönetim ve denetim paneli =================
+// Not: Wix için "Kanal Eşitleme (Wix)" kullanılır. Diğer pazaryerleri aynı panele sekme olarak eklenecek.
+var __pz=null;
+function pzClose(){ var e=document.getElementById('pz-ov'); if(e) e.remove(); }
+async function pzCall(body){
+  var r=await window.fsSupabase.functions.invoke('trendyol-esitle',{body:body}), d=r.data;
+  if(r.error&&!d){ var m=r.error.message||'hata'; try{var b=await r.error.context.json(); if(b&&b.error) m=b.error;}catch(e){} throw new Error(m); }
+  if(!d||d.ok===false) throw new Error((d&&d.error)||'Yanıt alınamadı');
+  return d;
+}
+function pzEsc(x){ return String(x==null?'':x).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function pzOpen(){
+  if(session.role!=='admin'){ showToast('Yalnızca yönetici'); return; }
+  pzClose();
+  var ov=document.createElement('div'); ov.id='pz-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(35,44,42,.5);z-index:9000;overflow:auto;padding:30px 12px';
+  ov.innerHTML='<div style="background:#fff;max-width:960px;margin:0 auto;border-radius:10px;padding:22px"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🛒 Pazaryerleri</h2><button class="btn ghost small" onclick="pzClose()">✕ Kapat</button></div>'
+   +'<div style="display:flex;gap:6px;margin:12px 0"><button class="btn small primary">Trendyol</button><button class="btn small ghost" disabled title="Yakında">Hepsiburada</button><button class="btn small ghost" disabled title="Yakında">Çiçeksepeti</button><button class="btn small ghost" disabled title="Yakında">Pazarama</button><button class="btn small ghost" disabled title="Yakında">Amazon</button></div>'
+   +'<div id="pz-body" style="font-size:13px">Yükleniyor…</div></div>';
+  document.body.appendChild(ov); pzYenile();
+}
+async function pzYenile(){
+  var b=document.getElementById('pz-body'); if(!b) return;
+  try{ __pz=await pzCall({mode:'durum'}); pzRender(); }
+  catch(e){ b.innerHTML='<span style="color:#B5402F">Okunamadı: '+pzEsc(e.message)+' (trendyol-esitle fonksiyonu güncel mi?)</span>'; }
+}
+function pzTog(key,label,desc,on){
+  return '<label style="display:flex;gap:10px;align-items:flex-start;border:1px solid #e4e4e4;border-radius:8px;padding:10px 12px;cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="pzAyar(\''+key+'\',this.checked)" style="margin-top:3px"><span><b>'+label+'</b> <span style="color:'+(on?'#2E7D4F':'#B5402F')+'">'+(on?'AÇIK':'KAPALI')+'</span><br><span style="color:#777;font-size:12px">'+desc+'</span></span></label>';
+}
+function pzTarih(t){ if(!t) return '—'; var d=new Date(t); return isNaN(d.getTime())?'—':d.toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function pzRender(){
+  var d=__pz, a=d.ayar||{}, u=d.urunler||{}, b=document.getElementById('pz-body');
+  var h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px">'
+    +pzTog('aktif','Stok eşitleme','Depo stoğu (rezerve ve sanal stok kurallarıyla) 5 dakikada bir Trendyol’a yazılır.',a.aktif)
+    +pzTog('fiyat_oto','Fiyat + indirim eşitleme','Fiyat Yönetimi’ndeki fiyat ve indirimler değiştikçe Trendyol’a yazılır. Kapalıyken fiyat yalnızca aşağıdaki “Şimdi gönder” ile gider.',a.fiyat_oto)
+    +pzTog('siparis_aktif','Siparişleri depoya al','Yeni Trendyol siparişleri (salt okunur) depoda onaylı sipariş olarak açılır, stok rezerve edilir. Trendyol’da hiçbir durum değiştirilmez.',a.siparis_aktif)
+    +pzTog('cari_aktif','Cari ekstre okuma','Trendyol cari ekstresi (satış, komisyon, kargo, ödeme) yaklaşık 6 saatte bir okunur. Son okuma: '+pzTarih(a.cari_son)+' · açılıştan sonra '+(d.cariHareket||0)+' hareket.',a.cari_aktif)
+    +'</div>';
+  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
+    +[['ok','Trendyol’da eşleşen (stok/fiyat yazılıyor)','#2E7D4F'],['yok','Trendyol’da bulunamayan barkod','#777'],['gonderildi','Sonucu bekleyen','#B77B00'],['hata','Hatalı','#B5402F']].map(function(x){return '<div style="border:1px solid #e4e4e4;border-radius:8px;padding:8px 14px;min-width:150px"><div style="font-size:22px;font-weight:700;color:'+x[2]+'">'+(u[x[0]]||0)+'</div><div style="font-size:12px;color:#666">'+x[1]+'</div></div>';}).join('')+'</div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px"><button class="btn small ghost" onclick="pzYenile()">↻ Durumu yenile</button><button class="btn small ghost" onclick="pzIs(\'sonuc\')">Gönderim sonuçlarını işle</button><button class="btn small ghost" onclick="pzIs(\'onizle\')">Değişecekleri göster (stok+fiyat)</button><button class="btn small primary" onclick="pzIs(\'gonder\')">Şimdi gönder (stok+fiyat)</button><button class="btn small ghost" onclick="pzIs(\'siparis-onizle\')">Sipariş önizleme (3 gün)</button><button class="btn small ghost" onclick="pzIs(\'cari-al\')">Ekstreyi şimdi oku</button></div><div id="pz-sonuc" style="margin:8px 0;font-size:12.5px"></div>';
+  h+='<h4 style="margin:14px 0 4px">Son gönderimler</h4>'+pzTablo(d.gonderim||[],[['created_at','Zaman',pzTarih],['adet','Kalem'],['durum','Durum'],['batch_id','Batch']]);
+  h+='<h4 style="margin:14px 0 4px">Son siparişler (depoya alınan)</h4>'+pzTablo((d.siparis||[]).map(function(s){return {no:s.wix_no,durum:s.durum,zaman:s.created_at,uyari:(s.ayrinti&&(s.ayrinti.uyari||((s.ayrinti.eksik||[]).length?'eşleşmeyen kalem':'')||((s.ayrinti.yetersiz||[]).length?'stok yetersiz':'')))||''};}),[['no','Sipariş'],['durum','Depo durumu'],['zaman','Zaman',pzTarih],['uyari','Uyarı']]);
+  if((d.hatali||[]).length) h+='<h4 style="margin:14px 0 4px;color:#B5402F">Hatalı kalemler</h4>'+pzTablo(d.hatali,[['barkod','Barkod'],['son_hata','Hata']]);
+  b.innerHTML=h;
+}
+function pzTablo(rows,cols){
+  if(!rows.length) return '<div style="color:#888">Kayıt yok</div>';
+  return '<div style="overflow:auto;border:1px solid #e4e4e4;border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>'+cols.map(function(c){return '<th style="text-align:left;padding:6px 8px;background:#f5f5f2">'+c[1]+'</th>';}).join('')+'</tr></thead><tbody>'+rows.map(function(r){return '<tr>'+cols.map(function(c){var v=r[c[0]]; if(c[2]) v=c[2](v); return '<td style="padding:5px 8px;border-top:1px solid #eee">'+pzEsc(v)+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>';
+}
+async function pzAyar(key,on){
+  var msg={siparis_aktif:on?'Trendyol siparişleri bundan sonra depoya alınacak (geçmiş siparişler alınmaz). Açılsın mı?':'Sipariş alma kapatılsın mı?',aktif:on?'Stok eşitleme açılsın mı?':'Stok eşitleme kapatılsın mı? (Trendyol’daki stok güncellenmez olur)',fiyat_oto:on?'Fiyat ve indirimler otomatik Trendyol’a yazılsın mı?':'Otomatik fiyat eşitleme kapatılsın mı?',cari_aktif:on?'Cari ekstre okuma açılsın mı?':'Cari ekstre okuma kapatılsın mı?'}[key];
+  if(!confirm(msg)){ pzRender(); return; }
+  var ayar={}; ayar[key]=on;
+  try{ await pzCall({mode:'ayar',ayar:ayar}); showToast('Ayar kaydedildi'); }catch(e){ alert('Kaydedilemedi: '+e.message); }
+  pzYenile();
+}
+async function pzIs(kind){
+  var o=document.getElementById('pz-sonuc'); o.innerHTML='⏳ Çalışıyor…';
+  try{
+    if(kind==='gonder'){ if(!confirm('Değişen stok ve fiyatlar Trendyol’a şimdi gönderilsin mi?')) { o.innerHTML=''; return; } }
+    var body={sonuc:{mode:'sonuc'},onizle:{mode:'onizle',parts:{fiyat:true}},gonder:{mode:'uygula',max:3000,parts:{fiyat:true}},'siparis-onizle':{mode:'siparis-onizle',gun:3},'cari-al':{mode:'cari-al',gun:15}}[kind];
+    var d=await pzCall(body), t='';
+    if(kind==='sonuc') t='Sonuç işlendi: '+JSON.stringify(d.sonuc);
+    else if(kind==='onizle') t='Değişecek: <b>'+d.degisecek+'</b> kalem ('+d.modelSayisi+' model) · aynı kalan: '+d.ayni+(d.ornek&&d.ornek.length?'<br>Örnek: '+d.ornek.slice(0,8).map(function(x){return pzEsc(x.model+' '+x.renk+' '+x.beden+': '+x.eski+'→'+x.yeni+(x.fiyat?' · '+x.fiyat.satis+' ₺':''));}).join('; '):'');
+    else if(kind==='gonder') t='Gönderildi: <b>'+d.gonderilen+'</b> kalem'+(d.kalan?' (kalan '+d.kalan+', tekrar çalıştırın)':'')+' · sonuç Trendyol’da işlenince “Durum”a yansır.';
+    else if(kind==='siparis-onizle') t='Son 3 gün: '+d.siparis.bulunan+' paket bulundu'+((d.siparis.ornek||[]).length?'<br>'+d.siparis.ornek.map(function(x){return pzEsc(x.no+' · '+x.durum+' · '+(x.uygun?'alınır':'atlanır')+' · '+(x.kalem||[]).join(', '));}).join('<br>'):'')+(d.siparis.hatalar&&d.siparis.hatalar.length?'<br><span style="color:#B5402F">'+pzEsc(d.siparis.hatalar.join('; '))+'</span>':'');
+    else if(kind==='cari-al') t='Ekstre okundu: '+d.cari.okunan+' satır, yeni eklenen '+d.cari.yeniEklenen+(d.cari.hatalar&&d.cari.hatalar.length?' · uyarı: '+pzEsc(d.cari.hatalar.join('; ')):'');
+    o.innerHTML=t; if(kind!=='onizle'&&kind!=='siparis-onizle') pzYenile();
+  }catch(e){ o.innerHTML='<span style="color:#B5402F">Hata: '+pzEsc(e.message)+'</span>'; }
 }
 
 // ================= FİYAT YÖNETİMİ (yalnızca yönetici; Wix'e yazmaz) =================
