@@ -380,14 +380,14 @@ function kanalCariPanelHTML(){
   const f = n => formatMoney(n)+' ₺';
   const ozet = (k.ozet||[]).map(o=>`<tr><td>${esc(KANAL_KAT[o.kategori]||o.kategori)}</td><td style="text-align:right">${o.adet}</td><td style="text-align:right">${o.alacak?f(o.alacak):'—'}</td><td style="text-align:right">${o.borc?f(o.borc):'—'}</td></tr>`).join('');
   const rows = (k.hareketler||[]).map(h=>`<tr><td>${h.tarih?esc(String(h.tarih).slice(0,10)):'—'}</td><td>${esc(KANAL_KAT[h.kategori]||h.kategori)}</td><td>${esc(h.aciklama||h.tur||'')}${h.siparis?' · Sipariş '+esc(h.siparis):''}${h.belge&&!h.siparis?' · '+esc(h.belge):''}</td><td style="text-align:right">${h.alacak?f(h.alacak):''}</td><td style="text-align:right">${h.borc?f(h.borc):''}</td></tr>`).join('');
-  return `<div class="extra-info-box" style="margin-bottom:12px">
+  return `<style>.kc th,.kc td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.kc th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}</style><div class="extra-info-box" style="margin-bottom:12px">
       <div class="extra-info-row"><span class="extra-info-label">Açılış</span><span class="extra-info-value">${f(k.acilis)} (08.11.2026 Trendyol toplam güncel bakiye)</span></div>
       <div class="extra-info-row"><span class="extra-info-label">Açılıştan beri</span><span class="extra-info-value">${f(k.bakiye-k.acilis)}</span></div>
       <div class="extra-info-row"><span class="extra-info-label">Güncel bakiye</span><span class="extra-info-value" style="font-weight:700">${f(k.bakiye)}</span></div>
     </div>
-    <table class="table" style="width:100%;margin-bottom:14px"><thead><tr><th>Kategori</th><th style="text-align:right">Adet</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${ozet||'<tr><td colspan="4" style="color:var(--muted)">Açılıştan sonra henüz hareket yok.</td></tr>'}</tbody></table>
+    <table class="kc" style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px"><thead><tr><th>Kategori</th><th style="text-align:right">Adet</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${ozet||'<tr><td colspan="4" style="color:var(--muted)">Açılıştan sonra henüz hareket yok.</td></tr>'}</tbody></table>
     <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Hareketler Trendyol'un resmi cari ekstresinden otomatik gelir (yaklaşık 6 saatte bir güncellenir).</div>
-    <table class="table" style="width:100%"><thead><tr><th>Tarih</th><th>Kategori</th><th>Açıklama</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <table class="kc" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Tarih</th><th>Kategori</th><th>Açıklama</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function customerBalance(customerId, orders){
   if(isKanalCari(customerId)) return state.kanalCari.bakiye;
