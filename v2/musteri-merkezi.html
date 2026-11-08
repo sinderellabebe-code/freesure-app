@@ -249,6 +249,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="fs-backend.js"></script>
 <script>
 'use strict';
@@ -356,11 +357,17 @@ function isKanalCari(customerId){
   const c = state.customers.find(x=>x.id===customerId);
   return !!(c && /^trendyol$/i.test(String(c.firma||'').trim()) && state.kanalCari && !state.kanalCari.error && typeof state.kanalCari.bakiye === 'number');
 }
-function moneyFor(customerId, n){ return isKanalCari(customerId) ? (formatMoney(n)+' ₺') : ('$'+formatMoney(n)); }
+function isTLCustomer(customerId){
+  const c = state.customers.find(x=>x.id===customerId);
+  const f = String((c&&c.firma)||'').trim();
+  return /^trendyol$/i.test(f) || /\(wix\)\s*$/i.test(f); // TL tutulan kanal müşterileri
+}
+function moneyFor(customerId, n){ return isTLCustomer(customerId) ? (formatMoney(n)+' ₺') : ('$'+formatMoney(n)); }
 function balanceLabelFor(customerId, bal){
-  if(!isKanalCari(customerId)) return balanceLabel(bal);
-  if(bal>0) return formatMoney(bal)+' ₺ (Trendyol borçlu)';
-  if(bal<0) return formatMoney(Math.abs(bal))+' ₺ (Trendyol alacaklı)';
+  if(!isTLCustomer(customerId)) return balanceLabel(bal);
+  const who = isKanalCari(customerId) ? 'Trendyol ' : '';
+  if(bal>0) return formatMoney(bal)+' ₺'+(who?' (Trendyol borçlu)':'');
+  if(bal<0) return formatMoney(Math.abs(bal))+' ₺ ('+(who?'Trendyol alacaklı':'Alacaklı')+')';
   return '0 ₺';
 }
 const KANAL_KAT = {satis:'Satış', iade:'İade', indirim:'Kupon / İndirim', komisyon:'Komisyon', kargo:'Kargo', platform:'Platform bedeli', stopaj:'Stopaj', odeme:'Ödeme', virman:'Virman', diger:'Diğer'};
@@ -375,16 +382,84 @@ async function loadKanalCari(){
     render();
   }catch(e){ /* cari yoksa uygulama eskisi gibi çalışır */ }
 }
+
+// ---- Banka mutabakatı: banka hesap özeti (Excel) ↔ Trendyol ödeme kayıtları ----
+function bankaTutar(v){ if(typeof v==='number') return v; const x = parseFloat(String(v||'').replace(/\./g,'').replace(',','.')); return isFinite(x)?x:0; }
+function bankaTarihISO(v){ const m = String(v||'').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? (m[3]+'-'+m[2]+'-'+m[1]) : ''; }
+function bankaDosyaSec(inp){
+  const f = inp.files && inp.files[0]; if(!f) return;
+  if(!window.XLSX){ showToast('Excel kütüphanesi yüklenemedi — sayfayı yenileyin'); return; }
+  const rd = new FileReader();
+  rd.onload = ()=>{ try{ bankaAnaliz(new Uint8Array(rd.result)); }catch(e){ showToast('Dosya okunamadı: ' + (e&&e.message||e)); } };
+  rd.readAsArrayBuffer(f);
+}
+function bankaAnaliz(buf){
+  const wb = XLSX.read(buf, {type:'array'});
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, raw:true, defval:''});
+  const hi = rows.findIndex(r=>r.some(c=>/tutar/i.test(String(c))) && r.some(c=>/a[çc][ıi]klama/i.test(String(c))));
+  if(hi<0){ showToast('Banka özeti başlık satırı bulunamadı (Tarih, Tutar, Açıklama sütunları gerekli)'); return; }
+  const h = rows[hi].map(c=>String(c));
+  const cT = h.findIndex(c=>/tutar/i.test(c) && !/bakiye/i.test(c)), cA = h.findIndex(c=>/a[çc][ıi]klama/i.test(c)), cD = h.findIndex(c=>/tarih/i.test(c));
+  const body = rows.slice(hi+1).filter(r=>bankaTarihISO(r[cD]));
+  const tum = body.map(r=>bankaTarihISO(r[cD])).sort();
+  const aralik = tum.length ? {bas: tum[0], bit: tum[tum.length-1]} : null;
+  const bank = [];
+  body.forEach(r=>{
+    const metin = String(r[cA]||''); if(!/trendyol/i.test(metin)) return;
+    const tutar = bankaTutar(r[cT]); if(!(tutar>0)) return;
+    const m = metin.match(/(\d{3,6})\s*-\s*(\d{6,12})\s*-\s*TRENDYOL/i);
+    bank.push({ tarih: bankaTarihISO(r[cD]), tutar: Math.round(tutar*100)/100, odeme_no: m ? m[2] : '', satir: metin.replace(/\s+/g,' ').slice(0,200) });
+  });
+  const od = (state.kanalCari && state.kanalCari.odemeler) || [];
+  const eslesen = [], bankadaFazla = [], kullanilan = new Set();
+  bank.forEach(b=>{
+    const o = od.find(x=>x.odeme && String(x.odeme)===b.odeme_no && Math.abs(Number(x.tutar)-b.tutar)<0.01);
+    if(o){ kullanilan.add(String(o.odeme)); eslesen.push(Object.assign({}, b, {zaten: !!o.banka, ekstreTarih: o.tarih})); }
+    else bankadaFazla.push(b);
+  });
+  const ekstredeBankasiz = od.filter(x=>!x.banka && !kullanilan.has(String(x.odeme)) && aralik && String(x.tarih||'').slice(0,10) >= aralik.bas);
+  state.bankaSonuc = { aralik, eslesen, bankadaFazla, ekstredeBankasiz, trendyolSatir: bank.length };
+  render();
+}
+async function bankaKaydet(){
+  const r = state.bankaSonuc; if(!r) return;
+  const yeni = r.eslesen.filter(e=>!e.zaten).map(e=>({odeme_no:e.odeme_no, tarih:e.tarih, tutar:e.tutar, satir:e.satir}));
+  if(yeni.length===0){ showToast('Kaydedilecek yeni eşleşme yok'); return; }
+  try{
+    const res = await fetch(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({action:'kanalCariBanka', kanal:'trendyol', eslesmeler: yeni, auth: session ? {username:session.username, passwordHash:session.passwordHash} : null})});
+    const data = await res.json();
+    if(!data || !data.ok){ showToast('Kaydedilemedi: ' + ((data&&data.error)||'hata')); return; }
+    showToast(data.islenen + ' ödeme "bankada görüldü" olarak işaretlendi');
+    state.bankaSonuc = null;
+    await loadKanalCari();
+  }catch(e){ showToast('Kaydetme hatası — tekrar deneyin'); }
+}
+function bankaBlokHTML(){
+  const r = state.bankaSonuc, f = n=>formatMoney(n)+' ₺', d = x=>x?esc(fmtDate(String(x).slice(0,10))):'—';
+  let out = `<div class="extra-info-box" style="margin-bottom:12px"><div class="extra-info-row"><span class="extra-info-label">Banka mutabakatı</span><span class="extra-info-value">
+    <input type="file" accept=".xls,.xlsx,.csv" onchange="bankaDosyaSec(this)" />
+    <div style="font-size:12px;color:var(--muted);margin-top:4px">Bankadan indirdiğiniz hesap özetini (Excel) seçin. Trendyol ödemeleri ödeme numarası ve tutarla eşleştirilir. Dosya sunucuya gönderilmez, yalnızca eşleşen ödemelerin işareti kaydedilir.</div>`;
+  if(r){
+    const yeni = r.eslesen.filter(e=>!e.zaten).length;
+    out += `<div style="margin-top:10px;font-size:13px">Banka özetinde ${r.trendyolSatir} Trendyol satırı bulundu${r.aralik?` (${d(r.aralik.bas)} – ${d(r.aralik.bit)})`:''}.</div>
+      <div style="margin-top:6px;font-size:13px"><b style="color:var(--good)">✓ Eşleşen: ${r.eslesen.length}</b> (${yeni} yeni, ${r.eslesen.length-yeni} zaten işaretli)${r.eslesen.length?'<br>'+r.eslesen.map(e=>`${d(e.tarih)} · ${f(e.tutar)} · ödeme ${esc(e.odeme_no)}`).join('<br>'):''}</div>
+      <div style="margin-top:6px;font-size:13px"><b style="color:${r.ekstredeBankasiz.length?'var(--danger)':'var(--good)'}">Trendyol "ödedi" ama bankada görünmeyen: ${r.ekstredeBankasiz.length}</b>${r.ekstredeBankasiz.map(o=>`<br>${d(o.tarih)} · ${f(o.tutar)} · ödeme ${esc(o.odeme||'—')}`).join('')}</div>
+      <div style="margin-top:6px;font-size:13px"><b style="color:${r.bankadaFazla.length?'var(--danger)':'var(--good)'}">Bankada Trendyol'dan gelen ama ekstrede karşılığı olmayan: ${r.bankadaFazla.length}</b>${r.bankadaFazla.map(b=>`<br>${d(b.tarih)} · ${f(b.tutar)}${b.odeme_no?' · ödeme '+esc(b.odeme_no):''}`).join('')}</div>
+      <div style="margin-top:10px">${yeni?`<button class="btn small primary" onclick="bankaKaydet()">${yeni} eşleşmeyi kaydet</button> `:''}<button class="btn small ghost" onclick="state.bankaSonuc=null;render()">Kapat</button></div>`;
+  }
+  return out + `</span></div></div>`;
+}
 function kanalCariPanelHTML(){
   const k = state.kanalCari; if(!k || k.error) return '<div class="empty">Cari ekstre yüklenemedi.</div>';
   const f = n => formatMoney(n)+' ₺';
   const ozet = (k.ozet||[]).map(o=>`<tr><td>${esc(KANAL_KAT[o.kategori]||o.kategori)}</td><td style="text-align:right">${o.adet}</td><td style="text-align:right">${o.alacak?f(o.alacak):'—'}</td><td style="text-align:right">${o.borc?f(o.borc):'—'}</td></tr>`).join('');
-  const rows = (k.hareketler||[]).map(h=>`<tr><td>${h.tarih?esc(String(h.tarih).slice(0,10)):'—'}</td><td>${esc(KANAL_KAT[h.kategori]||h.kategori)}</td><td>${esc(h.aciklama||h.tur||'')}${h.siparis?' · Sipariş '+esc(h.siparis):''}${h.belge&&!h.siparis?' · '+esc(h.belge):''}</td><td style="text-align:right">${h.alacak?f(h.alacak):''}</td><td style="text-align:right">${h.borc?f(h.borc):''}</td></tr>`).join('');
+  const rows = (k.hareketler||[]).map(h=>`<tr><td>${h.tarih?esc(String(h.tarih).slice(0,10)):'—'}</td><td>${esc(KANAL_KAT[h.kategori]||h.kategori)}</td><td>${esc(h.aciklama||h.tur||'')}${h.siparis?' · Sipariş '+esc(h.siparis):''}${h.belge&&!h.siparis?' · '+esc(h.belge):''}${h.kategori==='odeme' ? (h.banka ? ' <span style="color:var(--good)">✓ bankada '+esc(fmtDate(String(h.banka).slice(0,10)))+'</span>' : ' <span style="color:var(--muted)">(bankada henüz görülmedi)</span>') : ''}</td><td style="text-align:right">${h.alacak?f(h.alacak):''}</td><td style="text-align:right">${h.borc?f(h.borc):''}</td></tr>`).join('');
   return `<style>.kc th,.kc td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.kc th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}</style><div class="extra-info-box" style="margin-bottom:12px">
       <div class="extra-info-row"><span class="extra-info-label">Açılış</span><span class="extra-info-value">${f(k.acilis)} (08.11.2026 Trendyol toplam güncel bakiye)</span></div>
       <div class="extra-info-row"><span class="extra-info-label">Açılıştan beri</span><span class="extra-info-value">${f(k.bakiye-k.acilis)}</span></div>
       <div class="extra-info-row"><span class="extra-info-label">Güncel bakiye</span><span class="extra-info-value" style="font-weight:700">${f(k.bakiye)}</span></div>
     </div>
+    ${bankaBlokHTML()}
     <table class="kc" style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px"><thead><tr><th>Kategori</th><th style="text-align:right">Adet</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${ozet||'<tr><td colspan="4" style="color:var(--muted)">Açılıştan sonra henüz hareket yok.</td></tr>'}</tbody></table>
     <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Hareketler Trendyol'un resmi cari ekstresinden otomatik gelir (yaklaşık 6 saatte bir güncellenir).</div>
     <table class="kc" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Tarih</th><th>Kategori</th><th>Açıklama</th><th style="text-align:right">Artış (+)</th><th style="text-align:right">Azalış (−)</th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -777,7 +852,8 @@ const state = {
   contacts: [],
   orders: [],
   payments: [],
-  kanalCari: null, // Trendyol vb. pazaryeri cari ekstresi (TL) — sunucudan
+  kanalCari: null,
+  bankaSonuc: null, // Trendyol vb. pazaryeri cari ekstresi (TL) — sunucudan
   meta: { nextCustomerNo: 1 },
   logo: null,
   countryFilter: '',
@@ -938,10 +1014,21 @@ async function printAccountStatement(customerId, fromDate, toDate){
   if(!window.jspdf){ showToast('PDF kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   const customer = state.customers.find(c=>c.id===customerId);
   if(!customer) return;
-  const orders = ordersFor(customerId).filter(o=>isRichOrder(o) && o.status!=='cancelled');
-  const payments = paymentsFor(customerId);
+  const kanal = isKanalCari(customerId); // Trendyol vb.: ekstre pazaryerinin kendi cari hareketlerinden, TL
+  const cur = isTLCustomer(customerId) ? (n=>formatMoney(n)+' TL') : (n=>'$'+formatMoney(n));
+  const asc = t=>String(t||'').replace(/[şŞğĞıİ]/g, c=>({'ş':'s','Ş':'S','ğ':'g','Ğ':'G','ı':'i','İ':'I'}[c])); // PDF yazı tipi Türkçe harfleri desteklemiyor
+  const KAT_EN = {satis:'Sales', iade:'Returns', indirim:'Coupon / Discount', komisyon:'Commission invoice', kargo:'Cargo invoice', platform:'Platform service fee', stopaj:'Withholding tax', odeme:'Payment received', virman:'Transfer', diger:'Other'};
+  const orders = kanal ? [] : ordersFor(customerId).filter(o=>isRichOrder(o) && o.status!=='cancelled');
+  const payments = kanal ? [] : paymentsFor(customerId);
 
   const allEntries = [];
+  if(kanal){
+    (state.kanalCari.hareketler||[]).forEach(h=>{
+      if(!h.tarih) return;
+      const ref = h.siparis ? (' - Order ' + h.siparis) : (h.belge ? (' - ' + h.belge) : '');
+      allEntries.push({ date: String(h.tarih).slice(0,10), time: String(h.tarih).slice(11,19)||'00:00:00', desc: (KAT_EN[h.kategori]||asc(h.tur)) + ref, debit: Number(h.alacak)||0, credit: Number(h.borc)||0 });
+    });
+  }
   orders.forEach(o=>{
     const t = orderEntryTime(o);
     allEntries.push({ date: orderDateOf(o), time: t, desc: 'Order ' + (o.orderNo||''), debit: orderAmount(o), credit: 0 });
@@ -956,7 +1043,7 @@ async function printAccountStatement(customerId, fromDate, toDate){
   });
   allEntries.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 
-  const _obase = Number(customer.openingBalance)||0;
+  const _obase = kanal ? (Number(state.kanalCari.acilis)||0) : (Number(customer.openingBalance)||0);
   let openingBalance = _obase;
   let entries = allEntries;
   if(fromDate){
@@ -1014,7 +1101,7 @@ async function printAccountStatement(customerId, fromDate, toDate){
     doc.setFont('helvetica','italic'); doc.setFontSize(8.5); doc.setTextColor(100,100,100);
     doc.text('Opening Balance', colDesc, y);
     doc.setFont('helvetica','bold');
-    doc.text('$'+formatMoney(Math.abs(openingBalance)) + (openingBalance<0?' CR':''), colBal, y, {align:'right'});
+    doc.text(cur(Math.abs(openingBalance)) + (openingBalance<0?' CR':''), colBal, y, {align:'right'});
     doc.setTextColor(0,0,0);
     y += 6.5;
     doc.setDrawColor(240,240,240); doc.line(margin, y-2.5, pageW-margin, y-2.5);
@@ -1033,10 +1120,10 @@ async function printAccountStatement(customerId, fromDate, toDate){
     const d = new Date(e.date);
     doc.text(isNaN(d.getTime()) ? e.date : d.toLocaleDateString('tr-TR'), colDate, y);
     doc.text(e.desc, colDesc, y, {maxWidth: colDebit-colDesc-4});
-    doc.text(e.debit>0 ? '$'+formatMoney(e.debit) : '—', colDebit, y, {align:'right'});
-    doc.text(e.credit>0 ? '$'+formatMoney(e.credit) : '—', colCredit, y, {align:'right'});
+    doc.text(e.debit>0 ? cur(e.debit) : '—', colDebit, y, {align:'right'});
+    doc.text(e.credit>0 ? cur(e.credit) : '—', colCredit, y, {align:'right'});
     doc.setFont('helvetica','bold');
-    doc.text('$'+formatMoney(Math.abs(e.balance)) + (e.balance<0?' CR':''), colBal, y, {align:'right'});
+    doc.text(cur(Math.abs(e.balance)) + (e.balance<0?' CR':''), colBal, y, {align:'right'});
     y += 6.5;
     doc.setDrawColor(240,240,240); doc.line(margin, y-2.5, pageW-margin, y-2.5);
   });
@@ -1046,7 +1133,7 @@ async function printAccountStatement(customerId, fromDate, toDate){
   y += 7;
   doc.setFont('helvetica','bold'); doc.setFontSize(11);
   doc.text('Closing Balance', pageW-margin-55, y);
-  doc.text('$'+formatMoney(Math.abs(running)) + (running<0?' (Credit)':''), pageW-margin, y, {align:'right'});
+  doc.text(cur(Math.abs(running)) + (running<0?' (Credit)':''), pageW-margin, y, {align:'right'});
 
   addPdfFooterToAllPages(doc, pageW, pageH, margin);
   doc.save(`Hesap-Ekstresi-${(customer.adSoyad||customer.firma||'musteri').replace(/[^a-zA-Z0-9]/g,'-')}.pdf`);
@@ -1726,7 +1813,7 @@ function renderRevenueBox(){
   const yearly = {};  // 'YYYY' -> total
   state.orders.forEach(o=>{
     if(!isRichOrder(o) || o.status==='cancelled' || o.status==='draft') return;
-    if(isKanalCari(o.customerId)) return; // TL tutulan pazaryeri siparişleri dolar ciroya karışmasın
+    if(isTLCustomer(o.customerId)) return; // TL tutulan kanal siparişleri (Trendyol/Wix) dolar ciroya karışmasın
     const dateStr = orderDateOf(o);
     if(!dateStr) return;
     const ym = dateStr.slice(0,7), y = dateStr.slice(0,4);
@@ -1912,7 +1999,7 @@ function renderDetail(customer){
     <div class="stat-card"><div class="label">Son İletişim</div><div class="value" style="font-size:14px">${(()=>{ const last=lastContactDate(customer.id); if(!last) return '—'; const days=daysBetween(last, todayISO()); return days>=NO_CONTACT_WARNING_DAYS ? `<span style="color:var(--danger)">⚠ ${fmtDate(last)}</span>` : fmtDate(last); })()}</div></div>
     <div class="stat-card"><div class="label">Toplam Sipariş</div><div class="value" style="font-size:14px">${formatMoney(totalOrderValue(orders))}</div></div>
     <div class="stat-card"><div class="label">Son Sipariş Tarihi</div><div class="value" style="font-size:14px">${lastOrderOf(orders) ? fmtDate(orderDateOf(lastOrderOf(orders))) : '—'}</div></div>
-    ${isKanalCari(customer.id) ? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabelFor(customer.id, Number(state.kanalCari.acilis)||0)}</div></div>` : (Number(customer.openingBalance)? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabel(Number(customer.openingBalance))}</div></div>` : '')}
+    ${isKanalCari(customer.id) ? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabelFor(customer.id, Number(state.kanalCari.acilis)||0)}</div></div>` : (Number(customer.openingBalance)? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabelFor(customer.id, Number(customer.openingBalance))}</div></div>` : '')}
     <div class="stat-card"><div class="label">Bakiye</div><div class="value" style="font-size:14px;color:${balanceColor(customerBalance(customer.id,orders))}">${balanceLabelFor(customer.id, customerBalance(customer.id,orders))}</div></div>
   </div>
   ${orders.some(o=>isRichOrder(o)) ? `<div style="margin:-6px 0 16px"><a class="nav-link" href="siparis.html" target="_blank" rel="noopener">Sipariş detaylarını Sipariş sayfasında gör →</a></div>` : ''}
@@ -2028,8 +2115,8 @@ function renderDetail(customer){
         <div class="meta">
           <span>${fmtDate(p.date)}${p.time?' · '+esc(p.time):''}</span>
           ${p.kind==='charge'
-            ? `<span style="font-weight:700;color:var(--danger)">Borç +$${formatMoney(p.amount)}</span>`
-            : `<span style="font-weight:700;color:var(--good)">Ödeme −$${formatMoney(p.amount)}</span>`}
+            ? `<span style="font-weight:700;color:var(--danger)">Borç +${moneyFor(customer.id, p.amount)}</span>`
+            : `<span style="font-weight:700;color:var(--good)">Ödeme −${moneyFor(customer.id, p.amount)}</span>`}
           ${p.createdBy ? `<span style="color:var(--muted);font-size:11px">· ${esc(p.createdBy)}</span>` : ''}
           <button class="btn small ghost" style="margin-left:auto;padding:2px 8px" onclick="deletePayment('${customer.id}','${p.id}')">Sil</button>
         </div>
