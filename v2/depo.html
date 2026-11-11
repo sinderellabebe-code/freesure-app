@@ -5286,7 +5286,13 @@ function pzTog(key,label,desc,on){
 function pzTarih(t){ if(!t) return '—'; var d=new Date(t); return isNaN(d.getTime())?'—':d.toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 function pzRender(){
   var d=__pz, a=d.ayar||{}, u=d.urunler||{}, b=document.getElementById('pz-body');
-  var h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px">'
+  var __ot=a.otomasyon_son?Math.round((Date.now()-new Date(a.otomasyon_son).getTime())/60000):null, __on=!!(a.aktif||a.siparis_aktif), __bn='';
+  if(__on){
+    if(__ot===null) __bn='<div style="border:1px solid #d9c9a0;background:#fff8e6;color:#8a6200;border-radius:8px;padding:9px 12px;margin-bottom:10px">⏳ Otomatik tur henüz kayıt düşmedi (fonksiyon güncellemesinden sonraki ilk tur bekleniyor).</div>';
+    else if(__ot>15) __bn='<div style="border:1px solid #e0b4ab;background:#fdecea;color:#B5402F;border-radius:8px;padding:9px 12px;margin-bottom:10px"><b>⚠ Otomatik tur '+(__ot>=120?Math.round(__ot/60)+' saattir':__ot+' dakikadır')+' çalışmadı</b> (son: '+pzTarih(a.otomasyon_son)+'). Siparişler ve stok güncellenmiyor olabilir. Zamanlanmış görev yanıtlarına (401?) bakın; bu arada “Siparişleri şimdi al” kullanın.</div>';
+    else __bn='<div style="color:#2E7D4F;font-size:12.5px;margin-bottom:8px">✓ Otomatik tur çalışıyor · son: '+pzTarih(a.otomasyon_son)+' ('+__ot+' dk önce)</div>';
+  }
+  var h=__bn+'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px">'
     +pzTog('aktif','Stok eşitleme','Depo stoğu (rezerve ve sanal stok kurallarıyla) 5 dakikada bir Trendyol’a yazılır.',a.aktif)
     +pzTog('fiyat_oto','Fiyat + indirim eşitleme','Fiyat Yönetimi’ndeki fiyat ve indirimler değiştikçe Trendyol’a yazılır. Kapalıyken fiyat yalnızca aşağıdaki “Şimdi gönder” ile gider.',a.fiyat_oto)
     +pzTog('siparis_aktif','Siparişleri depoya al','Yeni Trendyol siparişleri (salt okunur) depoda onaylı sipariş olarak açılır, stok rezerve edilir. Trendyol’da hiçbir durum değiştirilmez.',a.siparis_aktif)
