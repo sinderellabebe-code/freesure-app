@@ -237,6 +237,11 @@ function parseBulkLine(line){
   return parts.map(p=>p.trim());
 }
 function formatMoney(n){ return (Number(n)||0).toLocaleString('tr-TR', {maximumFractionDigits:2}); }
+// TL tutulan kanal müşterileri (Trendyol ve "(Wix)" ile biten): tutarlar ₺ (PDF'te TL), diğerleri $
+function isTLCust(customerId){ const c = (state.customers||[]).find(x=>x.id===customerId); const f = String((c&&c.firma)||'').trim(); return /^trendyol$/i.test(f) || /\(wix\)\s*$/i.test(f); }
+function money(customerId, n){ return isTLCust(customerId) ? (formatMoney(n)+' ₺') : ('$'+formatMoney(n)); }
+function moneyPdf(customerId, n){ return isTLCust(customerId) ? (formatMoney(n)+' TL') : ('$'+formatMoney(n)); }
+function curSym(customerId){ return isTLCust(customerId) ? '₺' : '$'; }
 function csvField(v){ const s = String(v==null?'':v); if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"'; return s; }
 function downloadBlob(filename, mime, content){
   const blob = new Blob([content], {type: mime});
@@ -1178,22 +1183,23 @@ function removeOrderColorLine(groupKey){
   state.orderDraft.lines = state.orderDraft.lines.filter(l=>l.groupKey!==groupKey);
   render();
 }
-function balanceLabelValue(balance){
+function balanceLabelValue(balance, cid, pdf){
+  const M = pdf ? moneyPdf : money;
   // Negative balance means the customer has paid more than they owe — a credit, not a debt.
   // Surface it explicitly instead of silently clamping to zero, so it can be tracked and
   // applied to a future order or refunded.
   if(balance < -0.004){
-    return {label:'Alacaklı Bakiye (Fazla Ödeme)', value:'$'+formatMoney(Math.abs(balance)), color:'var(--good)'};
+    return {label:'Alacaklı Bakiye (Fazla Ödeme)', value:M(cid, Math.abs(balance)), color:'var(--good)'};
   }
-  return {label:'Balance Due', value:'$'+formatMoney(balance), color: balance>0.004 ? 'var(--danger)' : 'var(--good)'};
+  return {label:'Balance Due', value:M(cid, balance), color: balance>0.004 ? 'var(--danger)' : 'var(--good)'};
 }
 function renderOrderTotalsBoxInner(d, subtotal, discountAmt, total, balance){
-  const bal = balanceLabelValue(balance);
+  const bal = balanceLabelValue(balance, d.customerId);
   return `<span>Total Quantity</span><span>${orderDraftQtyByUnit(d)}</span>
-    <span>Subtotal</span><span>$${formatMoney(subtotal)}</span>
-    ${discountAmt>0 ? `<span>Discount</span><span>−$${formatMoney(discountAmt)}</span>` : ''}
-    <span class="tot-label">Total</span><span class="tot-value">$${formatMoney(total)}</span>
-    ${(Number(d.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−$${formatMoney(d.deposit)}</span>` : ''}
+    <span>Subtotal</span><span>${money(d.customerId, subtotal)}</span>
+    ${discountAmt>0 ? `<span>Discount</span><span>−${money(d.customerId, discountAmt)}</span>` : ''}
+    <span class="tot-label">Total</span><span class="tot-value">${money(d.customerId, total)}</span>
+    ${(Number(d.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−${money(d.customerId, d.deposit)}</span>` : ''}
     <span class="bal-label" style="color:${bal.color}">${bal.label}</span><span class="bal-value" style="color:${bal.color}">${bal.value}</span>`;
 }
 function refreshOrderTotalsBox(changedGroupKey){
@@ -1213,7 +1219,7 @@ function refreshOrderTotalsBox(changedGroupKey){
     const span = document.getElementById('order-line-subtotal-'+changedGroupKey);
     if(line && span){
       const qty = line.sizes.reduce((s,x)=>s+x.qty,0);
-      span.innerHTML = `${qty} ${esc(unitForRefNo(line.refNo))} — Satır toplamı: <b>$${formatMoney(qty*line.unitPrice)}</b>`;
+      span.innerHTML = `${qty} ${esc(unitForRefNo(line.refNo))} — Satır toplamı: <b>${money(d.customerId, qty*line.unitPrice)}</b>`;
     }
   }
 }
@@ -3075,8 +3081,8 @@ function renderOrdersListView(){
           <td class="depo-td-muted">${fmtDateOrder(o.createdAt)}</td>
           <td style="cursor:pointer" onclick="state.selectedOrderId='${o.id}';state.view='orderDetail';render();">${esc(customerName(c))}</td>
           <td>${orderTotalQty(o)} ${esc(orderPrimaryUnit(o))}</td>
-          <td class="depo-td-muted">${(Number(o.deposit)||0)>0 ? '$'+formatMoney(o.deposit) : '—'}</td>
-          <td>$${formatMoney(orderTotal(o))}</td>
+          <td class="depo-td-muted">${(Number(o.deposit)||0)>0 ? money(o.customerId, o.deposit) : '—'}</td>
+          <td>${money(o.customerId, orderTotal(o))}</td>
           <td><span class="chip ${orderStatusChipClass(o.status)}">${orderStatusLabel(o.status)}</span>${hasShortage?' <span title="Üretim gerekiyor">⚠</span>':''}</td>
           <td class="depo-actions">
             ${o.status==='draft' ? `<button class="btn small ghost" onclick="editOrderDraft('${o.id}')">Düzenle</button>` : ''}
@@ -3193,9 +3199,9 @@ function renderOrderNewView(){
               </div>`).join('')}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
-              <label style="font-size:11px;color:var(--muted)">Birim Fiyat ($)</label>
+              <label style="font-size:11px;color:var(--muted)">Birim Fiyat (${curSym(d.customerId)})</label>
               <input type="text" value="${l.unitPrice}" style="width:80px;border:1.5px solid var(--line);border-radius:3px;padding:5px 7px" oninput="setOrderLinePrice('${attrEsc(l.groupKey)}',this.value)" />
-              <span id="order-line-subtotal-${attrEsc(l.groupKey)}" style="margin-left:auto;font-size:12px;color:var(--muted)">${l.sizes.reduce((s,x)=>s+x.qty,0)} ${esc(unitForRefNo(l.refNo))} — Satır toplamı: <b>$${formatMoney(l.sizes.reduce((s,x)=>s+x.qty,0)*l.unitPrice)}</b></span>
+              <span id="order-line-subtotal-${attrEsc(l.groupKey)}" style="margin-left:auto;font-size:12px;color:var(--muted)">${l.sizes.reduce((s,x)=>s+x.qty,0)} ${esc(unitForRefNo(l.refNo))} — Satır toplamı: <b>${money(d.customerId, l.sizes.reduce((s,x)=>s+x.qty,0)*l.unitPrice)}</b></span>
             </div>
           </div>
         </div>
@@ -3210,13 +3216,13 @@ function renderOrderNewView(){
         <select onchange="setOrderDiscountType(this.value)" style="flex:1">
           <option value="" ${!d.discountType?'selected':''}>Yok</option>
           <option value="percent" ${d.discountType==='percent'?'selected':''}>Yüzde (%)</option>
-          <option value="amount" ${d.discountType==='amount'?'selected':''}>Tutar ($)</option>
+          <option value="amount" ${d.discountType==='amount'?'selected':''}>Tutar (${curSym(d.customerId)})</option>
         </select>
         ${d.discountType ? `<input type="text" value="${d.discountValue}" style="width:90px" oninput="setOrderDiscountValue(this.value)" />` : ''}
       </div>
     </div>
     <div class="field">
-      <label>Peşinat ($)</label>
+      <label>Peşinat (${curSym(d.customerId)})</label>
       <input type="text" value="${d.deposit}" oninput="setOrderDeposit(this.value)" />
     </div>
   </div>
@@ -3294,7 +3300,7 @@ function renderOrderDetailView(order){
         <div style="font-size:11px;color:var(--muted)">${fmtDateTimeOrder(r.returnedAt)}${r.returnedBy?' · '+esc(r.returnedBy):''}</div>
         ${r.lines.map(l=>`<div>• ${esc(l.refNo)} ${esc(l.colorName)} ${esc(l.sizeLabel)}: ${l.qty} adet</div>`).join('')}
       </div>`).join('')}
-      <div style="margin-top:6px;font-weight:700">Toplam iade tutarı: $${formatMoney(orderReturnedAmount(order))}</div>
+      <div style="margin-top:6px;font-weight:700">Toplam iade tutarı: ${money(order.customerId, orderReturnedAmount(order))}</div>
     </div>
   </div>` : ''}
 
@@ -3325,8 +3331,8 @@ function renderOrderDetailView(order){
           <div style="color:var(--muted);font-size:12.5px;margin-top:3px">${g.sizes.map(s=>`${esc(s.sizeLabel)}: ${s.qty}`).join('  ·  ')} <span style="color:var(--ink)">(${g.sizes.reduce((s,x)=>s+x.qty,0)} ${esc(unitForRefNo(g.refNo))})</span></div>
         </div>
         <div style="text-align:right">
-          <div style="font-size:12px;color:var(--muted)">$${formatMoney(g.unitPrice)} / ${esc(unitForRefNo(g.refNo))}</div>
-          <div style="font-weight:700">$${formatMoney(g.sizes.reduce((s,x)=>s+x.qty,0)*g.unitPrice)}</div>
+          <div style="font-size:12px;color:var(--muted)">${money(order.customerId, g.unitPrice)} / ${esc(unitForRefNo(g.refNo))}</div>
+          <div style="font-weight:700">${money(order.customerId, g.sizes.reduce((s,x)=>s+x.qty,0)*g.unitPrice)}</div>
         </div>
       </div>
     `).join('')}
@@ -3334,12 +3340,12 @@ function renderOrderDetailView(order){
 
   <div class="order-totals-box">
     <span>Total Quantity</span><span>${orderQtyByUnit(order)}</span>
-    <span>Subtotal</span><span>$${formatMoney(subtotal)}</span>
-    ${discountAmt>0 ? `<span>Discount</span><span>−$${formatMoney(discountAmt)}</span>` : ''}
-    <span class="tot-label">Total</span><span class="tot-value">$${formatMoney(total)}</span>
-    ${(Number(order.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−$${formatMoney(order.deposit)}</span>` : ''}
-    ${orderReturnedAmount(order)>0 ? `<span>Returned</span><span>−$${formatMoney(orderReturnedAmount(order))}</span>` : ''}
-    <span class="bal-label" style="color:${balanceLabelValue(balance).color}">${balanceLabelValue(balance).label}</span><span class="bal-value" style="color:${balanceLabelValue(balance).color}">${balanceLabelValue(balance).value}</span>
+    <span>Subtotal</span><span>${money(order.customerId, subtotal)}</span>
+    ${discountAmt>0 ? `<span>Discount</span><span>−${money(order.customerId, discountAmt)}</span>` : ''}
+    <span class="tot-label">Total</span><span class="tot-value">${money(order.customerId, total)}</span>
+    ${(Number(order.deposit)||0)>0 ? `<span>Deposit Paid</span><span>−${money(order.customerId, order.deposit)}</span>` : ''}
+    ${orderReturnedAmount(order)>0 ? `<span>Returned</span><span>−${money(order.customerId, orderReturnedAmount(order))}</span>` : ''}
+    <span class="bal-label" style="color:${balanceLabelValue(balance, order.customerId).color}">${balanceLabelValue(balance, order.customerId).label}</span><span class="bal-value" style="color:${balanceLabelValue(balance, order.customerId).color}">${balanceLabelValue(balance, order.customerId).value}</span>
   </div>
   ${order.notes ? `<div class="extra-info-box"><div class="extra-info-row"><span class="extra-info-label">Note</span><span class="extra-info-value">${esc(order.notes)}</span></div></div>` : ''}`;
   return out;
@@ -3471,9 +3477,9 @@ async function buildOrderProformaPDF(order){
     doc.text(`Ref: ${m.refNo}`, margin, y+4);
     doc.setFont('helvetica','normal'); doc.setFontSize(9);
     doc.text(`${totalQty} ${m.unit}`, pageW-margin-42, y+4, {align:'right'});
-    doc.text(`$${formatMoney(m.unitPrice)}`, pageW-margin-22, y+4, {align:'right'});
+    doc.text(`${moneyPdf(order.customerId, m.unitPrice)}`, pageW-margin-22, y+4, {align:'right'});
     doc.setFont('helvetica','bold');
-    doc.text(`$${formatMoney(lineTotal)}`, pageW-margin, y+4, {align:'right'});
+    doc.text(`${moneyPdf(order.customerId, lineTotal)}`, pageW-margin, y+4, {align:'right'});
     y += 6;
 
     colorRows.forEach(row=>{
@@ -3510,11 +3516,11 @@ async function buildOrderProformaPDF(order){
     y += bold ? 6 : 5;
   }
   totalsRow('Total Quantity', orderQtyByUnit(order), false);
-  totalsRow('Subtotal', '$'+formatMoney(subtotal), false);
-  if(discountAmt>0) totalsRow('Discount', '−$'+formatMoney(discountAmt), false);
-  totalsRow('Total', '$'+formatMoney(total), true);
-  if((Number(order.deposit)||0)>0) totalsRow('Deposit Paid', '−$'+formatMoney(order.deposit), false);
-  const balPdf = balanceLabelValue(balance);
+  totalsRow('Subtotal', moneyPdf(order.customerId, subtotal), false);
+  if(discountAmt>0) totalsRow('Discount', '−'+moneyPdf(order.customerId, discountAmt), false);
+  totalsRow('Total', moneyPdf(order.customerId, total), true);
+  if((Number(order.deposit)||0)>0) totalsRow('Deposit Paid', '−'+moneyPdf(order.customerId, order.deposit), false);
+  const balPdf = balanceLabelValue(balance, order.customerId, true);
   totalsRow(balPdf.label, balPdf.value, true);
 
   if(order.notes){

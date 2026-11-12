@@ -363,6 +363,8 @@ function isTLCustomer(customerId){
   return /^trendyol$/i.test(f) || /\(wix\)\s*$/i.test(f); // TL tutulan kanal müşterileri
 }
 function moneyFor(customerId, n){ return isTLCustomer(customerId) ? (formatMoney(n)+' ₺') : ('$'+formatMoney(n)); }
+// Sipariş tutarı gösterimi: TL müşterilerde ₺ eklenir, dolar müşterilerde eskisi gibi (sembolsüz)
+function amtFor(customerId, n){ return isTLCustomer(customerId) ? (formatMoney(n)+' ₺') : formatMoney(n); }
 function balanceLabelFor(customerId, bal){
   if(!isTLCustomer(customerId)) return balanceLabel(bal);
   const who = isKanalCari(customerId) ? 'Trendyol ' : '';
@@ -1949,7 +1951,7 @@ function renderList(){
           <div class="name-cell">
             <div class="name-row"><span class="cust-id">${customerCodeDisplay(c)}</span>${nameLineHTML(c)}</div>
             <div style="margin-top:5px">${lastContactPillHTML(c.id)}</div>
-            <div class="mini-meta">Kayıt: ${c.createdAt?fmtDate(c.createdAt):'—'} · Toplam: ${formatMoney(totalOrderValue(ordersFor(c.id)))}${lastOrderOf(ordersFor(c.id)) ? ' · Son sipariş: '+formatMoney(orderAmount(lastOrderOf(ordersFor(c.id)))) : ''} · <span style="color:${balanceColor(customerBalance(c.id,ordersFor(c.id)))}">Bakiye: ${balanceLabelFor(c.id, customerBalance(c.id,ordersFor(c.id)))}</span></div>
+            <div class="mini-meta">Kayıt: ${c.createdAt?fmtDate(c.createdAt):'—'} · Toplam: ${amtFor(c.id, totalOrderValue(ordersFor(c.id)))}${lastOrderOf(ordersFor(c.id)) ? ' · Son sipariş: '+amtFor(c.id, orderAmount(lastOrderOf(ordersFor(c.id)))) : ''} · <span style="color:${balanceColor(customerBalance(c.id,ordersFor(c.id)))}">Bakiye: ${balanceLabelFor(c.id, customerBalance(c.id,ordersFor(c.id)))}</span></div>
           </div>
           <div style="color:var(--muted)">${esc(c.country)}</div>
           <div>${statusPillHTML(ordersFor(c.id))}</div>
@@ -2001,7 +2003,7 @@ function renderDetail(customer){
     <div class="stat-card"><div class="label">Kayıt Tarihi</div><div class="value" style="font-size:14px">${customer.createdAt ? fmtDate(customer.createdAt) : '—'}</div></div>
     <div class="stat-card"><div class="label">Kaydeden</div><div class="value" style="font-size:14px">${customer.createdBy ? esc(customer.createdBy) : '—'}</div></div>
     <div class="stat-card"><div class="label">Son İletişim</div><div class="value" style="font-size:14px">${(()=>{ const last=lastContactDate(customer.id); if(!last) return '—'; const days=daysBetween(last, todayISO()); return days>=NO_CONTACT_WARNING_DAYS ? `<span style="color:var(--danger)">⚠ ${fmtDate(last)}</span>` : fmtDate(last); })()}</div></div>
-    <div class="stat-card"><div class="label">Toplam Sipariş</div><div class="value" style="font-size:14px">${formatMoney(totalOrderValue(orders))}</div></div>
+    <div class="stat-card"><div class="label">Toplam Sipariş</div><div class="value" style="font-size:14px">${amtFor(customer.id, totalOrderValue(orders))}</div></div>
     <div class="stat-card"><div class="label">Son Sipariş Tarihi</div><div class="value" style="font-size:14px">${lastOrderOf(orders) ? fmtDate(orderDateOf(lastOrderOf(orders))) : '—'}</div></div>
     ${isKanalCari(customer.id) ? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabelFor(customer.id, Number(state.kanalCari.acilis)||0)}</div></div>` : (Number(customer.openingBalance)? `<div class="stat-card"><div class="label">Açılış Bakiyesi</div><div class="value" style="font-size:14px">${balanceLabelFor(customer.id, Number(customer.openingBalance))}</div></div>` : '')}
     <div class="stat-card"><div class="label">Bakiye</div><div class="value" style="font-size:14px;color:${balanceColor(customerBalance(customer.id,orders))}">${balanceLabelFor(customer.id, customerBalance(customer.id,orders))}</div></div>
@@ -2085,8 +2087,8 @@ function renderDetail(customer){
             <span class="chip other">${esc(o.orderNo||'')}</span>
             <span class="chip ${statusChipClass}">${esc(statusLabel)}</span>
             <span>${fmtDate(orderDateOf(o))}</span>
-            <span style="font-weight:700;color:var(--ink)">${formatMoney(orderAmount(o))}</span>
-            ${bal>0 ? `<span style="color:var(--danger);font-size:11px">Bakiye: ${formatMoney(bal)}</span>` : ''}
+            <span style="font-weight:700;color:var(--ink)">${amtFor(customer.id, orderAmount(o))}</span>
+            ${bal>0 ? `<span style="color:var(--danger);font-size:11px">Bakiye: ${amtFor(customer.id, bal)}</span>` : ''}
             <a class="nav-link" style="margin-left:auto" href="siparis.html" target="_blank" rel="noopener">Detay →</a>
           </div>
         </div>`;
@@ -2094,7 +2096,7 @@ function renderDetail(customer){
       return `<div class="log-item">
         <div class="meta">
           <span>${fmtDate(o.date)}</span>
-          ${o.amount ? `<span style="font-weight:700;color:var(--ink)">${formatMoney(o.amount)}</span>` : ''}
+          ${o.amount ? `<span style="font-weight:700;color:var(--ink)">${amtFor(customer.id, o.amount)}</span>` : ''}
           ${o.createdBy ? `<span style="color:var(--muted);font-size:11px">· ${esc(o.createdBy)}</span>` : ''}
           <button class="btn small ghost" style="margin-left:auto;padding:2px 8px" onclick="deleteOrder('${customer.id}','${o.id}')">Sil</button>
         </div>
