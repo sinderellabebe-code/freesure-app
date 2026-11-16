@@ -956,6 +956,7 @@ const state = {
   sheetHealthLoading: false,
   sheetHealthCleaning: false,
   pendingPackingOrders: [],
+  customers: [],
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
   packingRunning: false,
@@ -1021,6 +1022,8 @@ async function init(){
         state.warehouseItems.push(all[k]);
       }
     });
+    state.customers = [];
+    Object.keys(all).forEach(k=>{ if(k.indexOf('customer:') === 0 && all[k]) state.customers.push(all[k]); });
     state.pendingPackingOrders = pendingPackingOrders;
     state.activeStockCount = activeStockCount;
   }catch(e){
@@ -3105,6 +3108,12 @@ async function submitPackOrder(){
     render();
   }
 }
+function orderCustomerLabel(o){
+  const c = (state.customers||[]).find(x=>x.id===o.customerId);
+  const code = c ? (c.customerNo ? 'M-'+String(c.customerNo).padStart(4,'0') : '#'+(c.id||'').slice(0,5).toUpperCase()) : (o.customerCode||o.cariKod||'');
+  const name = c ? (c.adSoyad && c.firma ? c.adSoyad+' ('+c.firma+')' : (c.adSoyad||c.firma||'')) : (o.customerName||o.cariAd||'');
+  return {code, name};
+}
 function renderPendingOrdersModal(){
   const orders = state.pendingPackingOrders;
   return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
@@ -3113,7 +3122,7 @@ function renderPendingOrdersModal(){
       <p style="color:var(--muted);font-size:12px;margin:-6px 0 12px">Bir siparişi hazırlamaya başlamak veya kaldığınız yerden devam etmek için sağdaki düğmeye tıklayın.</p>
       ${orders.length===0 ? `<div class="empty"><h3>Bekleyen sipariş yok</h3><p>Onaylanmış, hazırlanmayı bekleyen bir sipariş bulunmuyor.</p></div>` : `
         <div class="depo-table-wrap"><table class="depo-table" style="min-width:560px">
-          <thead><tr><th>Sipariş No</th><th>Tarih</th><th>Kalem Sayısı</th><th>Durum</th><th></th></tr></thead>
+          <thead><tr><th>Sipariş No</th><th>Cari</th><th>Tarih</th><th>Kalem Sayısı</th><th>Durum</th><th></th></tr></thead>
           <tbody>
           ${orders.map(o=>{
             const shipped = o.shippedQuantities || {};
@@ -3125,6 +3134,7 @@ function renderPendingOrdersModal(){
             const hasDraft = totalDraft>0;
             return `<tr style="cursor:pointer" onclick="openPackOrderModal('${o.id}')">
             <td style="font-weight:700">${esc(o.orderNo||'')}</td>
+            <td>${(()=>{const cl=orderCustomerLabel(o); return cl.code||cl.name ? `<b>${esc(cl.code)}</b> ${esc(cl.name)}` : '<span class="depo-td-muted">—</span>';})()}</td>
             <td class="depo-td-muted">${fmtDateOrder(o.createdAt)}</td>
             <td>${o.lines.length} kalem</td>
             <td>${isPartial ? `<span class="chip other" style="background:var(--warn-bg,#FBF0D6);color:var(--warn,#B98A1E)" title="Kısmen hazırlandı, eksik kaldı">⚠ ${totalShipped}/${totalNeeded} hazırlandı</span>` : (hasDraft ? `<span class="chip other" title="Taslak ilerleme var, henüz kaydedilmedi">⏸ ${totalDraft}/${totalNeeded} taslak</span>` : `<span class="depo-td-muted">Başlanmadı</span>`)}</td>
@@ -3150,7 +3160,7 @@ function renderPackOrderModal(){
   return `<div class="overlay">
     <div class="modal wide">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <h2 style="margin:0">Sipariş Hazırla — ${esc(order.orderNo)}</h2>
+        <div><h2 style="margin:0">Sipariş Hazırla — ${esc(order.orderNo)}</h2>${(()=>{const cl=orderCustomerLabel(order); return cl.code||cl.name ? `<div style="font-size:13px;margin-top:4px"><b>${esc(cl.code)}</b> ${esc(cl.name)}</div>` : '';})()}</div>
         <button class="btn small ghost" ${running?'disabled':''} onclick="closePackOrderModal()">← Geri</button>
       </div>
       <div class="field">
