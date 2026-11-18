@@ -957,6 +957,7 @@ const state = {
   sheetHealthCleaning: false,
   pendingPackingOrders: [],
   customers: [],
+  orderCust: {},
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
   packingRunning: false,
@@ -1023,7 +1024,11 @@ async function init(){
       }
     });
     state.customers = [];
-    Object.keys(all).forEach(k=>{ if(k.indexOf('customer:') === 0 && all[k]) state.customers.push(all[k]); });
+    state.orderCust = {};
+    Object.keys(all).forEach(k=>{
+      if(k.indexOf('customer:') === 0 && all[k]) state.customers.push(all[k]);
+      else if(k.indexOf('order:') === 0 && all[k]){ const od = all[k]; if(od.customerId){ if(od.id) state.orderCust[od.id] = od.customerId; if(od.orderNo) state.orderCust['no:'+od.orderNo] = od.customerId; } }
+    });
     state.pendingPackingOrders = pendingPackingOrders;
     state.activeStockCount = activeStockCount;
   }catch(e){
@@ -1101,6 +1106,13 @@ async function silentAutoRefresh(){
     state.skus = all['catalogSkus'] || state.skus;
     state.warehouseItems = newWarehouseItems;
     state.variants = newVariants;
+    const nc = [], noc = {};
+    Object.keys(all).forEach(k=>{
+      if(k.indexOf('customer:') === 0 && all[k]) nc.push(all[k]);
+      else if(k.indexOf('order:') === 0 && all[k]){ const od = all[k]; if(od.customerId){ if(od.id) noc[od.id] = od.customerId; if(od.orderNo) noc['no:'+od.orderNo] = od.customerId; } }
+    });
+    if(nc.length) state.customers = nc;
+    if(Object.keys(noc).length) state.orderCust = noc;
 
     const newPending = await fetchPendingPackingOrders();
     const newlyAppeared = newPending.filter(o=>!prevPendingIds.has(o.id));
@@ -3109,7 +3121,8 @@ async function submitPackOrder(){
   }
 }
 function orderCustomerLabel(o){
-  const c = (state.customers||[]).find(x=>x.id===o.customerId);
+  const cid = o.customerId || (state.orderCust||{})[o.id] || (state.orderCust||{})['no:'+o.orderNo];
+  const c = (state.customers||[]).find(x=>x.id===cid);
   const code = c ? (c.customerNo ? 'M-'+String(c.customerNo).padStart(4,'0') : '#'+(c.id||'').slice(0,5).toUpperCase()) : (o.customerCode||o.cariKod||'');
   const name = c ? (c.adSoyad && c.firma ? c.adSoyad+' ('+c.firma+')' : (c.adSoyad||c.firma||'')) : (o.customerName||o.cariAd||'');
   return {code, name};
