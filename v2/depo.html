@@ -945,7 +945,8 @@ const state = {
   newDepoItemImage: null,
   depoFilterGender: new Set(),
   depoFilterSeason: new Set(),
-  depoFilterKanal: {},   // {kanal:'acik'|'kapali'} — kanal filtresi (3 durum: kapalı filtre → açık → kapalı)
+  depoFilterKanal: {},
+  iadeler: [], iadeTab: 'bekleyen', iadeQ: '', iadeBusy: false, iadeKanal: '', iadeNew: {kanal:'Trendyol', adet:1, siparisNo:'', neden:''},   // {kanal:'acik'|'kapali'} — kanal filtresi (3 durum: kapalı filtre → açık → kapalı)
   depoVisibleBarcodes: [],
   depoBulkCatalogRunning: false,
   depoTogglingBarcodes: new Set(),
@@ -1039,6 +1040,7 @@ async function init(){
   state.loaded = true;
   render();
   fetchKanalDurum().then(ok=>{ if(ok) render(); });
+  fetchIadeler().then(ok=>{ if(ok) render(); });
   startAutoRefresh();
   startDepoLiveClock();
 }
@@ -1134,6 +1136,7 @@ async function silentAutoRefresh(){
     if(Object.keys(noc).length) state.orderCust = noc;
 
     await fetchKanalDurum();
+    await fetchIadeler();
     const newPending = await fetchPendingPackingOrders();
     const newlyAppeared = newPending.filter(o=>!prevPendingIds.has(o.id));
     state.pendingPackingOrders = newPending;
@@ -1938,8 +1941,9 @@ function ebCollect(){
   Object.keys(by).sort().forEach(k=>{
     const pr = state.products.find(p=>padRef(p.refNo)===k);
     const g = pr && pr.gender || '', se = pr && pr.season || '';
-    if(g && se) return;
-    rows.push({ref:k, name:(pr&&pr.name)||'', colors:Array.from(by[k].colors).join(', '), stock:by[k].stock, gender:g, season:se});
+    const nm = (pr&&pr.name)||'', pc = pr ? (Number(pr.price)||0) : 0;
+    if(g && se && nm && pc>0) return;
+    rows.push({ref:k, name:nm, colors:Array.from(by[k].colors).join(', '), stock:by[k].stock, gender:g, season:se, price:pc});
   });
   return rows;
 }
@@ -1947,7 +1951,7 @@ async function ebIndir(){
   if(session.role==='depocu'){ showToast('Bu işlem için yönetici girişi gerekir'); return; }
   if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
   const rows = ebCollect();
-  if(!rows.length){ showToast('Cinsiyet ve sezon bilgisi eksik model yok 👍'); return; }
+  if(!rows.length){ showToast('Bilgisi eksik model yok 👍'); return; }
   const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('Eksik Bilgi');
   ws.columns = [
     {header:'Referans No', key:'ref', width:14},
@@ -1955,15 +1959,17 @@ async function ebIndir(){
     {header:'Renkler', key:'colors', width:40},
     {header:'Toplam Stok', key:'stock', width:13},
     {header:'Cinsiyet (Kız / Erkek / Unisex)', key:'gender', width:30},
-    {header:'Sezon (Yaz / Kış / Tüm Mevsim)', key:'season', width:30}
+    {header:'Sezon (Yaz / Kış / Tüm Mevsim)', key:'season', width:30},
+    {header:'Fiyat (USD)', key:'price', width:14}
   ];
-  rows.forEach(r=>ws.addRow({ref:r.ref, name:r.name, colors:r.colors, stock:r.stock, gender:ebGLabel(r.gender), season:ebSLabel(r.season)}));
+  rows.forEach(r=>ws.addRow({ref:r.ref, name:r.name, colors:r.colors, stock:r.stock, gender:ebGLabel(r.gender), season:ebSLabel(r.season), price:r.price>0?r.price:null}));
   const head = ws.getRow(1); head.font = {bold:true}; head.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFEFEAE0'}};
   ws.getColumn(1).numFmt = '@';
   for(let i=2;i<=rows.length+1;i++){
     ws.getCell('E'+i).dataValidation = {type:'list', allowBlank:true, formulae:['"Kız,Erkek,Unisex"']};
     ws.getCell('F'+i).dataValidation = {type:'list', allowBlank:true, formulae:['"Yaz,Kış,Tüm Mevsim"']};
-    ws.getCell('E'+i).fill = ws.getCell('F'+i).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFFFF6D6'}};
+    ['B','E','F','G'].forEach(c=>{ ws.getCell(c+i).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFFFF6D6'}}; });
+    ws.getCell('G'+i).numFmt = '#,##0.00';
   }
   ws.views = [{state:'frozen', ySplit:1}];
   const buf = await wb.xlsx.writeBuffer();
@@ -1983,29 +1989,35 @@ async function ebYukle(file){
     const ws = wb.worksheets[0];
     if(!ws){ showToast('Excel boş görünüyor'); return; }
     const cellTxt = c => { const v=c.value; if(v==null) return ''; if(typeof v==='object' && v.richText) return v.richText.map(x=>x.text).join(''); if(typeof v==='object' && v.result!=null) return String(v.result); return String(c.text!=null?c.text:v); };
-    const patches = [], bad = []; let same = 0, blank = 0;
+    const patches = [], bad = []; let same = 0, blank = 0, priceChg = 0;
     ws.eachRow((row,n)=>{
       if(n===1) return;
       const refRaw = cellTxt(row.getCell(1)).trim();
       if(!refRaw) return;
       const ref = padRef(refRaw);
       const gTxt = ebNorm(cellTxt(row.getCell(5))), sTxt = ebNorm(cellTxt(row.getCell(6)));
+      const nmTxt = cellTxt(row.getCell(2)).trim();
+      const prTxt = cellTxt(row.getCell(7)).trim().replace(/\s/g,'').replace(',','.').replace(/^\$/,'');
+      let price = null;
+      if(prTxt){ price = Number(prTxt); if(!isFinite(price) || price<=0){ bad.push('Satır '+n+' ('+ref+'): fiyat "'+prTxt+'" geçersiz'); price = null; } }
       let g = '', se = '';
       if(gTxt){ g = EB_G[gTxt]||''; if(!g){ bad.push('Satır '+n+' ('+ref+'): cinsiyet "'+gTxt+'" tanınmadı'); } }
       if(sTxt){ se = EB_S[sTxt]||''; if(!se){ bad.push('Satır '+n+' ('+ref+'): sezon "'+sTxt+'" tanınmadı'); } }
-      if(!g && !se){ blank++; return; }
+      if(!g && !se && !nmTxt && price==null){ blank++; return; }
       const pr = state.products.find(p=>padRef(p.refNo)===ref);
       if(pr){
         const patch = {id:pr.id}; let ch = false;
         if(g && pr.gender!==g){ patch.gender=g; ch=true; }
         if(se && pr.season!==se){ patch.season=se; ch=true; }
+        if(nmTxt && (pr.name||'')!==nmTxt){ patch.name=nmTxt; ch=true; }
+        if(price!=null && Number(pr.price||0)!==price){ patch.price=price; ch=true; if(Number(pr.price||0)>0) priceChg++; }
         if(ch) patches.push({patch, pr}); else same++;
       } else {
-        patches.push({patch:{id:uid(), refNo:ref, name:'', price:0, active:false, gender:g, season:se, createdAt:todayISO(), createdBy:session.displayName}, pr:null});
+        patches.push({patch:{id:uid(), refNo:ref, name:nmTxt, price:price||0, active:false, gender:g, season:se, createdAt:todayISO(), createdBy:session.displayName}, pr:null});
       }
     });
     if(!patches.length){ showToast('Güncellenecek değişiklik yok'+(blank?' ('+blank+' satır boş bırakılmış)':'')+(bad.length?' — '+bad.length+' satırda hatalı değer var':'')); if(bad.length) alert(bad.slice(0,20).join('\n')); return; }
-    const msg = patches.length+' modelin cinsiyet/sezon bilgisi güncellenecek.'+(blank?'\n'+blank+' satır boş olduğu için atlanacak.':'')+(same?'\n'+same+' satır zaten aynı.':'')+(bad.length?'\n\n⚠ '+bad.length+' satır hatalı değer nedeniyle atlanacak:\n'+bad.slice(0,10).join('\n'):'')+'\n\nDevam edilsin mi?';
+    const msg = patches.length+' modelin bilgisi (cinsiyet/sezon/ad/fiyat) güncellenecek.'+(priceChg?'\n⚠ '+priceChg+' modelde MEVCUT fiyat değişiyor (pazaryeri fiyatlarına da yansır).':'')+(blank?'\n'+blank+' satır boş olduğu için atlanacak.':'')+(same?'\n'+same+' satır zaten aynı.':'')+(bad.length?'\n\n⚠ '+bad.length+' satır hatalı değer nedeniyle atlanacak:\n'+bad.slice(0,10).join('\n'):'')+'\n\nDevam edilsin mi?';
     if(!confirm(msg)) return;
     showToast('Güncelleniyor…', true);
     let okCount = 0;
@@ -2014,7 +2026,7 @@ async function ebYukle(file){
       const ok = await patchProducts(chunk.map(x=>x.patch));
       if(!ok){ showToast('Hata: '+okCount+' model güncellendi, işlem yarıda kaldı. Sayfayı yenileyip aynı dosyayı tekrar yükleyebilirsiniz.'); render(); return; }
       chunk.forEach(x=>{
-        if(x.pr){ if(x.patch.gender) x.pr.gender=x.patch.gender; if(x.patch.season) x.pr.season=x.patch.season; }
+        if(x.pr){ ['gender','season','name','price'].forEach(f=>{ if(x.patch[f]!==undefined) x.pr[f]=x.patch[f]; }); }
         else state.products = [...state.products, x.patch];
       });
       okCount += chunk.length;
@@ -2023,6 +2035,145 @@ async function ebYukle(file){
     render();
   }catch(e){ console.error(e); showToast('Excel okunamadı: '+(e&&e.message||e)); }
 }
+
+// ===== İADELER (yarı otomatik) =====
+const IADE_KANALLAR = ['Trendyol','Wix','Hepsiburada','Çiçeksepeti','Amazon','PTT','Pazarama','Bayi / Toptan','Diğer'];
+function iadeBekleyenSayi(){ return (state.iadeler||[]).filter(x=>x.durum==='bekliyor').length; }
+async function fetchIadeler(){
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=iadeliste' + authParams);
+    const data = await res.json();
+    if(data && data.ok && Array.isArray(data.iadeler)){ state.iadeler = data.iadeler; return true; }
+  }catch(e){}
+  return false;
+}
+async function iadePost(action, payload){
+  try{
+    const res = await fetchWithTimeout(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({action, auth:{username:session.username, passwordHash:session.passwordHash}}, payload))}, 20000);
+    return await res.json();
+  }catch(e){ return {ok:false, error:'network'}; }
+}
+function iadeItemLabel(barkod){
+  const it = state.warehouseItems.find(w=>w.barcode===barkod);
+  return it ? `${esc(it.refNo||'')} ${esc(it.colorName||'')} ${esc(it.sizeLabel||'')}` : '<span style="color:var(--danger)">Depoda tanımsız barkod</span>';
+}
+function openIadeModal(){
+  state.modalMode = 'iade'; state.iadeTab = 'bekleyen'; state.iadeQ = ''; render();
+  fetchIadeler().then(ok=>{ if(ok && state.modalMode==='iade') render(); });
+}
+function iadeSetQ(v){ state.iadeQ = v; render(); }
+function iadeSetNew(f, v){ state.iadeNew[f] = v; }
+async function iadeAl(id, sonuc){
+  if(state.iadeBusy) return;
+  const r = state.iadeler.find(x=>x.id===id); if(!r) return;
+  const it = state.warehouseItems.find(w=>w.barcode===r.barkod);
+  if(!it){ showToast('Bu barkod depoda tanımlı değil — önce depo kaydı oluşturulmalı'); return; }
+  const lbl = `${it.refNo} ${it.colorName} ${it.sizeLabel} × ${r.adet} (${r.kanal})`;
+  if(!confirm(sonuc==='saglam' ? `SAĞLAM olarak STOĞA ALINACAK:\n\n${lbl}\n\nDevam edilsin mi?` : `HASARLI olarak kaydedilecek (stoğa EKLENMEZ):\n\n${lbl}\n\nDevam edilsin mi?`)) return;
+  state.iadeBusy = true; render();
+  const a = await iadePost('iadealindi', {id, sonuc, by:session.displayName});
+  if(!a.ok){
+    state.iadeBusy = false;
+    showToast(a.error==='already_processed' ? 'Bu iade zaten işlenmiş (başka biri almış olabilir)' : 'Kaydedilemedi — bağlantıyı kontrol edin');
+    await fetchIadeler(); render(); return;
+  }
+  if(sonuc==='saglam'){
+    const m = await postStockMovement(r.barkod, 'in', r.adet, 'İade — '+r.kanal+(r.siparis_no?' #'+r.siparis_no:''), it.refNo, it.colorName, it.sizeLabel, true);
+    if(!m.ok){
+      await iadePost('iadegeri', {id});
+      state.iadeBusy = false;
+      showToast('Stok girişi yapılamadı, iade tekrar bekleyenlere alındı: '+(m.blockReason||'bağlantı hatası'));
+      await fetchIadeler(); render(); return;
+    }
+    await iadePost('iadestokok', {id});
+  }
+  state.iadeBusy = false; state.iadeQ = '';
+  showDoneBanner(sonuc==='saglam' ? 'İADE STOĞA ALINDI' : 'HASARLI İADE KAYDEDİLDİ', lbl);
+  await fetchIadeler(); render();
+  const q = document.getElementById('iade-q'); if(q) q.focus();
+}
+async function iadeManuelAl(sonuc){
+  if(state.iadeBusy) return;
+  const barkod = (state.iadeQ||'').trim();
+  const it = state.warehouseItems.find(w=>w.barcode===barkod);
+  if(!it){ showToast('Önce geçerli bir barkod okutun/yazın'); return; }
+  const n = state.iadeNew;
+  const adet = Math.max(1, parseInt(n.adet,10)||1);
+  state.iadeBusy = true; render();
+  const e = await iadePost('iadeekle', {kanal:n.kanal, barkod, adet, siparisNo:n.siparisNo, neden:n.neden, by:session.displayName});
+  state.iadeBusy = false;
+  if(!e.ok){ showToast('İade kaydı açılamadı'); render(); return; }
+  await fetchIadeler();
+  await iadeAl(e.id, sonuc);
+  state.iadeNew.siparisNo = ''; state.iadeNew.neden = ''; state.iadeNew.adet = 1; render();
+}
+async function iadeIptal(id){
+  if(session.role!=='admin') return;
+  if(!confirm('Bu bekleyen iade kaydı İPTAL edilsin mi?')) return;
+  const a = await iadePost('iadeiptal', {id, by:session.displayName});
+  showToast(a.ok ? 'İade kaydı iptal edildi' : 'İptal edilemedi');
+  await fetchIadeler(); render();
+}
+function renderIadeModal(){
+  const all = state.iadeler || [];
+  const q = (state.iadeQ||'').trim();
+  const bekleyen = all.filter(x=>x.durum==='bekliyor');
+  const alinan = all.filter(x=>x.durum==='saglam'||x.durum==='hasarli');
+  const fmt = d => d ? new Date(d).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+  const tabBtn = (k,l)=>`<button class="btn small ${state.iadeTab===k?'primary':'ghost'}" onclick="state.iadeTab='${k}';render();">${l}</button>`;
+  let body = '';
+  if(state.iadeTab==='bekleyen'){
+    const list = q ? bekleyen.filter(x=>x.barkod===q || x.barkod.indexOf(q)>=0 || (x.siparis_no||'').indexOf(q)>=0) : bekleyen;
+    body = `
+      <div class="field"><label>İade gelen ürünün barkodunu okutun</label>
+        <input id="iade-q" type="text" inputmode="numeric" autocomplete="off" placeholder="Barkod…" value="${attrEsc(state.iadeQ)}" oninput="iadeSetQ(this.value)" /></div>
+      ${list.length ? `<div class="depo-table-wrap"><table class="depo-table" style="min-width:520px"><thead><tr><th>Kanal</th><th>Ürün</th><th>Adet</th><th>Sipariş / İade No</th><th>Neden</th><th></th></tr></thead><tbody>
+        ${list.map(x=>`<tr><td><span class="chip other">${esc(x.kanal)}</span></td><td>${iadeItemLabel(x.barkod)}<div class="depo-td-muted" style="font-size:11px">${esc(x.barkod)}</div></td><td><b>${x.adet}</b></td><td style="font-size:12px">${esc(x.siparis_no||'')}${x.iade_no?'<div class="depo-td-muted">'+esc(x.iade_no)+'</div>':''}<div class="depo-td-muted">${x.kaynak==='manuel'?'elle':'otomatik'} · ${fmt(x.created_at)}</div></td><td style="font-size:12px">${esc(x.neden||'')}</td>
+          <td style="white-space:nowrap"><button class="btn small" style="background:var(--good);color:#fff;border-color:var(--good)" ${state.iadeBusy?'disabled':''} onclick="iadeAl('${x.id}','saglam')">✓ Sağlam — stoğa al</button> <button class="btn small ghost" ${state.iadeBusy?'disabled':''} onclick="iadeAl('${x.id}','hasarli')">✕ Hasarlı</button>${session.role==='admin'?` <button class="btn small ghost" title="Kaydı iptal et" onclick="iadeIptal('${x.id}')">🗑</button>`:''}</td></tr>`).join('')}
+        </tbody></table></div>` : `<div class="empty"><h3>${q?'Bu barkod için bekleyen iade yok':'Bekleyen iade yok'}</h3><p>${q?'Aşağıdan elle iade kaydı açıp teslim alabilirsiniz.':'Elle iade kaydı için barkodu okutup aşağıdaki bölümü kullanın.'}</p></div>`}
+      ${q ? `<div class="extra-info-box" style="margin-top:14px">
+        <div style="font-weight:700;margin-bottom:8px">Listede yok mu? Elle iade kaydı — ${iadeItemLabel(q)}</div>
+        <div style="display:grid;grid-template-columns:1fr 70px;gap:8px">
+          <div class="field" style="margin:0"><label>Hangi kanaldan?</label><select onchange="iadeSetNew('kanal',this.value)">${IADE_KANALLAR.map(k=>`<option ${state.iadeNew.kanal===k?'selected':''}>${esc(k)}</option>`).join('')}</select></div>
+          <div class="field" style="margin:0"><label>Adet</label><input type="number" min="1" value="${state.iadeNew.adet}" oninput="iadeSetNew('adet',this.value)" /></div>
+          <div class="field" style="margin:0"><label>Sipariş no (varsa)</label><input type="text" value="${attrEsc(state.iadeNew.siparisNo)}" oninput="iadeSetNew('siparisNo',this.value)" /></div>
+          <div class="field" style="margin:0;grid-column:1/3"><label>İade nedeni (varsa)</label><input type="text" value="${attrEsc(state.iadeNew.neden)}" oninput="iadeSetNew('neden',this.value)" /></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px"><button class="btn small" style="background:var(--good);color:#fff;border-color:var(--good)" ${state.iadeBusy?'disabled':''} onclick="iadeManuelAl('saglam')">✓ Sağlam — stoğa al</button><button class="btn small ghost" ${state.iadeBusy?'disabled':''} onclick="iadeManuelAl('hasarli')">✕ Hasarlı</button></div>
+      </div>` : ''}`;
+  } else if(state.iadeTab==='alinan'){
+    const kl = state.iadeKanal;
+    const list = alinan.filter(x=>!kl || x.kanal===kl).slice(0,300);
+    body = `<div class="field"><label>Kanal</label><select onchange="state.iadeKanal=this.value;render();"><option value="">Hepsi</option>${IADE_KANALLAR.map(k=>`<option ${kl===k?'selected':''}>${esc(k)}</option>`).join('')}</select></div>
+      ${list.length ? `<div class="depo-table-wrap"><table class="depo-table" style="min-width:520px"><thead><tr><th>Tarih</th><th>Kanal</th><th>Ürün</th><th>Adet</th><th>Sonuç</th><th>Alan</th></tr></thead><tbody>
+        ${list.map(x=>`<tr><td style="font-size:12px">${fmt(x.alinma_zamani)}</td><td><span class="chip other">${esc(x.kanal)}</span></td><td>${iadeItemLabel(x.barkod)}</td><td><b>${x.adet}</b></td><td>${x.durum==='saglam'?'<span style="color:var(--good);font-weight:700">Sağlam</span>':'<span style="color:var(--danger);font-weight:700">Hasarlı</span>'}</td><td style="font-size:12px">${esc(x.alan||'')}</td></tr>`).join('')}
+        </tbody></table></div>` : `<div class="empty"><h3>Henüz alınmış iade yok</h3></div>`}`;
+  } else {
+    const byK = {}, byM = {};
+    alinan.forEach(x=>{
+      const k = byK[x.kanal] || (byK[x.kanal] = {adet:0, saglam:0, hasarli:0}); k.adet += x.adet; k[x.durum] += x.adet;
+      const it = state.warehouseItems.find(w=>w.barcode===x.barkod); const m = it ? padRef(it.refNo) : x.barkod;
+      byM[m] = (byM[m]||0) + x.adet;
+    });
+    const kRows = Object.keys(byK).sort((a,b)=>byK[b].adet-byK[a].adet);
+    const mRows = Object.keys(byM).sort((a,b)=>byM[b]-byM[a]).slice(0,15);
+    body = `<div style="font-weight:700;margin-bottom:6px">Kanala göre (alınan iadeler, adet)</div>
+      ${kRows.length ? `<table class="depo-table" style="min-width:0;margin-bottom:16px"><thead><tr><th>Kanal</th><th>Toplam</th><th>Sağlam</th><th>Hasarlı</th></tr></thead><tbody>${kRows.map(k=>`<tr><td>${esc(k)}</td><td><b>${byK[k].adet}</b></td><td>${byK[k].saglam}</td><td>${byK[k].hasarli}</td></tr>`).join('')}</tbody></table>` : '<p class="depo-td-muted">Veri yok</p>'}
+      <div style="font-weight:700;margin-bottom:6px">En çok iade gelen modeller (ilk 15)</div>
+      ${mRows.length ? `<table class="depo-table" style="min-width:0"><thead><tr><th>Model</th><th>İade adedi</th></tr></thead><tbody>${mRows.map(m=>`<tr><td>${esc(m)}</td><td><b>${byM[m]}</b></td></tr>`).join('')}</tbody></table>` : '<p class="depo-td-muted">Veri yok</p>'}`;
+  }
+  return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeModal()">
+    <div class="modal wide" style="max-width:780px">
+      <h2>↩ İadeler</h2>
+      <p style="color:var(--muted);font-size:12px;margin:-6px 0 12px">İade paketi geldiğinde ürünü açın, barkodu okutun, sağlamsa stoğa alın. Hasarlı ürün stoğa eklenmez.</p>
+      <div style="display:flex;gap:6px;margin-bottom:12px">${tabBtn('bekleyen','Bekleyen ('+bekleyen.length+')')}${tabBtn('alinan','Alınanlar')}${tabBtn('ozet','Özet')}</div>
+      ${body}
+      <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Kapat</button></div>
+    </div></div>`;
+}
+
 async function exportDepoExcelWithImages(){
   if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
   if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edip tekrar deneyin'); return; }
@@ -3790,6 +3941,7 @@ function render(){
   else if(state.modalMode === 'depoScan') html += renderScanModal();
   else if(state.modalMode === 'scanModePrompt') html += renderScanModePromptModal();
   else if(state.modalMode === 'pendingOrders') html += renderPendingOrdersModal();
+  else if(state.modalMode === 'iade') html += renderIadeModal();
   else if(state.modalMode === 'cameraScanner') html += renderCameraScannerModal();
   else if(state.modalMode === 'packOrder') html += renderPackOrderModal();
   else if(state.modalMode === 'stockCount') html += renderStockCountModal();
@@ -3918,6 +4070,7 @@ function renderDepoView(){
     </select>
     <button class="btn primary small" onclick="openScanModePrompt()">📷 Hızlı Tarama</button>
     <button class="btn ${state.pendingPackingOrders.length>0?'primary':'ghost'} small" onclick="openPendingOrdersModal()">📦 Bekleyen Siparişler${state.pendingPackingOrders.length>0?' ('+state.pendingPackingOrders.length+')':''}</button>
+    <button class="btn ${iadeBekleyenSayi()>0?'primary':'ghost'} small" onclick="openIadeModal()">↩ İadeler${iadeBekleyenSayi()>0?' ('+iadeBekleyenSayi()+')':''}</button>
     <button class="btn ${state.activeStockCount?'primary':'ghost'} small" onclick="openStockCountModal()">📋 Depo Sayımı${state.activeStockCount?' (Aktif)':''}</button>
     <button class="btn primary small" onclick="openKatalogModal()">📕 Katalog Hazırla</button>
     <button class="btn ghost small" onclick="refreshData()">↻ Yenile</button>
@@ -3926,11 +4079,11 @@ function renderDepoView(){
       ${session.role!=='depocu' ? `<button onclick="fsMenuClose();openDepoBulkModal()">📥 Toplu Model Yükle (Excel)</button>
       <button onclick="fsMenuClose();openStockPriceUpdateModal()">🔄 Toplu Stok / Fiyat Güncelle</button>` : ''}
       <button onclick="fsMenuClose();openBulkImageModal()">🖼 Toplu Görsel Yükle</button>
-      ${session.role!=='depocu' ? `<button onclick="fsMenuClose();ebYukleSec()">📋 Eksik Bilgi Yükle (Excel — cinsiyet/sezon)</button>` : ''}
+      ${session.role!=='depocu' ? `<button onclick="fsMenuClose();ebYukleSec()">📋 Eksik Bilgi Yükle (Excel — cinsiyet/sezon/ad/fiyat)</button>` : ''}
     </div></div>
     <div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">⬇ Dışa Aktar ▾</button><div class="fsm-list">
       <button onclick="fsMenuClose();exportDepoCSV()">CSV — hızlı</button>
-      ${session.role!=='depocu' ? `<button onclick="fsMenuClose();ebIndir()">📋 Eksik Bilgi Şablonu (cinsiyet/sezon)</button>` : ''}
+      ${session.role!=='depocu' ? `<button onclick="fsMenuClose();ebIndir()">📋 Eksik Bilgi Şablonu (cinsiyet/sezon/ad/fiyat)</button>` : ''}
       <button ${state.depoExcelExportRunning?'disabled':''} onclick="fsMenuClose();exportDepoExcelWithImages()">${state.depoExcelExportRunning?'⏳ Hazırlanıyor…':'Excel + Resim — yavaş'}</button>
     </div></div>
     ${session.role!=='depocu' || canManage ? `<div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">⋯ Diğer ▾</button><div class="fsm-list">
