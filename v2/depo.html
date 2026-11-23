@@ -1544,6 +1544,7 @@ function toggleDepoSeasonFilter(s){
 }
 function toggleDepoKanalFilter(k){
   const cur = state.depoFilterKanal[k];
+  if(k==='__yok'){ if(cur) delete state.depoFilterKanal[k]; else state.depoFilterKanal[k]='acik'; state.depoPage = 1; render(); return; }
   if(!cur) state.depoFilterKanal[k] = 'acik';
   else if(cur==='acik') state.depoFilterKanal[k] = 'kapali';
   else delete state.depoFilterKanal[k];
@@ -3755,7 +3756,9 @@ function renderDepoView(){
     }
     if(kanalFilterActive()){
       const open = state.kanalDurum[it.barcode] || [];
+      if(state.depoFilterKanal['__yok'] && open.length>0) return false;
       for(const k in state.depoFilterKanal){
+        if(k==='__yok') continue;
         const isOpen = open.indexOf(k) >= 0;
         if(state.depoFilterKanal[k]==='acik' && !isOpen) return false;
         if(state.depoFilterKanal[k]==='kapali' && isOpen) return false;
@@ -3843,7 +3846,7 @@ function renderDepoView(){
       return `<span style="font-size:11.5px;color:var(--muted);font-weight:700;margin-left:10px" title="Bir kez tıkla: bu kanalda AÇIK olanlar. İki kez: bu kanalda AÇIK OLMAYANlar. Üç kez: kapat.">KANAL:</span>` + kl.map(k=>{
         const m = state.depoFilterKanal[k];
         return `<button class="btn small ${m?'primary':'ghost'}" style="${m==='kapali'?'background:#8c3b2a;border-color:#8c3b2a;color:#fff':''}" onclick="toggleDepoKanalFilter('${attrEsc(k)}')" title="${m==='acik'?k+'\'da açık olanlar':m==='kapali'?k+'\'da açık olmayanlar':'Filtre yok'}">${m==='acik'?'✓ ':m==='kapali'?'✕ ':''}${esc(k)}</button>`;
-      }).join('');
+      }).join('') + `<button class="btn small ${state.depoFilterKanal['__yok']?'primary':'ghost'}" style="${state.depoFilterKanal['__yok']?'background:#8c3b2a;border-color:#8c3b2a;color:#fff':''}" onclick="toggleDepoKanalFilter('__yok')" title="Hiçbir pazaryerinde ve Wix'te açık olmayan ürünler">${state.depoFilterKanal['__yok']?'✓ ':''}Hiçbirinde yok</button>`;
     })()}
     ${(state.depoFilterGender.size>0||state.depoFilterSeason.size>0||Object.keys(state.depoFilterKanal).length>0) ? `<button class="btn small ghost" onclick="state.depoFilterGender=new Set();state.depoFilterSeason=new Set();state.depoFilterKanal={};render();">✕ Filtreleri Temizle</button>` : ''}
   </div>`;
