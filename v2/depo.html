@@ -957,6 +957,7 @@ const state = {
   sheetHealthCleaning: false,
   pendingPackingOrders: [],
   customers: [],
+  kanalDurum: null,   // {barkod:[kanal,...]} — hangi pazaryerinde açık; null = henüz yüklenmedi
   orderCust: {},
   packingOrderId: null,      // which order is currently open for packing verification
   packingProgress: {},       // barcode -> confirmed qty, for the order currently open
@@ -1036,6 +1037,7 @@ async function init(){
   }
   state.loaded = true;
   render();
+  fetchKanalDurum().then(ok=>{ if(ok) render(); });
   startAutoRefresh();
   startDepoLiveClock();
 }
@@ -1050,6 +1052,22 @@ async function fetchActiveStockCount(){
     }
     return null;
   }catch(e){ return null; }
+}
+const KANAL_KISA = {'Wix':'Wix','Trendyol':'TY','Hepsiburada':'HB','Çiçeksepeti':'ÇS','Amazon':'AMZ','PTT':'PTT','Pazarama':'PZ'};
+async function fetchKanalDurum(){
+  try{
+    const authParams = '&authUser=' + encodeURIComponent(session.username) + '&authHash=' + encodeURIComponent(session.passwordHash);
+    const res = await fetch(API_URL + '?action=kanaldurum' + authParams);
+    const data = await res.json();
+    if(data && data.ok && data.kanallar){ state.kanalDurum = data.kanallar; return true; }
+  }catch(e){}
+  return false;
+}
+function kanalChipsHTML(barcode){
+  if(state.kanalDurum===null) return '<span class="depo-td-muted" title="Kanal bilgisi yüklenemedi">·</span>';
+  const list = state.kanalDurum[barcode];
+  if(!list || !list.length) return '<span class="depo-td-muted" title="Hiçbir kanalda açık değil">—</span>';
+  return list.map(k=>`<span class="chip other" style="margin:1px 2px 1px 0;font-size:10.5px;padding:1px 6px" title="${esc(k)}'da açık">${esc(KANAL_KISA[k]||k)}</span>`).join('');
 }
 async function fetchPendingPackingOrders(){
   try{
@@ -1114,6 +1132,7 @@ async function silentAutoRefresh(){
     if(nc.length) state.customers = nc;
     if(Object.keys(noc).length) state.orderCust = noc;
 
+    await fetchKanalDurum();
     const newPending = await fetchPendingPackingOrders();
     const newlyAppeared = newPending.filter(o=>!prevPendingIds.has(o.id));
     state.pendingPackingOrders = newPending;
@@ -3784,11 +3803,11 @@ function renderDepoView(){
       <p>${state.warehouseItems.length===0 ? '"Toplu Model Yükle" ile Excel\'deki modellerinizi içe aktarabilirsiniz.' : 'Aramayı değiştirmeyi deneyin.'}</p>
     </div>`;
   } else {
-    const cols = canManage ? '26px 56px 44px 130px 1fr 150px 80px 100px 100px 130px 44px' : '56px 44px 130px 1fr 150px 80px 90px';
+    const cols = canManage ? '26px 56px 44px 130px 1fr 130px 150px 80px 100px 100px 130px 44px' : '56px 44px 130px 1fr 130px 150px 80px 90px';
     out += `<div class="depo-table-wrap depo-main"><table class="depo-table" style="--depo-cols:${cols}">
       <thead><tr>
         ${canManage ? `<th><input type="checkbox" ${allSelected?'checked':''} onchange="toggleDepoSelectAll()" title="Bu sayfadakilerin tümünü seç" /></th>` : ''}
-        <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}${canManage?'<th></th>':''}
+        <th>Sıra No</th><th>Resim</th><th>Barkod</th><th>Model No</th><th>Açık Kanallar</th><th>Stok Miktarı</th><th>Rezerve</th>${canManage?'<th>Fiyat ($)</th><th>Fiyat (₺)</th>':''}${canManage?'<th></th>':''}
       </tr></thead>
       <tbody>
       ${pageItems.map((it,idx)=>{
@@ -3807,6 +3826,7 @@ function renderDepoView(){
           }<input type="file" id="depo-img-input-${idx}" accept="image/*" style="display:none" onchange="handleDepoRowImage(event,'${attrEsc(it.refNo)}','${attrEsc(it.colorName)}','${attrEsc(it.barcode)}')" /></td>
           <td class="mini-meta" style="font-size:11.5px">${esc(it.barcode)}</td>
           <td class="name" style="font-size:13px">${esc(detailRefLabel(it.refNo, it.colorName, it.sizeLabel))}</td>
+          <td>${kanalChipsHTML(it.barcode)}</td>
           <td>
             <div class="depo-qty-cell">
               <button class="depo-qty-btn out" onclick="openDepoMoveModal('${attrEsc(it.barcode)}','${attrEsc(it.refNo)}','${attrEsc(it.colorName)}','${attrEsc(it.sizeLabel)}','out')" title="Çıkış">−</button>
