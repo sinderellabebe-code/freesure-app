@@ -2378,10 +2378,14 @@ async function exportCustomersXLSX(){
       if(!ctx) ctx=new (window.AudioContext||window.webkitAudioContext)();
       if(ctx.state==='suspended') ctx.resume();
       var now=ctx.currentTime;
-      [660,330,660].forEach(function(f,i){
-        var o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=f;
-        var t=now+i*0.18; g.gain.setValueAtTime(0.001,t); g.gain.exponentialRampToValueAtTime(0.6,t+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+0.17);
-        o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.18);
+      // Depo sayfasıyla aynı yeni sipariş sesi: iki kez yükselen "kapı zili" melodisi
+      [0,1.15].forEach(function(off){
+        [523.25,659.25,783.99,1046.5].forEach(function(f,i){
+          var o=ctx.createOscillator(), g=ctx.createGain(); o.type='triangle'; o.frequency.value=f;
+          var t=now+off+i*0.16, d=(i===3?0.7:0.45);
+          g.gain.setValueAtTime(0.001,t); g.gain.exponentialRampToValueAtTime(0.5,t+0.02); g.gain.exponentialRampToValueAtTime(0.001,t+d);
+          o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+d+0.05);
+        });
       });
     }catch(e){}
   }

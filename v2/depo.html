@@ -945,6 +945,7 @@ const state = {
   newDepoItemImage: null,
   depoFilterGender: new Set(),
   depoFilterSeason: new Set(),
+  depoFilterKanal: {},   // {kanal:'acik'|'kapali'} — kanal filtresi (3 durum: kapalı filtre → açık → kapalı)
   depoVisibleBarcodes: [],
   depoBulkCatalogRunning: false,
   depoTogglingBarcodes: new Set(),
@@ -1139,7 +1140,7 @@ async function silentAutoRefresh(){
 
     if(newlyAppeared.length>0){
       state.newOrderPopup = { count: newlyAppeared.length, orderNos: newlyAppeared.map(o=>o.orderNo) };
-      playAlertSound();
+      playNewOrderSound();
     }
     render();
   }catch(e){ /* silent — a failed background refresh isn't worth interrupting the user for */ }
@@ -1541,6 +1542,15 @@ function toggleDepoSeasonFilter(s){
   state.depoPage = 1;
   render();
 }
+function toggleDepoKanalFilter(k){
+  const cur = state.depoFilterKanal[k];
+  if(!cur) state.depoFilterKanal[k] = 'acik';
+  else if(cur==='acik') state.depoFilterKanal[k] = 'kapali';
+  else delete state.depoFilterKanal[k];
+  state.depoPage = 1;
+  render();
+}
+function kanalFilterActive(){ return Object.keys(state.depoFilterKanal).length>0 && state.kanalDurum!==null; }
 function setDepoPage(p){ state.depoPage = p; render(); window.scrollTo(0,0); }
 function openDepoMoveModal(barcode, refNo, colorName, sizeLabel, type){
   state.modalMode = 'depoMove';
@@ -2671,11 +2681,12 @@ function closeNewDepoItemSuccess(){
   state.modalMode = null;
   state.newDepoItemSuccess = null;
   if(s){
-    const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0;
+    const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0 || Object.keys(state.depoFilterKanal).length>0;
     if(wasFiltered){
       state.depoSearch = '';
       state.depoFilterGender = new Set();
       state.depoFilterSeason = new Set();
+      state.depoFilterKanal = {};
       showToast('Az önce oluşturduğunuz kaydı görebilmeniz için arama/filtreler temizlendi');
     }
   }
@@ -3279,6 +3290,29 @@ function playSuccessBeep(){
     osc.start(now); osc.stop(now+0.13);
   }catch(e){ /* audio unavailable — vibration/visual feedback still works */ }
 }
+// Yeni sipariş sesi: iki kez tekrarlanan yükselen "kapı zili" melodisi — barkod bip'inden (tek kısa nota)
+// ve "barkod tanınmıyor" alarmından (kare dalga) belirgin biçimde farklıdır.
+function playNewOrderSound(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    [0, 1.15].forEach(off=>{
+      [523.25, 659.25, 783.99, 1046.5].forEach((freq, i)=>{
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        const t = now + off + i*0.16;
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.exponentialRampToValueAtTime(0.5, t+0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t+(i===3?0.7:0.45));
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(t); osc.stop(t+(i===3?0.75:0.5));
+      });
+    });
+  }catch(e){ /* ses yok — görsel bildirim yine çıkar */ }
+}
 function playAlertSound(){
   try{
     if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -3719,6 +3753,14 @@ function renderDepoView(){
       if(state.depoFilterGender.size>0 && (!product || !state.depoFilterGender.has(product.gender||''))) return false;
       if(state.depoFilterSeason.size>0 && (!product || !state.depoFilterSeason.has(product.season||''))) return false;
     }
+    if(kanalFilterActive()){
+      const open = state.kanalDurum[it.barcode] || [];
+      for(const k in state.depoFilterKanal){
+        const isOpen = open.indexOf(k) >= 0;
+        if(state.depoFilterKanal[k]==='acik' && !isOpen) return false;
+        if(state.depoFilterKanal[k]==='kapali' && isOpen) return false;
+      }
+    }
     return true;
   });
   switch(state.depoSortBy){
@@ -3794,7 +3836,16 @@ function renderDepoView(){
     ${['KIZ','ERKEK','UNISEX'].map(g=>`<button class="btn small ${state.depoFilterGender.has(g)?'primary':'ghost'}" onclick="toggleDepoGenderFilter('${g}')">${g==='KIZ'?'Kız':g==='ERKEK'?'Erkek':'Unisex'}</button>`).join('')}
     <span style="font-size:11.5px;color:var(--muted);font-weight:700;margin-left:10px">SEZON:</span>
     ${['YAZ','KIŞ','TÜM MEVSİM'].map(s=>`<button class="btn small ${state.depoFilterSeason.has(s)?'primary':'ghost'}" onclick="toggleDepoSeasonFilter('${s}')">${s==='YAZ'?'Yaz':s==='KIŞ'?'Kış':'Tüm Mevsim'}</button>`).join('')}
-    ${(state.depoFilterGender.size>0||state.depoFilterSeason.size>0) ? `<button class="btn small ghost" onclick="state.depoFilterGender=new Set();state.depoFilterSeason=new Set();render();">✕ Filtreleri Temizle</button>` : ''}
+    ${(()=>{
+      if(state.kanalDurum===null) return '';
+      const kl = Array.from(new Set([].concat.apply([], Object.values(state.kanalDurum)))).sort();
+      if(!kl.length) return '';
+      return `<span style="font-size:11.5px;color:var(--muted);font-weight:700;margin-left:10px" title="Bir kez tıkla: bu kanalda AÇIK olanlar. İki kez: bu kanalda AÇIK OLMAYANlar. Üç kez: kapat.">KANAL:</span>` + kl.map(k=>{
+        const m = state.depoFilterKanal[k];
+        return `<button class="btn small ${m?'primary':'ghost'}" style="${m==='kapali'?'background:#8c3b2a;border-color:#8c3b2a;color:#fff':''}" onclick="toggleDepoKanalFilter('${attrEsc(k)}')" title="${m==='acik'?k+'\'da açık olanlar':m==='kapali'?k+'\'da açık olmayanlar':'Filtre yok'}">${m==='acik'?'✓ ':m==='kapali'?'✕ ':''}${esc(k)}</button>`;
+      }).join('');
+    })()}
+    ${(state.depoFilterGender.size>0||state.depoFilterSeason.size>0||Object.keys(state.depoFilterKanal).length>0) ? `<button class="btn small ghost" onclick="state.depoFilterGender=new Set();state.depoFilterSeason=new Set();state.depoFilterKanal={};render();">✕ Filtreleri Temizle</button>` : ''}
   </div>`;
 
   if(items.length===0){
@@ -4256,7 +4307,7 @@ function renderNewDepoItemModal(){
   const saving = state.newDepoItemSaving;
   const d = state.newDepoItemDraft || {refNo:'', refName:'', colorName:'', unit:'Çift', gender:'', season:'', sizeChecked:{}, sizeQty:{}};
   if(s){
-    const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0;
+    const wasFiltered = (state.depoSearch && state.depoSearch.trim()) || state.depoFilterGender.size>0 || state.depoFilterSeason.size>0 || Object.keys(state.depoFilterKanal).length>0;
     return `<div class="overlay" onmousedown="if(event.target===event.currentTarget) closeNewDepoItemSuccess()">
       <div class="modal">
         <div class="bulk-result ok" style="display:block;text-align:center;padding:18px">
