@@ -1918,6 +1918,111 @@ function exportDepoCSV(){
   downloadBlob('depo-stok-listesi.csv', 'text/csv;charset=utf-8', '\uFEFF' + csv);
   showToast('Depo stok listesi indirildi');
 }
+
+// ===== Eksik bilgi (cinsiyet / sezon) Excel akışı =====
+const EB_G = {'KIZ':'KIZ','KIZ BEBEK':'KIZ','ERKEK':'ERKEK','ERKEK BEBEK':'ERKEK','UNISEX':'UNISEX','UNİSEX':'UNISEX'};
+const EB_S = {'YAZ':'YAZ','KIS':'KIŞ','KIŞ':'KIŞ','TUM MEVSIM':'TÜM MEVSİM','TÜM MEVSİM':'TÜM MEVSİM','TUM MEVSİM':'TÜM MEVSİM','TÜM MEVSIM':'TÜM MEVSİM','4 MEVSIM':'TÜM MEVSİM','4 MEVSİM':'TÜM MEVSİM'};
+function ebNorm(v){ return String(v||'').trim().toLocaleUpperCase('tr-TR').replace(/\s+/g,' '); }
+function ebGLabel(g){ return g==='KIZ'?'Kız':g==='ERKEK'?'Erkek':g==='UNISEX'?'Unisex':''; }
+function ebSLabel(x){ return x==='YAZ'?'Yaz':x==='KIŞ'?'Kış':x==='TÜM MEVSİM'?'Tüm Mevsim':''; }
+function ebCollect(){
+  const by = {};
+  state.warehouseItems.forEach(it=>{
+    if(!it.refNo) return;
+    const k = padRef(it.refNo);
+    const o = by[k] || (by[k] = {ref:k, colors:new Set(), stock:0, barcodes:0});
+    if(it.colorName) o.colors.add(it.colorName);
+    o.stock += (it.stock||0); o.barcodes++;
+  });
+  const rows = [];
+  Object.keys(by).sort().forEach(k=>{
+    const pr = state.products.find(p=>padRef(p.refNo)===k);
+    const g = pr && pr.gender || '', se = pr && pr.season || '';
+    if(g && se) return;
+    rows.push({ref:k, name:(pr&&pr.name)||'', colors:Array.from(by[k].colors).join(', '), stock:by[k].stock, gender:g, season:se});
+  });
+  return rows;
+}
+async function ebIndir(){
+  if(session.role==='depocu'){ showToast('Bu işlem için yönetici girişi gerekir'); return; }
+  if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
+  const rows = ebCollect();
+  if(!rows.length){ showToast('Cinsiyet ve sezon bilgisi eksik model yok 👍'); return; }
+  const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('Eksik Bilgi');
+  ws.columns = [
+    {header:'Referans No', key:'ref', width:14},
+    {header:'Model Adı', key:'name', width:34},
+    {header:'Renkler', key:'colors', width:40},
+    {header:'Toplam Stok', key:'stock', width:13},
+    {header:'Cinsiyet (Kız / Erkek / Unisex)', key:'gender', width:30},
+    {header:'Sezon (Yaz / Kış / Tüm Mevsim)', key:'season', width:30}
+  ];
+  rows.forEach(r=>ws.addRow({ref:r.ref, name:r.name, colors:r.colors, stock:r.stock, gender:ebGLabel(r.gender), season:ebSLabel(r.season)}));
+  const head = ws.getRow(1); head.font = {bold:true}; head.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFEFEAE0'}};
+  ws.getColumn(1).numFmt = '@';
+  for(let i=2;i<=rows.length+1;i++){
+    ws.getCell('E'+i).dataValidation = {type:'list', allowBlank:true, formulae:['"Kız,Erkek,Unisex"']};
+    ws.getCell('F'+i).dataValidation = {type:'list', allowBlank:true, formulae:['"Yaz,Kış,Tüm Mevsim"']};
+    ws.getCell('E'+i).fill = ws.getCell('F'+i).fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFFFF6D6'}};
+  }
+  ws.views = [{state:'frozen', ySplit:1}];
+  const buf = await wb.xlsx.writeBuffer();
+  downloadBlob('eksik-bilgi-cinsiyet-sezon.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buf);
+  showToast(rows.length+' model için şablon indirildi — sarı sütunları doldurup "Eksik Bilgi Yükle (Excel)" ile geri yükleyin');
+}
+function ebYukleSec(){
+  if(session.role==='depocu'){ showToast('Bu işlem için yönetici girişi gerekir'); return; }
+  if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edin'); return; }
+  const inp = document.createElement('input'); inp.type='file'; inp.accept='.xlsx';
+  inp.onchange = ()=>{ if(inp.files && inp.files[0]) ebYukle(inp.files[0]); };
+  inp.click();
+}
+async function ebYukle(file){
+  try{
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer());
+    const ws = wb.worksheets[0];
+    if(!ws){ showToast('Excel boş görünüyor'); return; }
+    const cellTxt = c => { const v=c.value; if(v==null) return ''; if(typeof v==='object' && v.richText) return v.richText.map(x=>x.text).join(''); if(typeof v==='object' && v.result!=null) return String(v.result); return String(c.text!=null?c.text:v); };
+    const patches = [], bad = []; let same = 0, blank = 0;
+    ws.eachRow((row,n)=>{
+      if(n===1) return;
+      const refRaw = cellTxt(row.getCell(1)).trim();
+      if(!refRaw) return;
+      const ref = padRef(refRaw);
+      const gTxt = ebNorm(cellTxt(row.getCell(5))), sTxt = ebNorm(cellTxt(row.getCell(6)));
+      let g = '', se = '';
+      if(gTxt){ g = EB_G[gTxt]||''; if(!g){ bad.push('Satır '+n+' ('+ref+'): cinsiyet "'+gTxt+'" tanınmadı'); } }
+      if(sTxt){ se = EB_S[sTxt]||''; if(!se){ bad.push('Satır '+n+' ('+ref+'): sezon "'+sTxt+'" tanınmadı'); } }
+      if(!g && !se){ blank++; return; }
+      const pr = state.products.find(p=>padRef(p.refNo)===ref);
+      if(pr){
+        const patch = {id:pr.id}; let ch = false;
+        if(g && pr.gender!==g){ patch.gender=g; ch=true; }
+        if(se && pr.season!==se){ patch.season=se; ch=true; }
+        if(ch) patches.push({patch, pr}); else same++;
+      } else {
+        patches.push({patch:{id:uid(), refNo:ref, name:'', price:0, active:false, gender:g, season:se, createdAt:todayISO(), createdBy:session.displayName}, pr:null});
+      }
+    });
+    if(!patches.length){ showToast('Güncellenecek değişiklik yok'+(blank?' ('+blank+' satır boş bırakılmış)':'')+(bad.length?' — '+bad.length+' satırda hatalı değer var':'')); if(bad.length) alert(bad.slice(0,20).join('\n')); return; }
+    const msg = patches.length+' modelin cinsiyet/sezon bilgisi güncellenecek.'+(blank?'\n'+blank+' satır boş olduğu için atlanacak.':'')+(same?'\n'+same+' satır zaten aynı.':'')+(bad.length?'\n\n⚠ '+bad.length+' satır hatalı değer nedeniyle atlanacak:\n'+bad.slice(0,10).join('\n'):'')+'\n\nDevam edilsin mi?';
+    if(!confirm(msg)) return;
+    showToast('Güncelleniyor…', true);
+    let okCount = 0;
+    for(let i=0;i<patches.length;i+=100){
+      const chunk = patches.slice(i,i+100);
+      const ok = await patchProducts(chunk.map(x=>x.patch));
+      if(!ok){ showToast('Hata: '+okCount+' model güncellendi, işlem yarıda kaldı. Sayfayı yenileyip aynı dosyayı tekrar yükleyebilirsiniz.'); render(); return; }
+      chunk.forEach(x=>{
+        if(x.pr){ if(x.patch.gender) x.pr.gender=x.patch.gender; if(x.patch.season) x.pr.season=x.patch.season; }
+        else state.products = [...state.products, x.patch];
+      });
+      okCount += chunk.length;
+    }
+    showToast('✓ '+okCount+' model güncellendi');
+    render();
+  }catch(e){ console.error(e); showToast('Excel okunamadı: '+(e&&e.message||e)); }
+}
 async function exportDepoExcelWithImages(){
   if(state.warehouseItems.length===0){ showToast('Dışa aktarılacak depo kaydı yok'); return; }
   if(!window.ExcelJS){ showToast('Excel kütüphanesi yüklenemedi — internet bağlantınızı kontrol edip tekrar deneyin'); return; }
@@ -3821,9 +3926,11 @@ function renderDepoView(){
       ${session.role!=='depocu' ? `<button onclick="fsMenuClose();openDepoBulkModal()">📥 Toplu Model Yükle (Excel)</button>
       <button onclick="fsMenuClose();openStockPriceUpdateModal()">🔄 Toplu Stok / Fiyat Güncelle</button>` : ''}
       <button onclick="fsMenuClose();openBulkImageModal()">🖼 Toplu Görsel Yükle</button>
+      ${session.role!=='depocu' ? `<button onclick="fsMenuClose();ebYukleSec()">📋 Eksik Bilgi Yükle (Excel — cinsiyet/sezon)</button>` : ''}
     </div></div>
     <div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">⬇ Dışa Aktar ▾</button><div class="fsm-list">
       <button onclick="fsMenuClose();exportDepoCSV()">CSV — hızlı</button>
+      ${session.role!=='depocu' ? `<button onclick="fsMenuClose();ebIndir()">📋 Eksik Bilgi Şablonu (cinsiyet/sezon)</button>` : ''}
       <button ${state.depoExcelExportRunning?'disabled':''} onclick="fsMenuClose();exportDepoExcelWithImages()">${state.depoExcelExportRunning?'⏳ Hazırlanıyor…':'Excel + Resim — yavaş'}</button>
     </div></div>
     ${session.role!=='depocu' || canManage ? `<div class="fsm"><button class="btn ghost small" onclick="fsMenu(this,event)">⋯ Diğer ▾</button><div class="fsm-list">
