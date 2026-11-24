@@ -1933,7 +1933,9 @@ function ebCollect(){
   state.warehouseItems.forEach(it=>{
     if(!it.refNo) return;
     const k = padRef(it.refNo);
-    const o = by[k] || (by[k] = {ref:k, colors:new Set(), stock:0, barcodes:0});
+    const o = by[k] || (by[k] = {ref:k, colors:new Set(), stock:0, barcodes:0, orig:new Set(), bc:[]});
+    o.orig.add(String(it.refNo).trim());
+    if(o.bc.length<4 && it.barcode) o.bc.push(it.barcode);
     if(it.colorName) o.colors.add(it.colorName);
     o.stock += (it.stock||0); o.barcodes++;
   });
@@ -1943,7 +1945,7 @@ function ebCollect(){
     const g = pr && pr.gender || '', se = pr && pr.season || '';
     const nm = (pr&&pr.name)||'', pc = pr ? (Number(pr.price)||0) : 0;
     if(g && se && nm && pc>0) return;
-    rows.push({ref:k, name:nm, colors:Array.from(by[k].colors).join(', '), stock:by[k].stock, gender:g, season:se, price:pc});
+    rows.push({ref:k, name:nm, colors:Array.from(by[k].colors).join(', '), stock:by[k].stock, gender:g, season:se, price:pc, orig:Array.from(by[k].orig).join(' / '), bc:by[k].bc.join(', ')});
   });
   return rows;
 }
@@ -1960,9 +1962,11 @@ async function ebIndir(){
     {header:'Toplam Stok', key:'stock', width:13},
     {header:'Cinsiyet (Kız / Erkek / Unisex)', key:'gender', width:30},
     {header:'Sezon (Yaz / Kış / Tüm Mevsim)', key:'season', width:30},
-    {header:'Fiyat (USD)', key:'price', width:14}
+    {header:'Fiyat (USD)', key:'price', width:14},
+    {header:'Depodaki Ref (bilgi)', key:'orig', width:22},
+    {header:'Örnek Barkodlar (bilgi)', key:'bc', width:60}
   ];
-  rows.forEach(r=>ws.addRow({ref:r.ref, name:r.name, colors:r.colors, stock:r.stock, gender:ebGLabel(r.gender), season:ebSLabel(r.season), price:r.price>0?r.price:null}));
+  rows.forEach(r=>ws.addRow({ref:r.ref, name:r.name, colors:r.colors, stock:r.stock, gender:ebGLabel(r.gender), season:ebSLabel(r.season), price:r.price>0?r.price:null, orig:r.orig, bc:r.bc}));
   const head = ws.getRow(1); head.font = {bold:true}; head.fill = {type:'pattern', pattern:'solid', fgColor:{argb:'FFEFEAE0'}};
   ws.getColumn(1).numFmt = '@';
   for(let i=2;i<=rows.length+1;i++){
@@ -1995,6 +1999,7 @@ async function ebYukle(file){
       const refRaw = cellTxt(row.getCell(1)).trim();
       if(!refRaw) return;
       const ref = padRef(refRaw);
+      const origRef = cellTxt(row.getCell(8)).trim().split(' / ')[0];
       const gTxt = ebNorm(cellTxt(row.getCell(5))), sTxt = ebNorm(cellTxt(row.getCell(6)));
       const nmTxt = cellTxt(row.getCell(2)).trim();
       const prTxt = cellTxt(row.getCell(7)).trim().replace(/\s/g,'').replace(',','.').replace(/^\$/,'');
@@ -2013,7 +2018,7 @@ async function ebYukle(file){
         if(price!=null && Number(pr.price||0)!==price){ patch.price=price; ch=true; if(Number(pr.price||0)>0) priceChg++; }
         if(ch) patches.push({patch, pr}); else same++;
       } else {
-        patches.push({patch:{id:uid(), refNo:ref, name:nmTxt, price:price||0, active:false, gender:g, season:se, createdAt:todayISO(), createdBy:session.displayName}, pr:null});
+        patches.push({patch:{id:uid(), refNo:(origRef||ref), name:nmTxt, price:price||0, active:false, gender:g, season:se, createdAt:todayISO(), createdBy:session.displayName}, pr:null});
       }
     });
     if(!patches.length){ showToast('Güncellenecek değişiklik yok'+(blank?' ('+blank+' satır boş bırakılmış)':'')+(bad.length?' — '+bad.length+' satırda hatalı değer var':'')); if(bad.length) alert(bad.slice(0,20).join('\n')); return; }
